@@ -151,7 +151,10 @@
       "Bash(cmd //c \"rename venv venv_backup_old\")",
       "Bash(tasklist:*)",
       "Bash(xxd:*)",
-      "Read(//c/Users/bjorn.braet/Local Repo/G01-FamillyOffices/**)"
+      "Read(//c/Users/bjorn.braet/Local Repo/G01-FamillyOffices/**)",
+      "Bash(py -3 -m py_compile server/tool_schemas.py server/tool_documentation.py server/middleware.py core/validation/error_response.py)",
+      "Bash(py -3 -c:*)",
+      "Bash(py -3 -m py_compile:*)"
     ],
     "deny": [],
     "ask": []

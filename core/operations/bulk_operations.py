@@ -103,7 +103,8 @@ class BulkOperationsManager:
                     connection_lost = True
                     # Mark remaining items as skipped
                     for remaining_idx in range(idx, len(measures)):
-                        remaining_measure = measures[remaining_idx].get('measure', f'item_{remaining_idx}')
+                        remaining_def = measures[remaining_idx]
+                        remaining_measure = remaining_def.get('measure') or remaining_def.get('measure_name') or f'item_{remaining_idx}'
                         results.append({
                             'index': remaining_idx,
                             'measure': remaining_measure,
@@ -117,8 +118,9 @@ class BulkOperationsManager:
                     reconnection_count += 1
 
             try:
-                table = measure_def.get('table')
-                measure = measure_def.get('measure')
+                # Accept both 'table'/'table_name' and 'measure'/'measure_name' field names
+                table = measure_def.get('table') or measure_def.get('table_name')
+                measure = measure_def.get('measure') or measure_def.get('measure_name')
                 expression = measure_def.get('expression')
 
                 if not all([table, measure, expression]):
@@ -126,7 +128,7 @@ class BulkOperationsManager:
                         'index': idx,
                         'measure': measure,
                         'success': False,
-                        'error': 'Missing required fields (table, measure, expression)'
+                        'error': 'Missing required fields (table/table_name, measure/measure_name, expression)'
                     })
                     error_count += 1
                     continue
@@ -166,7 +168,7 @@ class BulkOperationsManager:
                         })
                         # Mark remaining items as skipped
                         for remaining_idx in range(idx + 1, len(measures)):
-                            remaining_measure = measures[remaining_idx].get('measure', f'item_{remaining_idx}')
+                            remaining_measure = measures[remaining_idx].get('measure') or measures[remaining_idx].get('measure_name') or f'item_{remaining_idx}'
                             results.append({
                                 'index': remaining_idx,
                                 'measure': remaining_measure,
@@ -199,7 +201,7 @@ class BulkOperationsManager:
                     })
                     # Mark remaining items as skipped
                     for remaining_idx in range(idx + 1, len(measures)):
-                        remaining_measure = measures[remaining_idx].get('measure', f'item_{remaining_idx}')
+                        remaining_measure = measures[remaining_idx].get('measure') or measures[remaining_idx].get('measure_name') or f'item_{remaining_idx}'
                         results.append({
                             'index': remaining_idx,
                             'measure': remaining_measure,
@@ -391,8 +393,9 @@ class BulkOperationsManager:
                         error_count += 1
                     break
 
-            table = measure_def.get('table')
-            measure = measure_def.get('measure')
+            # Accept both 'table'/'table_name' and 'measure'/'measure_name' field names
+            table = measure_def.get('table') or measure_def.get('table_name')
+            measure = measure_def.get('measure') or measure_def.get('measure_name')
 
             if not table or not measure:
                 error_count += 1
@@ -400,7 +403,7 @@ class BulkOperationsManager:
                     'table': table,
                     'measure': measure,
                     'success': False,
-                    'error': 'Missing table or measure name'
+                    'error': 'Missing table/table_name or measure/measure_name'
                 })
                 continue
 
