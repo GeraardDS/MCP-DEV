@@ -136,7 +136,7 @@ class HandlerRegistry:
         self._handlers: Dict[str, ToolDefinition] = {}
         self._categories: Dict[str, List[str]] = {}
         self._loaded_categories: Set[ToolCategory] = {ToolCategory.CORE}
-        self._deferred_mode: bool = False  # When True, only return core tools
+        self._deferred_mode: bool = True  # Token optimization: only return core tools by default
 
     def register(self, tool_def: ToolDefinition) -> None:
         """Register a tool handler"""
