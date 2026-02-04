@@ -136,7 +136,7 @@ class HandlerRegistry:
         self._handlers: Dict[str, ToolDefinition] = {}
         self._categories: Dict[str, List[str]] = {}
         self._loaded_categories: Set[ToolCategory] = {ToolCategory.CORE}
-        self._deferred_mode: bool = True  # Token optimization: only return core tools by default
+        self._deferred_mode: bool = False  # MCP requires all tools registered upfront - deferred mode breaks tool calls
 
     def register(self, tool_def: ToolDefinition) -> None:
         """Register a tool handler"""
