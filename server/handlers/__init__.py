@@ -1,9 +1,12 @@
 """
 Server Handlers Package
 Individual handler modules for different tool categories
+
+Token Optimization: Discovery handler enables progressive tool loading.
 """
 from server.handlers.connection_handler import register_connection_handlers
 from server.handlers.metadata_handler import register_metadata_handlers
+from server.handlers.discovery_handler import register_discovery_handler
 from server.handlers.query_handler import register_query_handlers
 from server.handlers.analysis_handler import register_analysis_handlers
 from server.handlers.dependencies_handler import register_dependencies_handlers
@@ -43,6 +46,9 @@ from server.handlers.svg_handler import register_svg_operations_handler
 
 def register_all_handlers(registry):
     """Register all handlers with the registry"""
+    # Register discovery handler first (meta-tool for token optimization)
+    register_discovery_handler(registry)
+
     # Register all proper handlers (no more bridge!)
     register_connection_handlers(registry)
 

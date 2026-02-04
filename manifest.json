@@ -64,6 +64,7 @@
     {"name": "09_Profile", "description": "[09] Performance profiling"},
     {"name": "09_Document", "description": "[09] Documentation generation"},
     {"name": "09_Advanced_Analysis", "description": "[09] Advanced analysis"},
+    {"name": "10_Discover_Tools", "description": "[10] Discover tools by category"},
     {"name": "10_Show_User_Guide", "description": "[10] Show user guide"}
   ],
   "keywords": ["power-bi", "dax", "tabular-model", "analysis", "vertipaq", "pbix", "tmdl", "pbip"],
