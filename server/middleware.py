@@ -264,3 +264,289 @@ def attach_port_if_connected(result: Any) -> Any:
         pass
 
     return result
+
+
+# =============================================================================
+# TOKEN OPTIMIZATION: Compact Response Functions
+# =============================================================================
+
+# Key mapping for compact JSON responses (reduces OUTPUT tokens by 15-25%)
+COMPACT_KEY_MAP = {
+    'success': 'ok',
+    'error': 'err',
+    'error_type': 'err_type',
+    'execution_time_ms': 'ms',
+    'estimated_tokens': 'tokens',
+    'has_more': 'more',
+    'next_token': 'next',
+    'total_count': 'total',
+    'page_size': 'page',
+    'connection_port': 'port',
+    'suggestions': 'hints',
+    'description': 'desc',
+    'expression': 'expr',
+    'table_name': 'table',
+    'column_name': 'col',
+    'measure_name': 'measure',
+    'data_type': 'dtype',
+    'format_string': 'fmt',
+    'is_hidden': 'hidden',
+    'is_calculated': 'calc',
+    'relationship_name': 'rel',
+    'from_table': 'from_tbl',
+    'to_table': 'to_tbl',
+    'from_column': 'from_col',
+    'to_column': 'to_col',
+    'cardinality': 'card',
+    'cross_filtering_behavior': 'cross_filter',
+    '_truncated': '_trunc',
+    '_original_size_estimate': '_orig_size',
+}
+
+# Reverse mapping for expanding keys
+EXPAND_KEY_MAP = {v: k for k, v in COMPACT_KEY_MAP.items()}
+
+
+def compact_keys(result: Any, deep: bool = True) -> Any:
+    """
+    Compact response keys to reduce token usage.
+
+    Args:
+        result: Result dictionary or nested structure
+        deep: If True, recursively compact nested dicts/lists
+
+    Returns:
+        Result with shortened keys
+    """
+    if isinstance(result, dict):
+        compacted = {}
+        for key, value in result.items():
+            new_key = COMPACT_KEY_MAP.get(key, key)
+            if deep:
+                compacted[new_key] = compact_keys(value, deep=True)
+            else:
+                compacted[new_key] = value
+        return compacted
+    elif isinstance(result, list) and deep:
+        return [compact_keys(item, deep=True) for item in result]
+    else:
+        return result
+
+
+def expand_keys(result: Any, deep: bool = True) -> Any:
+    """
+    Expand compacted keys back to full names.
+
+    Args:
+        result: Result with compacted keys
+        deep: If True, recursively expand nested dicts/lists
+
+    Returns:
+        Result with full keys
+    """
+    if isinstance(result, dict):
+        expanded = {}
+        for key, value in result.items():
+            new_key = EXPAND_KEY_MAP.get(key, key)
+            if deep:
+                expanded[new_key] = expand_keys(value, deep=True)
+            else:
+                expanded[new_key] = value
+        return expanded
+    elif isinstance(result, list) and deep:
+        return [expand_keys(item, deep=True) for item in result]
+    else:
+        return result
+
+
+def filter_fields(result: Any, fields: Optional[List[str]], list_keys: Optional[List[str]] = None) -> Any:
+    """
+    Filter result to include only specified fields (field projection).
+
+    Args:
+        result: Result dictionary
+        fields: List of field names to include. If None, returns full result.
+        list_keys: Keys in result that contain lists of items to filter
+
+    Returns:
+        Result with only requested fields
+    """
+    if not fields or not isinstance(result, dict):
+        return result
+
+    # Default list keys if not specified
+    if list_keys is None:
+        list_keys = ['rows', 'measures', 'columns', 'tables', 'relationships', 'items', 'data']
+
+    # Always preserve these keys even if not in fields list
+    preserve_keys = {'success', 'ok', 'error', 'err', 'error_type', 'err_type',
+                     'next_token', 'next', 'has_more', 'more', 'total_count', 'total'}
+
+    filtered = {}
+    fields_set = set(fields)
+
+    for key, value in result.items():
+        # Always include preserved keys
+        if key in preserve_keys:
+            filtered[key] = value
+        # Include requested fields
+        elif key in fields_set:
+            filtered[key] = value
+        # Filter items in list keys
+        elif key in list_keys and isinstance(value, list):
+            filtered[key] = [
+                {k: v for k, v in item.items() if k in fields_set}
+                if isinstance(item, dict) else item
+                for item in value
+            ]
+
+    return filtered
+
+
+def summarize_large_result(result: dict, threshold_tokens: int = 50000) -> dict:
+    """
+    Summarize large results to prevent token overflow.
+    Returns summary with sample when result exceeds threshold.
+
+    Args:
+        result: Result dictionary
+        threshold_tokens: Token threshold to trigger summarization
+
+    Returns:
+        Original result or summarized version
+    """
+    if not isinstance(result, dict):
+        return result
+
+    try:
+        json_str = json.dumps(result)
+        estimated_tokens = len(json_str) // 4
+
+        if estimated_tokens < threshold_tokens:
+            return result
+
+        # Build summary
+        summary = {
+            'ok': result.get('success', result.get('ok', True)),
+            '_summarized': True,
+            '_orig_tokens': estimated_tokens,
+        }
+
+        # Count items in known list keys
+        list_keys = ['rows', 'measures', 'columns', 'tables', 'relationships', 'items', 'data', 'results']
+        item_counts = {}
+        samples = {}
+
+        for key in list_keys:
+            if key in result and isinstance(result[key], list):
+                items = result[key]
+                item_counts[key] = len(items)
+                # Include sample of first 3 items
+                samples[key] = items[:3]
+
+        if item_counts:
+            summary['counts'] = item_counts
+            summary['sample'] = samples
+
+        # Preserve key metadata fields
+        for key in ['total_count', 'total', 'execution_time_ms', 'ms', 'next_token', 'next']:
+            if key in result:
+                summary[key] = result[key]
+
+        summary['hint'] = 'Use pagination (page_size) or field filtering (fields) to access full data'
+
+        return summary
+
+    except Exception:
+        return result
+
+
+def compact_response(data: Dict[str, Any], compact: bool = True,
+                     remove_empty: bool = True, remove_nulls: bool = True) -> Dict[str, Any]:
+    """
+    Comprehensive response compaction for token optimization.
+    Combines key compaction, empty removal, and null removal.
+
+    Args:
+        data: Response data dictionary
+        compact: If True, apply key compaction
+        remove_empty: If True, remove empty strings, lists, dicts
+        remove_nulls: If True, remove None values
+
+    Returns:
+        Optimized response dictionary
+    """
+    if not isinstance(data, dict):
+        return data
+
+    # Fields to preserve even if empty (important diagnostic info)
+    PRESERVE_FIELDS = {
+        'anomalies', 'pbip_warning', 'relationship_hints',
+        'aggregation_info', 'retry_info', 'execution_mode',
+        'success', 'ok', 'error', 'err'
+    }
+
+    # Fields to skip entirely (verbose/redundant)
+    SKIP_FIELDS = {'original', 'selected_values_raw', 'hint', 'recommendations'}
+
+    def clean_value(key: str, value: Any) -> Tuple[bool, Any]:
+        """Returns (should_include, cleaned_value)"""
+        # Always preserve important fields
+        if key in PRESERVE_FIELDS:
+            return True, value
+
+        # Skip redundant fields
+        if key in SKIP_FIELDS:
+            return False, None
+
+        # Handle None
+        if value is None:
+            return not remove_nulls, value
+
+        # Handle empty values
+        if remove_empty:
+            if value == '' or value == [] or value == {}:
+                return False, None
+
+        # Recursively clean nested dicts
+        if isinstance(value, dict):
+            cleaned = clean_dict(value)
+            return bool(cleaned) or not remove_empty, cleaned
+
+        # Clean lists of dicts
+        if isinstance(value, list):
+            if value and isinstance(value[0], dict):
+                cleaned_list = [clean_dict(item) for item in value]
+                cleaned_list = [item for item in cleaned_list if item]
+                return bool(cleaned_list) or not remove_empty, cleaned_list
+            return bool(value) or not remove_empty, value
+
+        return True, value
+
+    def clean_dict(d: Dict) -> Dict:
+        result = {}
+        for k, v in d.items():
+            should_include, cleaned = clean_value(k, v)
+            if should_include:
+                new_key = COMPACT_KEY_MAP.get(k, k) if compact else k
+                result[new_key] = cleaned
+        return result
+
+    return clean_dict(data)
+
+
+def estimate_tokens(data: Any) -> int:
+    """
+    Estimate token count for data.
+
+    Args:
+        data: Any JSON-serializable data
+
+    Returns:
+        Estimated token count (4 chars ≈ 1 token)
+    """
+    try:
+        json_str = json.dumps(data)
+        return len(json_str) // 4
+    except Exception:
+        return 0

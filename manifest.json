@@ -1,10 +1,10 @@
 {
   "manifest_version": "0.2",
   "name": "mcp-powerbi-finvision",
-  "display_name": "Power BI Analysis MCP Server",
-  "version": "6.6.1",
-  "description": "A production-ready MCP server for Power BI Desktop analysis with DAX debugging, unified operations, and comprehensive model operations. Complete DAX optimization with structured JSON output for AI-friendly formatting!",
-  "long_description": "MCP-PowerBi-Finvision v6.4+ enables AI-powered analysis of Power BI models with 30 consolidated tools. Features include:\n\n**Connection & Detection:**\n- Auto-detect and connect to Power BI Desktop instances\n- Automatic connection management\n\n**Unified Operations (Complete CRUD):**\n- Table operations: List, describe, preview, create, update, delete, rename, refresh\n- Column operations: List, get, statistics, distribution, create, update, delete\n- Measure operations: List, get (with DAX), create, update, delete, rename\n- Relationship operations: List, get, find, create, update, delete\n- Calculation group operations: List, list_items, create, delete\n- Role operations: List security roles (RLS/OLS)\n\n**DAX Intelligence (v6.4):**\n- Complete DAX analysis with structured JSON output for AI-friendly formatting\n- Comprehensive analysis: context transitions, anti-patterns, code improvements, VertiPaq metrics, call tree hierarchy\n- Always provides production-ready optimized measures\n- Automatic code transformation with actual DAX rewrites (not just suggestions)\n- Debug DAX with step-by-step context transition analysis\n- Web research integration for best practices (SQLBI and other sources)\n- Smart measure finder with fuzzy matching\n- Automatic syntax validation before analysis\n- Before/after code comparison with detailed explanations\n\n**Analysis Tools:**\n- Simple analysis: Fast 8-operation overview (2-5s)\n- Full analysis: Comprehensive BPA + performance + integrity (10-180s)\n- Dependency and impact analysis\n- PBIP repository analysis (offline)\n\n**Hybrid Analysis (Advanced):**\n- Export TMDL + metadata + sample data packages\n- BI Expert analysis with concrete recommendations\n- Pattern-based fuzzy search\n- Token-optimized formats\n\n**TMDL Management:**\n- Export, find & replace, bulk rename, generate scripts\n- Unified TMDL operations handler\n\n**Documentation & Export:**\n- Generate/update Word documentation\n- Live model schema export\n- Model comparison\n\n**Advanced Features:**\n- Batch operations (3-5x faster than individual operations)\n- Transaction management with ACID support\n- Token usage tracking\n- User guide\n\nRequirements:\n- Windows 10/11 (64-bit)\n- Power BI Desktop installed and running\n- .NET Framework 4.7.2+\n\nEverything runs locally over stdio with no exposed ports.",
+  "display_name": "Power BI MCP Server",
+  "version": "6.6.2",
+  "description": "MCP server for Power BI Desktop analysis, DAX debugging, and model operations",
+  "long_description": "MCP-PowerBi-Finvision enables AI-powered analysis of Power BI models with consolidated tools for connection, model operations, DAX intelligence, analysis, and debugging.",
   "author": {
     "name": "Finvision",
     "url": "https://github.com/bibiibjorn/MCP-PowerBi-Finvision"
@@ -14,214 +14,59 @@
     "entry_point": "src/run_server.py",
     "mcp_config": {
       "command": "py",
-      "args": [
-        "-3",
-        "${__dirname}/src/run_server.py"
-      ],
-      "env": {
-        "PYTHONIOENCODING": "utf-8"
-      }
+      "args": ["-3", "${__dirname}/src/run_server.py"],
+      "env": {"PYTHONIOENCODING": "utf-8"}
     }
   },
   "tools": [
-    {
-      "name": "01_Detect_PBI_Instances",
-      "description": "[01_Connection] Detect running Power BI Desktop instances"
-    },
-    {
-      "name": "01_Connect_To_Instance",
-      "description": "[01_Connection] Connect to Power BI Desktop (auto-detect or specify model_index)"
-    },
-    {
-      "name": "02_Table_Operations",
-      "description": "[02_Model_Operations] Unified table operations (CRUD)"
-    },
-    {
-      "name": "02_Column_Operations",
-      "description": "[02_Model_Operations] Unified column operations (CRUD)"
-    },
-    {
-      "name": "02_Measure_Operations",
-      "description": "[02_Model_Operations] Unified measure operations (CRUD)"
-    },
-    {
-      "name": "02_Relationship_Operations",
-      "description": "[02_Model_Operations] Unified relationship operations (CRUD)"
-    },
-    {
-      "name": "02_Calculation_Group_Operations",
-      "description": "[02_Model_Operations] Calculation group CRUD"
-    },
-    {
-      "name": "02_Role_Operations",
-      "description": "[02_Model_Operations] RLS/OLS role operations"
-    },
-    {
-      "name": "02_TMDL_Operations",
-      "description": "[02_Model_Operations] TMDL automation"
-    },
-    {
-      "name": "03_Batch_Operations",
-      "description": "[03_Batch_Transactions] Batch operations with transaction support"
-    },
-    {
-      "name": "03_Manage_Transactions",
-      "description": "[03_Batch_Transactions] ACID transactions"
-    },
-    {
-      "name": "04_Run_DAX",
-      "description": "[04_Query_Search] Execute DAX query"
-    },
-    {
-      "name": "04_Get_Data_Sources",
-      "description": "[04_Query_Search] List data sources"
-    },
-    {
-      "name": "04_Get_M_Expressions",
-      "description": "[04_Query_Search] List M/Power Query expressions"
-    },
-    {
-      "name": "04_Search_Objects",
-      "description": "[04_Query_Search] Search across tables, columns, and measures by name"
-    },
-    {
-      "name": "04_Search_String",
-      "description": "[04_Query_Search] Search inside measure DAX expressions"
-    },
-    {
-      "name": "05_DAX_Intelligence",
-      "description": "[05_DAX_Intelligence] Comprehensive DAX analysis"
-    },
-    {
-      "name": "05_Analyze_Dependencies",
-      "description": "[05_DAX_Intelligence] Measure dependency tree"
-    },
-    {
-      "name": "05_Get_Measure_Impact",
-      "description": "[05_DAX_Intelligence] Measure usage impact"
-    },
-    {
-      "name": "05_Export_DAX_Measures",
-      "description": "[05_DAX_Intelligence] Export all DAX measures to CSV"
-    },
-    {
-      "name": "05_Column_Usage_Mapping",
-      "description": "[05_DAX_Intelligence] Usage analysis for measures and columns"
-    },
-    {
-      "name": "06_Simple_Analysis",
-      "description": "[06_Analysis] Fast model analysis"
-    },
-    {
-      "name": "06_Full_Analysis",
-      "description": "[06_Analysis] Comprehensive analysis"
-    },
-    {
-      "name": "06_Compare_PBI_Models",
-      "description": "[06_Analysis] Compare models"
-    },
-    {
-      "name": "07_Analyze_PBIP_Repository",
-      "description": "[07_PBIP_Analysis] Offline PBIP analysis"
-    },
-    {
-      "name": "07_Report_Info",
-      "description": "[07_PBIP_Analysis] Report visual and filter information"
-    },
-    {
-      "name": "07_PBIP_Dependency_Analysis",
-      "description": "[07_PBIP_Analysis] Interactive dependency analysis with measure/column browser"
-    },
-    {
-      "name": "07_Slicer_Operations",
-      "description": "[07_PBIP_Analysis] Slicer operations and configuration analysis"
-    },
-    {
-      "name": "07_Analyze_Aggregation",
-      "description": "[07_PBIP_Analysis] Analyze aggregation tables, measures, and visual usage"
-    },
-    {
-      "name": "07_Analyze_Bookmarks",
-      "description": "[07_PBIP_Analysis] Analyze bookmarks with categories, complexity, and orphan detection"
-    },
-    {
-      "name": "07_Analyze_Theme_Compliance",
-      "description": "[07_PBIP_Analysis] Analyze visual theme compliance with color/font validation"
-    },
-    {
-      "name": "08_Generate_Documentation_Word",
-      "description": "[08_Documentation] Generate Word documentation"
-    },
-    {
-      "name": "08_Update_Documentation_Word",
-      "description": "[08_Documentation] Update Word documentation"
-    },
-    {
-      "name": "09_Debug_Visual",
-      "description": "[09_Debug] Visual debugger - discovers pages/visuals, shows filter context, executes queries. Use execute_query=false for filters only."
-    },
-    {
-      "name": "09_Compare_Measures",
-      "description": "[09_Debug] Compare original vs optimized measure with same filter context"
-    },
-    {
-      "name": "09_List_Slicers",
-      "description": "[09_Debug] List all slicers with their saved selections"
-    },
-    {
-      "name": "09_Drill_To_Detail",
-      "description": "[09_Debug] Show underlying rows with filter context applied"
-    },
-    {
-      "name": "09_Set_PBIP_Path",
-      "description": "[09_Debug] Manually set PBIP folder path"
-    },
-    {
-      "name": "09_Get_Debug_Status",
-      "description": "[09_Debug] Show debug capabilities status"
-    },
-    {
-      "name": "09_Analyze_Measure",
-      "description": "[09_Debug] Analyze measure DAX, detect anti-patterns, and suggest fixes"
-    },
-    {
-      "name": "09_Validate",
-      "description": "[09_Debug] Validation: cross_visual, expected_value, filter_permutation tests"
-    },
-    {
-      "name": "09_Profile",
-      "description": "[09_Debug] Performance profiling: page, filter_matrix"
-    },
-    {
-      "name": "09_Document",
-      "description": "[09_Debug] Documentation: page, report, measure_lineage, filter_lineage"
-    },
-    {
-      "name": "09_Advanced_Analysis",
-      "description": "[09_Debug] Advanced: decompose, contribution, trend, root_cause, export"
-    },
-    {
-      "name": "10_Show_User_Guide",
-      "description": "[10_Help] Show user guide"
-    }
+    {"name": "01_Detect_PBI_Instances", "description": "[01] Detect Power BI Desktop instances"},
+    {"name": "01_Connect_To_Instance", "description": "[01] Connect to Power BI Desktop"},
+    {"name": "02_Table_Operations", "description": "[02] Table CRUD operations"},
+    {"name": "02_Column_Operations", "description": "[02] Column CRUD operations"},
+    {"name": "02_Measure_Operations", "description": "[02] Measure CRUD operations"},
+    {"name": "02_Relationship_Operations", "description": "[02] Relationship CRUD operations"},
+    {"name": "02_Calculation_Group_Operations", "description": "[02] Calculation group CRUD"},
+    {"name": "02_Role_Operations", "description": "[02] RLS/OLS role operations"},
+    {"name": "02_TMDL_Operations", "description": "[02] TMDL automation"},
+    {"name": "03_Batch_Operations", "description": "[03] Batch operations with transactions"},
+    {"name": "03_Manage_Transactions", "description": "[03] ACID transactions"},
+    {"name": "04_Run_DAX", "description": "[04] Execute DAX query"},
+    {"name": "04_Get_Data_Sources", "description": "[04] List data sources"},
+    {"name": "04_Get_M_Expressions", "description": "[04] List M/Power Query expressions"},
+    {"name": "04_Search_Objects", "description": "[04] Search tables/columns/measures"},
+    {"name": "04_Search_String", "description": "[04] Search in DAX expressions"},
+    {"name": "05_DAX_Intelligence", "description": "[05] DAX analysis and optimization"},
+    {"name": "05_Analyze_Dependencies", "description": "[05] Measure dependency tree"},
+    {"name": "05_Get_Measure_Impact", "description": "[05] Measure usage impact"},
+    {"name": "05_Export_DAX_Measures", "description": "[05] Export DAX measures to CSV"},
+    {"name": "05_Column_Usage_Mapping", "description": "[05] Column/measure usage analysis"},
+    {"name": "06_Simple_Analysis", "description": "[06] Fast model analysis (2-5s)"},
+    {"name": "06_Full_Analysis", "description": "[06] Comprehensive BPA analysis"},
+    {"name": "06_Compare_PBI_Models", "description": "[06] Compare models"},
+    {"name": "07_Analyze_PBIP_Repository", "description": "[07] Offline PBIP analysis"},
+    {"name": "07_Report_Info", "description": "[07] Report visual/filter info"},
+    {"name": "07_PBIP_Dependency_Analysis", "description": "[07] Dependency browser"},
+    {"name": "07_Slicer_Operations", "description": "[07] Slicer configuration"},
+    {"name": "07_Analyze_Aggregation", "description": "[07] Aggregation analysis"},
+    {"name": "07_Analyze_Bookmarks", "description": "[07] Bookmark analysis"},
+    {"name": "07_Analyze_Theme_Compliance", "description": "[07] Theme compliance"},
+    {"name": "08_Generate_Documentation_Word", "description": "[08] Generate Word docs"},
+    {"name": "08_Update_Documentation_Word", "description": "[08] Update Word docs"},
+    {"name": "08_Visual_Operations", "description": "[08] Visual editing operations"},
+    {"name": "09_Debug_Visual", "description": "[09] Debug visual filters/queries"},
+    {"name": "09_Compare_Measures", "description": "[09] Compare measure versions"},
+    {"name": "09_List_Slicers", "description": "[09] List slicer selections"},
+    {"name": "09_Drill_To_Detail", "description": "[09] Drill to underlying data"},
+    {"name": "09_Set_PBIP_Path", "description": "[09] Set PBIP folder path"},
+    {"name": "09_Get_Debug_Status", "description": "[09] Debug capabilities status"},
+    {"name": "09_Analyze_Measure", "description": "[09] Analyze measure anti-patterns"},
+    {"name": "09_Validate", "description": "[09] Validation tests"},
+    {"name": "09_Profile", "description": "[09] Performance profiling"},
+    {"name": "09_Document", "description": "[09] Documentation generation"},
+    {"name": "09_Advanced_Analysis", "description": "[09] Advanced analysis"},
+    {"name": "10_Show_User_Guide", "description": "[10] Show user guide"}
   ],
-  "keywords": [
-    "power-bi",
-    "dax",
-    "tabular-model",
-    "analysis",
-    "vertipaq",
-    "pbix",
-    "business-intelligence",
-    "data-modeling",
-    "ssas",
-    "tmdl",
-    "pbip"
-  ],
+  "keywords": ["power-bi", "dax", "tabular-model", "analysis", "vertipaq", "pbix", "tmdl", "pbip"],
   "license": "MIT",
-  "compatibility": {
-    "platforms": [
-      "win32"
-    ]
-  }
+  "compatibility": {"platforms": ["win32"]}
 }

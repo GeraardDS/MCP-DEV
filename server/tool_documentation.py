@@ -1,353 +1,224 @@
 """
 Tool Documentation Reference System
-Maps tool names to their detailed documentation.
-This keeps tool schemas compact while providing full docs on-demand.
+Maps tool names to their detailed documentation and examples.
+Examples are kept separate for token optimization - retrieved on-demand.
 """
+
+# Tool examples - extracted from tool_schemas.py for token optimization
+TOOL_EXAMPLES = {
+    'run_dax': [
+        {"_description": "Simple table preview", "query": "EVALUATE TOPN(10, 'Sales')", "top_n": 10},
+        {"_description": "Aggregation with grouping", "query": "EVALUATE SUMMARIZECOLUMNS('Product'[Category], \"TotalSales\", SUM('Sales'[Amount]))"},
+        {"_description": "Measure with profiling", "query": "EVALUATE ROW(\"Result\", [Total Sales])", "mode": "profile"},
+        {"_description": "Filter table", "query": "EVALUATE FILTER('Customer', 'Customer'[Country] = \"USA\")", "top_n": 50}
+    ],
+    'get_column_value_distribution': [
+        {"_description": "Top countries", "table": "Customer", "column": "Country", "top_n": 10},
+        {"_description": "Category distribution", "table": "Product", "column": "Category"}
+    ],
+    'get_column_summary': [
+        {"_description": "CustomerID stats", "table": "Customer", "column": "CustomerID"},
+        {"_description": "Analyze blanks", "table": "Sales", "column": "Amount"}
+    ],
+    'validate_dax_query': [
+        {"_description": "Validate EVALUATE", "query": "EVALUATE SUMMARIZE('Sales', 'Product'[Category])"},
+        {"_description": "Validate measure", "query": "CALCULATE(SUM(Sales[Amount]), FILTER(ALL(Date), Date[Year] = 2024))"}
+    ],
+    'list_measures': [
+        {"_description": "All measures"},
+        {"_description": "Sales table only", "table": "Sales"},
+        {"_description": "Paginated", "page_size": 50}
+    ],
+    'get_measure_details': [
+        {"_description": "Get Total Revenue", "table": "Sales", "measure": "Total Revenue"}
+    ],
+    'bulk_create_measures': [
+        {"_description": "Create sales measures", "measures": [
+            {"table": "Sales", "measure": "Total Sales", "expression": "SUM(Sales[Amount])"},
+            {"table": "Sales", "measure": "Avg Sales", "expression": "AVERAGE(Sales[Amount])"}
+        ]}
+    ],
+    'create_calculation_group': [
+        {"_description": "Time Intelligence group", "name": "Time Intelligence", "items": [
+            {"name": "Current", "expression": "SELECTEDMEASURE()"},
+            {"name": "YTD", "expression": "CALCULATE(SELECTEDMEASURE(), DATESYTD('Date'[Date]))"},
+            {"name": "PY", "expression": "CALCULATE(SELECTEDMEASURE(), SAMEPERIODLASTYEAR('Date'[Date]))"}
+        ], "precedence": 10}
+    ],
+    'simple_analysis': [
+        {"_description": "Complete analysis (recommended)", "mode": "all"},
+        {"_description": "Quick table list", "mode": "tables"},
+        {"_description": "Specific measure", "mode": "measure", "table": "Sales", "measure_name": "Total Revenue"},
+        {"_description": "Columns in table", "mode": "columns", "table": "Customer", "max_results": 50}
+    ],
+    'full_analysis': [
+        {"_description": "Complete analysis", "scope": "all", "depth": "balanced"},
+        {"_description": "Quick BPA scan", "scope": "best_practices", "depth": "fast"},
+        {"_description": "Skip BPA", "scope": "all", "include_bpa": False},
+        {"_description": "Time-limited", "scope": "all", "max_seconds": 30}
+    ],
+    'analyze_measure_dependencies': [
+        {"_description": "Analyze with diagram", "table": "Sales", "measure": "Profit Margin"},
+        {"_description": "No diagram", "table": "_Measures", "measure": "YTD Revenue", "include_diagram": False}
+    ],
+    'get_measure_impact': [
+        {"_description": "Impact analysis", "table": "Sales", "measure": "Total Sales"}
+    ],
+    'dax_intelligence': [
+        {"_description": "Analyze by measure name", "expression": "Total Revenue"},
+        {"_description": "Full DAX analysis", "expression": "CALCULATE(SUM(Sales[Amount]), Date[Year]=2024)", "analysis_mode": "all"},
+        {"_description": "Debug mode", "expression": "Profit Margin", "analysis_mode": "debug", "output_format": "friendly"},
+        {"_description": "Report mode", "expression": "VAR _Total = SUM(Sales[Amount]) RETURN _Total", "analysis_mode": "report"}
+    ],
+    'analyze_pbip_repository': [
+        {"_description": "Analyze PBIP", "pbip_path": "C:/repos/MyModel/MyModel.pbip"},
+        {"_description": "Custom output", "pbip_path": "C:/repos/MyModel/MyModel.pbip", "output_path": "C:/reports"}
+    ],
+    'pbip_dependency_analysis': [
+        {"_description": "Generate analysis", "pbip_folder_path": "C:/repos/MyProject/MyModel.SemanticModel"},
+        {"_description": "Select specific item", "pbip_folder_path": "C:/repos/MyProject", "main_item": "Measures[Total Sales]"}
+    ],
+    'slicer_operations': [
+        {"_description": "List slicers", "pbip_path": "C:/repos/MyProject.Report", "operation": "list"},
+        {"_description": "Filter by entity", "pbip_path": "C:/repos/MyProject", "operation": "list", "entity": "d Assetinstrument"},
+        {"_description": "Configure single-select", "pbip_path": "C:/repos/MyProject", "operation": "configure_single_select", "display_name": "Choose an asset", "dry_run": True},
+        {"_description": "List interactions", "pbip_path": "C:/repos/MyProject", "operation": "list_interactions"},
+        {"_description": "Set interaction", "pbip_path": "C:/repos/MyProject", "operation": "set_interaction", "page_name": "Dashboard", "source_visual": "Slicer A", "target_visual": "Chart B", "interaction_type": "NoFilter"}
+    ],
+    'visual_operations': [
+        {"_description": "List visuals", "pbip_path": "C:/repos/MyProject.Report", "operation": "list"},
+        {"_description": "Find by title", "pbip_path": "C:/repos/MyProject", "operation": "list", "display_title": "Sales Chart"},
+        {"_description": "Update position", "pbip_path": "C:/repos/MyProject", "operation": "update_position", "display_title": "My Visual", "x": 100, "y": 200, "dry_run": True},
+        {"_description": "Replace measure", "pbip_path": "C:/repos/MyProject", "operation": "replace_measure", "source_entity": "m Measure", "source_property": "Amount", "target_entity": "d Attr", "target_property": "New Amount"},
+        {"_description": "Sync visual", "pbip_path": "C:/repos/MyProject", "operation": "sync_visual", "display_title": "Revenue Chart", "source_page": "Dashboard", "dry_run": True}
+    ],
+    'report_info': [
+        {"_description": "Full report info", "pbip_path": "C:/repos/MyProject.Report"},
+        {"_description": "Filters only", "pbip_path": "C:/repos/MyProject", "include_visuals": False},
+        {"_description": "Specific page", "pbip_path": "C:/repos/MyProject", "page_name": "Dashboard"}
+    ],
+    'analyze_aggregation': [
+        {"_description": "Quick summary", "pbip_path": "C:/repos/MyModel", "output_format": "summary"},
+        {"_description": "Detailed text", "pbip_path": "C:/repos/MyModel", "output_format": "detailed"},
+        {"_description": "HTML report", "pbip_path": "C:/repos/MyModel", "output_format": "html"}
+    ],
+    'analyze_bookmarks': [
+        {"_description": "Analyze bookmarks", "pbip_path": "C:/repos/MyProject.Report"},
+        {"_description": "No auto-open", "pbip_path": "C:/repos/MyProject", "auto_open": False}
+    ],
+    'analyze_theme_compliance': [
+        {"_description": "Analyze theme", "pbip_path": "C:/repos/MyProject.Report"},
+        {"_description": "Custom theme", "pbip_path": "C:/repos/MyProject", "theme_path": "C:/themes/corporate.json"}
+    ]
+}
 
 TOOL_DOCS = {
     # Analysis Tools
     'simple_analysis': {
         'doc_url': 'docs/AGENTIC_ROUTING_GUIDE.md#simple-analysis',
-        'summary': 'Microsoft MCP operations for quick model analysis',
-        'key_points': [
-            'Recommended: Use mode="all" for complete model overview (2-5s)',
-            'All operations are official Microsoft MCP server operations',
-            'Fast operations: tables (<500ms), stats (<1s)'
-        ],
+        'summary': 'Quick model analysis (2-5s)',
+        'key_points': ['Use mode="all" for complete overview', 'Fast: tables (<500ms), stats (<1s)'],
         'operations': {
-            'all': 'Run ALL 9 core Microsoft MCP operations + generate expert analysis (2-5s)',
-            'database': 'List databases - Microsoft MCP Database List (ID, name, compatibility, size)',
-            'stats': 'Fast model statistics - Microsoft MCP GetStats (<1s)',
-            'tables': 'Ultra-fast table list - Microsoft MCP List (<500ms)',
-            'measures': 'List measures - Microsoft MCP Measure List (optional: table filter, max_results)',
-            'measure': 'Get measure details - Microsoft MCP Measure Get (requires: table, measure_name)',
-            'columns': 'List columns - Microsoft MCP Column List (optional: table filter, max_results)',
-            'relationships': 'List relationships - Microsoft MCP Relationship List (optional: active_only)',
-            'calculation_groups': 'List calculation groups - Microsoft MCP ListGroups',
-            'roles': 'List security roles - Microsoft MCP Role List'
-        },
-        'parameters': {
-            'table': 'Used by: measures (filter), measure (required), columns (filter), partitions (filter)',
-            'measure_name': 'Required for mode=measure',
-            'max_results': 'Used by: measures, columns',
-            'active_only': 'Used by: relationships (default: false)'
+            'all': 'Run ALL operations + expert analysis',
+            'tables': 'List tables (<500ms)',
+            'stats': 'Model statistics (<1s)',
+            'measures': 'List measures',
+            'measure': 'Get measure details (requires table, measure_name)',
+            'columns': 'List columns',
+            'relationships': 'List relationships',
+            'calculation_groups': 'List calculation groups',
+            'roles': 'List security roles'
         }
     },
 
     'full_analysis': {
         'doc_url': 'docs/AGENTIC_ROUTING_GUIDE.md#full-analysis',
-        'summary': 'Comprehensive model analysis with BPA, performance, and integrity checks',
-        'key_points': [
-            'Runs Best Practice Analyzer (BPA) rules',
-            'Analyzes performance and cardinality',
-            'Validates model integrity (relationships, duplicates, nulls, circular refs)',
-            'Recommended: Use scope="all" and depth="balanced"'
-        ],
-        'scopes': {
-            'all': 'Run all analyses (default)',
-            'best_practices': 'Focus on BPA and M practices',
-            'performance': 'Focus on cardinality',
-            'integrity': 'Focus on validation'
-        },
-        'depths': {
-            'fast': 'Quick scan',
-            'balanced': 'Default, recommended',
-            'deep': 'Thorough but slower'
-        }
+        'summary': 'Comprehensive analysis with BPA, performance, integrity',
+        'key_points': ['Use scope="all", depth="balanced"'],
+        'scopes': {'all': 'All analyses', 'best_practices': 'BPA focus', 'performance': 'Cardinality', 'integrity': 'Validation'},
+        'depths': {'fast': 'Quick', 'balanced': 'Recommended', 'deep': 'Thorough'}
     },
 
-    # DAX Intelligence (Enhanced v4.0)
     'dax_intelligence': {
         'doc_url': 'docs/DAX_INTELLIGENCE_GUIDE.md',
-        'summary': 'Advanced DAX validation, analysis, debugging, and optimization tool with VertiPaq integration and smart measure auto-detection',
-        'version': '4.0.0 - Industry-standard analysis features with smart auto-detection',
-        'smart_auto_detection': {
-            'description': 'AUTOMATICALLY detects if you provided a measure name and fetches the DAX expression from the model',
-            'supported_inputs': [
-                'Measure name (e.g., "Total Revenue") - tool auto-fetches the expression',
-                'Full DAX expression (e.g., "SUM(Sales[Amount])") - analyzes directly',
-                'Measure name with spaces (e.g., "PL-AMT-BASE Scenario") - auto-fetched',
-                'Complex DAX formula - analyzed directly'
-            ],
-            'workflow': 'Provide measure name → Tool auto-fetches DAX → Validates → Analyzes',
-            'no_manual_steps': 'NO need to first call measure_operations to get the expression - just provide the measure name!'
-        },
-        'modes': {
-            'all': 'DEFAULT MODE - Runs ALL analysis modes (analyze + debug + report) for comprehensive DAX intelligence',
-            'analyze': 'Context transition analysis with anti-pattern detection and specific code improvements',
-            'debug': 'Step-by-step debugging with friendly output showing context transitions',
-            'report': 'Comprehensive enhanced report with 8 analysis modules (VertiPaq, call tree, calc groups, code rewriting, visual flow diagrams, and more)'
-        },
-        'usage_examples': {
-            'simple_measure': "{'expression': 'Total Revenue', 'analysis_mode': 'analyze'} - Auto-fetches measure and analyzes",
-            'dax_expression': "{'expression': 'CALCULATE(SUM(Sales[Amount]), Date[Year]=2024)', 'analysis_mode': 'report'}",
-            'debug_measure': "{'expression': 'YTD Sales', 'analysis_mode': 'debug', 'output_format': 'friendly'}",
-            'skip_validation': "{'expression': 'Total Revenue', 'analysis_mode': 'report', 'skip_validation': True}"
-        },
-        'new_features_v4': [
-            'Smart Measure Auto-Detection - Automatically fetches measure expressions when measure name is provided',
-            'VertiPaq Metrics Integration - Column cardinality analysis, memory footprint, data type optimization suggestions',
-            'Call Tree Hierarchy - Hierarchical DAX breakdown with estimated iteration counts from actual model cardinality',
-            'Calculation Group Analysis - Precedence conflict detection, performance impact assessment, best practice validation',
-            'Advanced Code Rewriting - Actual DAX transformation (extracts repeated measures into variables, not just templates)',
-            'SUMMARIZE vs SUMMARIZECOLUMNS Detection - Auto-detect and suggest 2-10x faster alternative',
-            'Variable Optimization Scanner - Identifies repeated calculations with estimated savings percentage',
-            'Visual Context Flow Diagrams - ASCII, HTML, and Mermaid diagrams showing context transitions',
-            'Enhanced Iteration Analysis - Estimates actual row counts using VertiPaq cardinality data'
-        ],
+        'summary': 'DAX validation, analysis, debugging with VertiPaq',
         'key_points': [
-            'CRITICAL: Can accept EITHER a measure name OR a DAX expression - auto-detects which one you provided',
-            'DEFAULT MODE is "all" - runs analyze + debug + report for comprehensive intelligence (can specify individual modes if needed)',
-            'When measure name is provided, the tool automatically fetches the expression AND skips validation (already in model)',
-            'Online research ENABLED - fetches optimization articles from SQLBI and other sources with specific recommendations',
-            'Auto-skips validation for auto-fetched measures (they\'re already in the model and must be valid)',
-            'Debug mode provides friendly output with emojis or raw steps',
-            'Report mode now includes 8 comprehensive analysis sections',
-            'VertiPaq integration requires connection to Power BI model',
-            'Calculation group analysis only runs when calc groups are detected',
-            'Code rewriter provides actual transformed DAX code, not just suggestions',
-            '11 anti-pattern detectors with research-backed recommendations and SQLBI article references'
+            'Accepts measure name OR DAX expression (auto-detects)',
+            'Default mode="all" runs analyze+debug+report',
+            'Auto-fetches measure DAX when name provided',
+            '11 anti-pattern detectors with SQLBI references'
         ],
-        'report_sections': {
-            'always_included': [
-                'Context Analysis - Transition detection and complexity scoring',
-                'Anti-Pattern Detection - Known DAX performance issues',
-                'Specific Improvements - Before/after code examples',
-                'SUMMARIZE Pattern Detection - Upgrade suggestions',
-                'Variable Optimization - Repeated calculation scanner',
-                'Code Rewriting - Actual DAX transformations',
-                'Visual Flow Diagram - ASCII visualization of context flow'
-            ],
-            'when_connected': [
-                'VertiPaq Column Analysis - Cardinality and memory impact',
-                'Call Tree Hierarchy - With estimated iterations from model data',
-                'Calculation Group Analysis - Precedence and performance analysis'
-            ]
-        },
-        'performance_metrics': {
-            'cardinality_warnings': {
-                'iterator_warning': '100,000+ rows',
-                'iterator_critical': '1,000,000+ rows',
-                'filter_warning': '500,000+ unique values'
-            },
-            'estimated_improvements': {
-                'variable_extraction': '10-50% faster',
-                'summarizecolumns': '2-10x faster',
-                'iterator_to_column': '10x-100x faster for large tables'
-            }
+        'modes': {
+            'all': 'All modes combined',
+            'analyze': 'Context transitions + anti-patterns',
+            'debug': 'Step-by-step with friendly output',
+            'report': '8 analysis modules + VertiPaq'
         }
     },
 
-    # Query Tools
     'run_dax': {
-        'summary': 'Execute DAX queries with performance analysis',
-        'modes': {
-            'auto': 'Smart choice (default)',
-            'analyze': 'With timing analysis',
-            'profile': 'With timing analysis',
-            'simple': 'Preview only'
-        },
-        'defaults': {
-            'top_n': 100,
-            'mode': 'auto'
-        }
+        'summary': 'Execute DAX queries',
+        'modes': {'auto': 'Smart choice', 'analyze': 'With timing', 'profile': 'With timing', 'simple': 'Preview only'},
+        'defaults': {'top_n': 100, 'mode': 'auto'}
     },
 
-    # TMDL Operations
     'tmdl_operations': {
-        'summary': 'Unified TMDL operations for export, find/replace, bulk rename, and script generation',
-        'key_points': [
-            'Supports ALL TMDL operations: export, find_replace, bulk_rename, generate_script',
-            'Export: Exports complete model to TMDL format',
-            'Find/Replace: Find and replace in TMDL files using regex',
-            'Bulk Rename: Rename objects across all TMDL files with reference updates',
-            'Generate Script: Generate TMDL scripts from object definitions'
-        ],
-        'operations': {
-            'export': 'Export full TMDL definition to file',
-            'find_replace': 'Find and replace in TMDL files with regex',
-            'bulk_rename': 'Bulk rename objects with reference updates',
-            'generate_script': 'Generate TMDL script from definition'
-        },
-        'defaults': {
-            'dry_run': True  # For find_replace and bulk_rename operations
-        }
+        'summary': 'TMDL export, find/replace, bulk rename, scripts',
+        'operations': {'export': 'Export TMDL', 'find_replace': 'Regex find/replace', 'bulk_rename': 'Rename with refs', 'generate_script': 'Generate script'}
     },
 
-    # Operations Tools
     'table_operations': {
-        'summary': 'Complete CRUD operations for Power BI tables',
-        'key_points': [
-            'Supports ALL operations: list, describe, preview, create, update, delete, rename, refresh',
-            'Create calculated tables with DAX expressions',
-            'Update table properties (description, expression, hidden)',
-            'Delete and rename tables',
-            'Refresh table data'
-        ],
-        'operations': {
-            'list': 'List all tables with counts',
-            'describe': 'Get comprehensive table details (columns, measures, relationships)',
-            'preview': 'Show sample data rows from table',
-            'create': 'CREATE new table (data or calculated)',
-            'update': 'UPDATE table properties',
-            'delete': 'DELETE table',
-            'rename': 'RENAME table',
-            'refresh': 'REFRESH table data'
-        },
-        'examples': {
-            'create_calculated': "{'operation': 'create', 'table_name': 'TopCustomers', 'expression': 'TOPN(100, Customer, [Revenue], DESC)'}",
-            'update': "{'operation': 'update', 'table_name': 'Sales', 'description': 'Updated description', 'hidden': true}",
-            'delete': "{'operation': 'delete', 'table_name': 'OldTable'}",
-            'rename': "{'operation': 'rename', 'table_name': 'Sales', 'new_name': 'SalesData'}"
-        }
+        'summary': 'Table CRUD: list|describe|preview|create|update|delete|rename|refresh',
+        'operations': {'list': 'List tables', 'describe': 'Table details', 'preview': 'Sample data', 'create': 'New table', 'update': 'Update props', 'delete': 'Delete', 'rename': 'Rename', 'refresh': 'Refresh data'}
     },
 
     'column_operations': {
-        'summary': 'Complete CRUD operations for Power BI columns',
-        'key_points': [
-            'Supports ALL operations: list, get, statistics, distribution, create, update, delete, rename',
-            'Create data columns or calculated columns with DAX',
-            'Update column properties (expression, description, format, hidden)',
-            'Get column statistics (distinct count, total count, blank count)',
-            'Get value distribution (top N values with counts)',
-            'Delete and rename columns'
-        ],
-        'operations': {
-            'list': 'List columns (all/data/calculated)',
-            'get': 'Get detailed column metadata',
-            'statistics': 'Get column stats (distinct/total/blank counts)',
-            'distribution': 'Get top N values with counts',
-            'create': 'CREATE new column (data or calculated)',
-            'update': 'UPDATE column properties',
-            'delete': 'DELETE column',
-            'rename': 'RENAME column'
-        },
-        'examples': {
-            'create_data': "{'operation': 'create', 'table_name': 'Sales', 'column_name': 'NewColumn', 'data_type': 'String'}",
-            'create_calculated': "{'operation': 'create', 'table_name': 'Sales', 'column_name': 'TotalAmount', 'expression': '[Quantity] * [Price]'}",
-            'update': "{'operation': 'update', 'table_name': 'Sales', 'column_name': 'Amount', 'format_string': '$#,0.00'}",
-            'delete': "{'operation': 'delete', 'table_name': 'Sales', 'column_name': 'OldColumn'}",
-            'rename': "{'operation': 'rename', 'table_name': 'Sales', 'column_name': 'Amt', 'new_name': 'Amount'}"
-        }
+        'summary': 'Column CRUD: list|get|statistics|distribution|create|update|delete|rename',
+        'operations': {'list': 'List columns', 'get': 'Column metadata', 'statistics': 'Stats', 'distribution': 'Top N values', 'create': 'New column', 'update': 'Update props', 'delete': 'Delete', 'rename': 'Rename'}
     },
 
     'measure_operations': {
-        'summary': 'Complete CRUD operations for Power BI measures',
-        'key_points': [
-            'Supports ALL operations: list, get, create, update, delete, rename, move',
-            'Create measures with DAX expressions',
-            'Update measure properties (expression, description, format)',
-            'Get measure details including DAX expression',
-            'Delete, rename, and move measures between tables'
-        ],
-        'operations': {
-            'list': 'List measure names (no DAX)',
-            'get': 'Get measure details WITH DAX expression',
-            'create': 'CREATE new measure',
-            'update': 'UPDATE measure properties',
-            'delete': 'DELETE measure',
-            'rename': 'RENAME measure',
-            'move': 'MOVE measure to different table'
-        },
-        'examples': {
-            'create': "{'operation': 'create', 'table_name': 'Sales', 'measure_name': 'Total Revenue', 'expression': 'SUM(Sales[Amount])', 'format_string': '$#,0'}",
-            'update': "{'operation': 'update', 'table_name': 'Sales', 'measure_name': 'Total Revenue', 'expression': 'SUMX(Sales, [Quantity] * [Price])'}",
-            'delete': "{'operation': 'delete', 'table_name': 'Sales', 'measure_name': 'Old Measure'}",
-            'rename': "{'operation': 'rename', 'table_name': 'Sales', 'measure_name': 'Rev', 'new_name': 'Revenue'}",
-            'move': "{'operation': 'move', 'table_name': 'Sales', 'measure_name': 'Total Revenue', 'new_table': 'Measures'}"
-        }
+        'summary': 'Measure CRUD: list|get|create|update|delete|rename|move',
+        'operations': {'list': 'List names', 'get': 'Get with DAX', 'create': 'New measure', 'update': 'Update', 'delete': 'Delete', 'rename': 'Rename', 'move': 'Move to table'}
     },
 
     'relationship_operations': {
-        'summary': 'Complete CRUD operations for Power BI relationships',
-        'key_points': [
-            'Supports ALL operations: list, get, find, create, update, delete, activate, deactivate',
-            'Create relationships between tables',
-            'Update relationship properties (cross-filtering, active/inactive)',
-            'Find all relationships for a table',
-            'Activate/deactivate relationships',
-            'Delete relationships'
-        ],
-        'operations': {
-            'list': 'List all relationships',
-            'get': 'Get relationship details',
-            'find': 'Find relationships for a table',
-            'create': 'CREATE new relationship',
-            'update': 'UPDATE relationship properties',
-            'delete': 'DELETE relationship',
-            'activate': 'ACTIVATE inactive relationship',
-            'deactivate': 'DEACTIVATE active relationship'
-        },
-        'examples': {
-            'create': "{'operation': 'create', 'from_table': 'Sales', 'from_column': 'CustomerID', 'to_table': 'Customer', 'to_column': 'ID', 'from_cardinality': 'Many', 'to_cardinality': 'One'}",
-            'update': "{'operation': 'update', 'relationship_name': 'Sales-Customer', 'cross_filtering_behavior': 'BothDirections'}",
-            'delete': "{'operation': 'delete', 'relationship_name': 'OldRelationship'}",
-            'activate': "{'operation': 'activate', 'relationship_name': 'Sales-Product'}"
-        }
+        'summary': 'Relationship CRUD: list|get|find|create|update|delete|activate|deactivate',
+        'operations': {'list': 'List all', 'get': 'Details', 'find': 'Find for table', 'create': 'New', 'update': 'Update', 'delete': 'Delete', 'activate': 'Activate', 'deactivate': 'Deactivate'}
     },
 
     'calculation_group_operations': {
-        'summary': 'CRUD operations for Power BI calculation groups',
-        'key_points': [
-            'Supports operations: list, list_items, create, delete',
-            'Create calculation groups with multiple items',
-            'Each item has name, expression (DAX), and ordinal (sort order)',
-            'Delete calculation groups'
-        ],
-        'operations': {
-            'list': 'List all calculation groups',
-            'list_items': 'List calculation items in a group',
-            'create': 'CREATE new calculation group',
-            'delete': 'DELETE calculation group'
-        },
-        'examples': {
-            'create': "{'operation': 'create', 'group_name': 'Time Intelligence', 'items': [{'name': 'YTD', 'expression': 'TOTALYTD([Value], Calendar[Date])', 'ordinal': 1}]}",
-            'delete': "{'operation': 'delete', 'group_name': 'Old Group'}"
-        }
+        'summary': 'Calc group CRUD: list|list_items|create|delete',
+        'operations': {'list': 'List groups', 'list_items': 'Items in group', 'create': 'New group', 'delete': 'Delete'}
     },
 
     'role_operations': {
-        'summary': 'RLS/OLS role operations for Power BI',
-        'key_points': [
-            'Currently supports: list operation',
-            'RLS = Row-Level Security (filter data rows)',
-            'OLS = Object-Level Security (hide objects)',
-            'Additional CRUD operations (create, update, delete) coming soon'
-        ],
-        'operations': {
-            'list': 'List all security roles'
-        }
+        'summary': 'RLS/OLS role operations',
+        'operations': {'list': 'List security roles'}
     }
 }
 
 
 def get_tool_documentation(tool_name: str) -> dict:
+    """Get detailed documentation for a tool."""
+    return TOOL_DOCS.get(tool_name, {'summary': 'Documentation not available', 'key_points': []})
+
+
+def get_tool_examples(tool_name: str) -> list:
     """
-    Get detailed documentation for a tool.
+    Get examples for a tool. Examples are stored separately for token optimization.
 
     Args:
         tool_name: Name of the tool
 
     Returns:
-        Dictionary with documentation details, or minimal info if not found
+        List of example dictionaries, or empty list if not found
     """
-    return TOOL_DOCS.get(tool_name, {
-        'summary': 'Documentation not available',
-        'key_points': []
-    })
+    return TOOL_EXAMPLES.get(tool_name, [])
 
 
 def get_operation_details(tool_name: str, operation: str) -> str:
-    """
-    Get details for a specific operation of a tool.
-
-    Args:
-        tool_name: Name of the tool
-        operation: Name of the operation
-
-    Returns:
-        Description of the operation, or generic message if not found
-    """
+    """Get details for a specific operation of a tool."""
     tool_doc = TOOL_DOCS.get(tool_name, {})
     operations = tool_doc.get('operations', {})
     return operations.get(operation, f'Operation: {operation}')
@@ -356,3 +227,8 @@ def get_operation_details(tool_name: str, operation: str) -> str:
 def list_available_docs() -> list:
     """Get list of tools with available documentation."""
     return list(TOOL_DOCS.keys())
+
+
+def list_available_examples() -> list:
+    """Get list of tools with available examples."""
+    return list(TOOL_EXAMPLES.keys())
