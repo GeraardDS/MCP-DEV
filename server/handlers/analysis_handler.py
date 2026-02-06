@@ -860,7 +860,7 @@ def register_analysis_handlers(registry):
     tools = [
         ToolDefinition(
             name="06_Simple_Analysis",
-            description="Fast Microsoft MCP operations with Power BI expert analysis: Runs 8 core operations (database, stats, tables, measures, columns, relationships, calculation groups, roles) + generates detailed insights and recommendations",
+            description="Quick model analysis: 8 core operations + expert insights and recommendations (2-5s)",
             handler=handle_simple_analysis,
             input_schema=TOOL_SCHEMAS.get('simple_analysis', {}),
             category="analysis",

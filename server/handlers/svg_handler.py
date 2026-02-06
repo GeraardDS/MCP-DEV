@@ -23,12 +23,7 @@ def register_svg_operations_handler(registry):
 
     tool = ToolDefinition(
         name="SVG_Visual_Operations",
-        description=(
-            "SVG visual generation: list templates, preview, generate DAX measures, "
-            "inject into model. Creates inline DAX SVG visuals for KPIs, sparklines, "
-            "gauges, data bars. 40+ templates across 5 categories (kpi, sparklines, "
-            "gauges, databars, advanced)."
-        ),
+        description="SVG visual generation: 40+ DAX templates for KPIs, sparklines, gauges, data bars. List, preview, generate, inject.",
         handler=handle_svg_operations,
         input_schema={
             "type": "object",

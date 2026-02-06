@@ -528,7 +528,7 @@ def register_dependencies_handlers(registry):
     tools = [
         ToolDefinition(
             name="05_Analyze_Dependencies",
-            description="Analyze measure dependencies with formatted text output and rendered diagram image. Returns formatted_output (text analysis) and a visual dependency diagram as PNG image.",
+            description="Analyze measure dependencies with text output and interactive diagram",
             handler=handle_analyze_measure_dependencies,
             input_schema=TOOL_SCHEMAS.get('analyze_measure_dependencies', {}),
             category="dependencies",

@@ -182,7 +182,7 @@ def register_aggregation_handler(registry) -> None:
 
     tool = ToolDefinition(
         name="07_Analyze_Aggregation",
-        description="[PBIP] Analyze manual aggregation table usage across visuals and pages. Shows which aggregation tables are hit based on filter context, optimization opportunities, and estimated row savings. Supports summary, detailed, HTML, and JSON output formats.",
+        description="[PBIP] Analyze aggregation table usage, optimization opportunities, and estimated row savings across visuals",
         handler=handle_aggregation_analysis,
         input_schema=get_aggregation_schema(),
         category="pbip",

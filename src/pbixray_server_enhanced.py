@@ -180,18 +180,19 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
         _dur = round((time.time() - _t0) * 1000, 2)
         logger.debug("Tool %s completed in %sms", name, _dur)
 
-        # Token tracking and limits awareness for all responses
+        # Token tracking, limits awareness, and compaction for all responses
         if isinstance(result, dict):
-            # Estimate response size using middleware (4 chars ≈ 1 token)
-            from server.middleware import estimate_tokens
+            from server.middleware import (
+                estimate_tokens, truncate_if_needed,
+                summarize_large_result, compact_keys
+            )
             estimated_tokens = estimate_tokens(result)
             is_likely_small = estimated_tokens < 1000
 
-            # Always add limits info (even for small responses)
-            result = agent_policy.wrap_response_with_limits_info(result, name)
-
-            # Only do expensive checks for large responses
+            # Only add limits info and do expensive checks for non-small responses
             if not is_likely_small:
+                result = agent_policy.wrap_response_with_limits_info(result, name)
+
                 # Check for token overflow (only for high-token tools)
                 if result.get('_limits_info', {}).get('token_usage', {}).get('level') == 'over':
                     high_token_tools = {
@@ -201,24 +202,13 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
                     if name in high_token_tools:
                         token_info = result['_limits_info']['token_usage']
                         return [TextContent(type="text", text=json.dumps({
-                            'success': False,
-                            'error': 'Response would exceed token limit',
-                            'error_type': 'token_limit_exceeded',
-                            'estimated_tokens': token_info['estimated_tokens'],
-                            'max_tokens': token_info['max_tokens'],
-                            'percentage': token_info['percentage'],
-                            'requires_user_confirmation': True,
-                            'tool_name': name,
-                            'message': (
-                                f"The '{name}' tool would return {token_info['estimated_tokens']:,} tokens, "
-                                f"exceeding the {token_info['max_tokens']:,} token limit ({token_info['percentage']}%). "
-                                f"\n\nThis response has been BLOCKED to prevent automatic overflow. "
-                                f"\n\nPlease choose one of these options:"
-                                f"\n  1. Use 'summary_only=true' parameter for a compact summary"
-                                f"\n  2. Use pagination with 'limit' and 'offset' parameters"
-                                f"\n  3. Export results to a file instead (use export tools)"
-                                f"\n  4. Ask me to proceed anyway (response will be truncated)"
-                            )
+                            'ok': False,
+                            'err': (
+                                f"Response blocked: {token_info['estimated_tokens']:,} tokens "
+                                f"exceeds {token_info['max_tokens']:,} limit ({token_info['percentage']}%)"
+                            ),
+                            'err_type': 'token_limit_exceeded',
+                            'fix': "Use summary_only=true, pagination (limit/offset), or export to file"
                         }, separators=(',', ':')))]
 
                 # Add optimization suggestions (only for large results)
@@ -228,9 +218,11 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
                         result['_limits_info'] = {}
                     result['_limits_info']['suggestion'] = suggestion
 
-                # Apply global truncation
+                # Summarize very large results (>50K tokens) before hard truncation
+                result = summarize_large_result(result)
+
+                # Apply global truncation as final safety net
                 max_tokens = limits_manager.token.max_result_tokens
-                from server.middleware import truncate_if_needed
                 result = truncate_if_needed(result, max_tokens)
 
         # Special handling for get_recent_logs
@@ -276,6 +268,11 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
                     logger.warning(f"Failed to generate HTML diagram: {e}")
 
             return [TextContent(type="text", text=text_output)]
+
+        # Apply key compaction before final serialization (15-25% token savings)
+        if isinstance(result, dict):
+            from server.middleware import compact_keys
+            result = compact_keys(result)
 
         return [TextContent(type="text", text=json.dumps(result, separators=(',', ':')))]
 

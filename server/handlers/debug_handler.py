@@ -24,56 +24,11 @@ DRILL_DETAIL_LIMIT_MAX = 10000
 
 
 def _compact_response(data: Dict[str, Any], compact: bool = True) -> Dict[str, Any]:
-    """
-    Optimize response for token usage when compact=True.
-    Removes empty values, shortens verbose fields, removes redundant data.
-    Preserves important diagnostic fields like anomalies and warnings.
-    """
+    """Optimize response for token usage. Delegates to middleware.compact_response."""
     if not compact:
         return data
-
-    # Fields to preserve even in compact mode (important diagnostic info)
-    PRESERVE_FIELDS = {
-        'anomalies', 'pbip_warning', 'relationship_hints',
-        'aggregation_info', 'retry_info', 'execution_mode'
-    }
-
-    # Fields to skip in compact mode (verbose/redundant)
-    SKIP_FIELDS = {'original', 'selected_values_raw', 'hint', 'recommendations'}
-
-    def clean_dict(d: Dict) -> Dict:
-        """Recursively remove empty/None values and shorten verbose fields."""
-        result = {}
-        for k, v in d.items():
-            # Skip empty values
-            if v is None or v == '' or v == [] or v == {}:
-                continue
-
-            # Always preserve important diagnostic fields
-            if k in PRESERVE_FIELDS:
-                result[k] = v
-                continue
-
-            # Skip redundant/verbose fields in compact mode
-            if k in SKIP_FIELDS:
-                continue
-
-            # Recursively clean nested dicts
-            if isinstance(v, dict):
-                cleaned = clean_dict(v)
-                if cleaned:  # Only include non-empty dicts
-                    result[k] = cleaned
-            # Clean lists of dicts
-            elif isinstance(v, list) and v and isinstance(v[0], dict):
-                cleaned_list = [clean_dict(item) for item in v]
-                cleaned_list = [item for item in cleaned_list if item]
-                if cleaned_list:
-                    result[k] = cleaned_list
-            else:
-                result[k] = v
-        return result
-
-    return clean_dict(data)
+    from server.middleware import compact_response
+    return compact_response(data, compact=True, remove_empty=True, remove_nulls=True)
 
 
 def _compact_visual_list(visuals: List[Dict], compact: bool = True) -> List[Dict]:
