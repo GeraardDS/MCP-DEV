@@ -328,8 +328,8 @@ def compact_keys(result: Any, deep: bool = True) -> Any:
         compacted = {}
         for key, value in result.items():
             new_key = COMPACT_KEY_MAP.get(key, key)
-            # Avoid collision: if compacted key already exists, keep original
-            if new_key != key and new_key in compacted:
+            # Avoid collision: if compact target exists as a separate key in source, keep original
+            if new_key != key and new_key in result:
                 new_key = key
             if deep:
                 compacted[new_key] = compact_keys(value, deep=True)
