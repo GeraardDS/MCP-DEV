@@ -5,7 +5,7 @@ This factory reduces handler boilerplate by ~70% across 7 handler files.
 Eliminates ~420 lines of duplicated handler registration code.
 """
 import logging
-from typing import Any, Callable, Dict, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from server.registry import ToolDefinition
 
@@ -291,7 +291,7 @@ COMMON_SCHEMAS = {
 
 def build_input_schema(
     operation_enum: list,
-    required: list = None,
+    required: Optional[List[str]] = None,
     **additional_properties
 ) -> Dict[str, Any]:
     """

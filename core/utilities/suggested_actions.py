@@ -429,7 +429,7 @@ def _get_workflow_hint(tool_name: str, result: Dict[str, Any], context: Dict[str
     if hint_fn:
         try:
             return hint_fn(result, context)
-        except:
+        except Exception:
             return ""
 
     return ""

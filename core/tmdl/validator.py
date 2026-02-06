@@ -338,7 +338,10 @@ class TmdlValidator:
         """Validate that all references (columns, measures) exist in the model"""
         # This is a simplified version - full implementation would parse DAX expressions
         # and extract all [Table[Column]] and [Measure] references
-        pass
+        logger.warning(
+            "Reference validation is not yet fully implemented. "
+            "DAX expression reference checking will be added in a future version."
+        )
 
     def lint_best_practices(self, tmdl_path: str) -> List[LintIssue]:
         """
@@ -380,7 +383,10 @@ class TmdlValidator:
     def _lint_hidden_column_references(self, path: Path, issues: List[LintIssue]) -> None:
         """Check for hidden columns referenced in measures"""
         # Implementation would parse measures and check for hidden column references
-        pass
+        logger.warning(
+            "Hidden column reference linting is not yet implemented. "
+            "Skipping hidden column reference checks."
+        )
 
     def _lint_measure_count(self, path: Path, issues: List[LintIssue]) -> None:
         """Check for tables with too many measures"""
@@ -426,7 +432,10 @@ class TmdlValidator:
     def _lint_unused_columns(self, path: Path, issues: List[LintIssue]) -> None:
         """Check for columns that are never referenced"""
         # This would require parsing all DAX expressions and checking references
-        pass
+        logger.warning(
+            "Unused column linting is not yet implemented. "
+            "DAX expression parsing for reference detection will be added in a future version."
+        )
 
     def validate_references(self, tmdl_path: str) -> List[ValidationError]:
         """
@@ -442,8 +451,11 @@ class TmdlValidator:
 
         try:
             # This would parse all DAX expressions and validate references
-            # For now, return empty list
-            pass
+            logger.warning(
+                "Public reference validation is not yet fully implemented. "
+                "Returning empty error list. Full DAX reference validation "
+                "will be added in a future version."
+            )
 
         except Exception as e:
             logger.error(f"Error validating references: {e}", exc_info=True)

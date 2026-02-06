@@ -15,7 +15,6 @@ from typing import Any, List
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, ImageContent, Resource
-from datetime import datetime
 
 # Add parent directory to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -174,8 +173,8 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
                 'retry_after': rate_limiter.get_retry_after(name)
             }, separators=(',', ':')))]
 
-        # Dispatch to handler
-        result = dispatcher.dispatch(name, arguments)
+        # Dispatch to handler (async to avoid blocking the event loop)
+        result = await dispatcher.dispatch_async(name, arguments)
 
         # Record telemetry
         _dur = round((time.time() - _t0) * 1000, 2)
@@ -183,9 +182,10 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
 
         # Token tracking and limits awareness for all responses
         if isinstance(result, dict):
-            # Check response size for optimization decisions
-            result_str = str(result)
-            is_likely_small = len(result_str) < 4000  # ~1000 tokens estimate
+            # Estimate response size using middleware (4 chars ≈ 1 token)
+            from server.middleware import estimate_tokens
+            estimated_tokens = estimate_tokens(result)
+            is_likely_small = estimated_tokens < 1000
 
             # Always add limits info (even for small responses)
             result = agent_policy.wrap_response_with_limits_info(result, name)

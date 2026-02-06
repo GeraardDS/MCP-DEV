@@ -215,7 +215,7 @@ class RelationshipGraph:
             try:
                 centrality = nx.degree_centrality(self.graph.to_undirected())
                 return dict(sorted(centrality.items(), key=lambda x: x[1], reverse=True))
-            except:
+            except Exception:
                 return {}
         else:
             # Fallback: simple degree count
@@ -353,7 +353,7 @@ class RelationshipGraph:
                             'issue': 'Circular relationship path detected',
                             'severity': 'high'
                         })
-            except:
+            except Exception:
                 pass
 
         return issues
@@ -388,7 +388,7 @@ class RelationshipGraph:
             try:
                 metrics['connected_components'] = nx.number_weakly_connected_components(self.graph)
                 metrics['is_dag'] = nx.is_directed_acyclic_graph(self.graph)
-            except:
+            except Exception:
                 pass
 
         return metrics

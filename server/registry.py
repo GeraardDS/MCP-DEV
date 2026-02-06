@@ -135,17 +135,39 @@ class HandlerRegistry:
     def __init__(self):
         self._handlers: Dict[str, ToolDefinition] = {}
         self._categories: Dict[str, List[str]] = {}
+        self._tool_to_category: Dict[str, ToolCategory] = {}  # Reverse lookup: tool_name -> ToolCategory
         self._loaded_categories: Set[ToolCategory] = {ToolCategory.CORE}
         self._deferred_mode: bool = False  # MCP requires all tools registered upfront - deferred mode breaks tool calls
+        self._total_tools: Optional[int] = None  # Cached total tools count
 
     def register(self, tool_def: ToolDefinition) -> None:
         """Register a tool handler"""
+        # Validate required fields
+        if not getattr(tool_def, 'name', None):
+            logger.warning("Tool registration skipped: missing 'name' field")
+            return
+        if not getattr(tool_def, 'handler', None):
+            logger.warning(f"Tool registration skipped for '{tool_def.name}': missing 'handler' field")
+            return
+        if not getattr(tool_def, 'input_schema', None):
+            logger.warning(f"Tool registration skipped for '{tool_def.name}': missing 'input_schema' field")
+            return
+
         self._handlers[tool_def.name] = tool_def
 
         # Track by category
         if tool_def.category not in self._categories:
             self._categories[tool_def.category] = []
         self._categories[tool_def.category].append(tool_def.name)
+
+        # Build reverse lookup index: tool_name -> ToolCategory
+        for category, tools in CATEGORY_TOOLS.items():
+            if tool_def.name in tools:
+                self._tool_to_category[tool_def.name] = category
+                break
+
+        # Invalidate cached total_tools count
+        self._total_tools = None
 
         logger.debug(f"Registered tool: {tool_def.name} (category: {tool_def.category})")
 
@@ -230,11 +252,8 @@ class HandlerRegistry:
         return tool_name in self._handlers
 
     def get_category_for_tool(self, tool_name: str) -> Optional[ToolCategory]:
-        """Get the ToolCategory for a tool name"""
-        for category, tools in CATEGORY_TOOLS.items():
-            if tool_name in tools:
-                return category
-        return None
+        """Get the ToolCategory for a tool name (O(1) lookup via reverse index)"""
+        return self._tool_to_category.get(tool_name)
 
     def get_discovery_info(self) -> Dict[str, Any]:
         """
@@ -253,8 +272,11 @@ class HandlerRegistry:
                 "loaded": cat in self._loaded_categories
             })
 
+        if self._total_tools is None:
+            self._total_tools = sum(len(tools) for tools in CATEGORY_TOOLS.values())
+
         return {
-            "total_tools": sum(len(tools) for tools in CATEGORY_TOOLS.values()),
+            "total_tools": self._total_tools,
             "categories": categories,
             "deferred_mode": self._deferred_mode,
             "hint": "Use 10_Discover_Tools with category param to load specific tools"

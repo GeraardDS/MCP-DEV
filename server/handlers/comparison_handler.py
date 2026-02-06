@@ -42,6 +42,32 @@ def handle_compare_pbi_models(args: Dict[str, Any]) -> Dict[str, Any]:
 
     # If ports not provided, return instances list and ask user to specify
     if not old_port or not new_port:
+        pass  # fall through to the block below
+    else:
+        # Validate port values
+        try:
+            old_port = int(old_port)
+            new_port = int(new_port)
+        except (ValueError, TypeError):
+            return {
+                'success': False,
+                'error': 'old_port and new_port must be valid integers',
+                'error_type': 'invalid_input'
+            }
+        if not (1 <= old_port <= 65535) or not (1 <= new_port <= 65535):
+            return {
+                'success': False,
+                'error': 'Port numbers must be between 1 and 65535',
+                'error_type': 'invalid_input'
+            }
+        if old_port == new_port:
+            return {
+                'success': False,
+                'error': 'old_port and new_port must be different instances',
+                'error_type': 'invalid_input'
+            }
+
+    if not old_port or not new_port:
         return {
             'success': True,
             'message': 'Models detected. Please specify which is OLD and which is NEW',

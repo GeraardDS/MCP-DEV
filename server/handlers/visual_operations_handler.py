@@ -12,90 +12,20 @@ Operations:
 """
 from typing import Dict, Any, List, Optional
 import logging
-import json
-import re
 from pathlib import Path
 from server.registry import ToolDefinition
-from core.validation.error_handler import ErrorHandler
+from core.utilities.pbip_utils import (
+    normalize_path as _normalize_path,
+    find_definition_folder as _find_definition_folder,
+    load_json_file as _load_json_file,
+    save_json_file as _save_json_file,
+    get_page_display_name as _get_page_display_name,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_path(path: str) -> str:
-    """Normalize path to handle Unix-style paths on Windows"""
-    normalized_path = path
-
-    # Convert WSL/Unix paths to Windows paths on Windows systems
-    if re.match(r'^/mnt/([a-z])/', path, re.IGNORECASE):
-        drive_letter = re.match(r'^/mnt/([a-z])/', path, re.IGNORECASE).group(1)
-        rest_of_path = path[7:].replace('/', '\\')
-        normalized_path = f"{drive_letter.upper()}:\\{rest_of_path}"
-    elif path.startswith('/'):
-        normalized_path = path.replace('/', '\\')
-
-    return normalized_path
-
-
-def _find_definition_folder(pbip_path: str) -> Optional[Path]:
-    """Find the definition folder for a PBIP project"""
-    path = Path(_normalize_path(pbip_path))
-
-    if not path.exists():
-        return None
-
-    # If it's a .pbip file, look for .Report folder
-    if path.is_file() and path.suffix == '.pbip':
-        # Look for {name}.Report folder
-        report_folder = path.parent / f"{path.stem}.Report"
-        if report_folder.exists():
-            definition = report_folder / "definition"
-            if definition.exists():
-                return definition
-
-    # If it's a .Report folder
-    if path.is_dir() and path.name.endswith('.Report'):
-        definition = path / "definition"
-        if definition.exists():
-            return definition
-
-    # If it's already a definition folder
-    if path.is_dir() and path.name == "definition":
-        return path
-
-    # If it's a directory, search for .Report folders
-    if path.is_dir():
-        for item in path.iterdir():
-            if item.is_dir() and item.name.endswith('.Report'):
-                definition = item / "definition"
-                if definition.exists():
-                    return definition
-        # Also check if definition exists directly
-        definition = path / "definition"
-        if definition.exists():
-            return definition
-
-    return None
-
-
-def _load_json_file(file_path: Path) -> Optional[Dict]:
-    """Load JSON file safely"""
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.warning(f"Failed to load JSON from {file_path}: {e}")
-        return None
-
-
-def _save_json_file(file_path: Path, data: Dict) -> bool:
-    """Save JSON file with proper formatting"""
-    try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-        return True
-    except Exception as e:
-        logger.error(f"Failed to save JSON to {file_path}: {e}")
-        return False
+MAX_PARENT_DEPTH = 50  # Safety limit to prevent infinite loops in parent traversal
 
 
 def _get_parent_group_offset(visual_data: Dict, visuals_path: Path) -> Dict[str, float]:
@@ -114,9 +44,11 @@ def _get_parent_group_offset(visual_data: Dict, visuals_path: Path) -> Dict[str,
 
     parent_name = visual_data.get('parentGroupName')
     visited = set()  # Prevent infinite loops
+    depth = 0
 
-    while parent_name and parent_name not in visited:
+    while parent_name and parent_name not in visited and depth < MAX_PARENT_DEPTH:
         visited.add(parent_name)
+        depth += 1
 
         # Find the parent group's visual.json
         parent_path = visuals_path / parent_name / "visual.json"
@@ -214,16 +146,6 @@ def _extract_visual_info(visual_data: Dict, file_path: Path, visuals_path: Path)
         'is_hidden': is_hidden,
         'parent_group': parent_group
     }
-
-
-def _get_page_display_name(page_folder: Path) -> str:
-    """Get the display name for a page from its page.json file"""
-    page_json_path = page_folder / "page.json"
-    if page_json_path.exists():
-        page_data = _load_json_file(page_json_path)
-        if page_data:
-            return page_data.get('displayName', page_folder.name)
-    return page_folder.name
 
 
 def _find_visuals(

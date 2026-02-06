@@ -737,7 +737,7 @@ RETURN Result
                 from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
                 vertipaq = VertiPaqAnalyzer(connection_state)
                 vertipaq_analysis_result = vertipaq.analyze_dax_columns(dax_expression)
-            except:
+            except Exception:
                 pass
 
         if include_optimization:
@@ -905,7 +905,7 @@ RETURN Result
                     from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
                     vertipaq = VertiPaqAnalyzer(connection_state)
                     call_tree_builder.vertipaq_analyzer = vertipaq
-                except:
+                except Exception:
                     pass
 
             call_tree = call_tree_builder.build_call_tree(dax_expression)

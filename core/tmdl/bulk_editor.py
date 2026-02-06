@@ -132,6 +132,17 @@ class TmdlBulkEditor:
                 logger.warning(f"No tables directory found in {tmdl_path}")
                 return matches
 
+            # Validate regex pattern before use
+            if regex:
+                if len(pattern) > 1000:
+                    logger.error("Regex pattern too long (max 1000 chars)")
+                    return matches
+                try:
+                    re.compile(pattern)
+                except re.error as e:
+                    logger.error(f"Invalid regex pattern: {e}")
+                    return matches
+
             # Compile regex if needed
             flags = 0 if case_sensitive else re.IGNORECASE
             if regex:
@@ -234,6 +245,17 @@ class TmdlBulkEditor:
             if not path.exists():
                 result.errors.append(f"TMDL path does not exist: {tmdl_path}")
                 return result
+
+            # Validate regex pattern before use
+            if regex:
+                if len(find) > 1000:
+                    result.errors.append("Regex pattern too long (max 1000 chars)")
+                    return result
+                try:
+                    re.compile(find)
+                except re.error as e:
+                    result.errors.append(f"Invalid regex pattern: {e}")
+                    return result
 
             # Create backup if not dry run and backup enabled
             if not dry_run and backup and self.backup_enabled:

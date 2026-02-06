@@ -20,19 +20,34 @@ except ImportError:
     logger.debug("orjson not available, using standard json")
 
 
-def load_json(file_path: Union[str, Path]) -> Any:
+# Maximum file size for JSON loading (500 MB)
+MAX_JSON_FILE_SIZE = 500 * 1024 * 1024
+
+
+def load_json(file_path: Union[str, Path], max_size: int = MAX_JSON_FILE_SIZE) -> Any:
     """
     Load JSON from file with orjson optimization.
 
     Args:
         file_path: Path to JSON file
+        max_size: Maximum file size in bytes (default 500MB)
 
     Returns:
         Parsed JSON data
 
+    Raises:
+        ValueError: If file exceeds max_size
+
     Example:
         >>> data = load_json("model.json")
     """
+    file_path = Path(file_path)
+    file_size = file_path.stat().st_size
+    if file_size > max_size:
+        raise ValueError(
+            f"JSON file too large: {file_size / 1024 / 1024:.1f}MB exceeds "
+            f"limit of {max_size / 1024 / 1024:.1f}MB"
+        )
     with open(file_path, 'rb') as f:
         if HAS_ORJSON:
             return orjson.loads(f.read())

@@ -784,7 +784,7 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                         from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
                         vertipaq = VertiPaqAnalyzer(connection_state)
                         call_tree_builder.vertipaq_analyzer = vertipaq
-                    except:
+                    except Exception:
                         pass
 
                 call_tree = call_tree_builder.build_call_tree(expression)
@@ -1280,7 +1280,7 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
                     vertipaq = VertiPaqAnalyzer(connection_state)
                     vertipaq_analysis = vertipaq.analyze_dax_columns(expression)
-                except:
+                except Exception:
                     pass
 
                 improvements = debugger_temp.generate_improved_dax(

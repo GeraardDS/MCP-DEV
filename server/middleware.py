@@ -5,6 +5,14 @@ Pagination, truncation, formatting helpers
 from typing import Any, Dict, List, Optional, Tuple
 import json
 
+# Pagination and truncation limits
+MAX_PAGE_SIZE = 10000
+MAX_PAGINATION_OFFSET = 1000000
+DEFAULT_MAX_TOKENS = 100000
+TRUNCATION_ITEM_LIMIT = 100
+TRUNCATION_STRING_LIMIT = 50000
+SUMMARY_THRESHOLD_TOKENS = 50000
+
 def paginate(result: Any, page_size: Optional[int], next_token: Optional[str], list_keys: List[str]) -> Any:
     """
     Paginate result arrays with continuation tokens
@@ -25,7 +33,6 @@ def paginate(result: Any, page_size: Optional[int], next_token: Optional[str], l
         return result
 
     # Validate page_size bounds
-    MAX_PAGE_SIZE = 10000
     if page_size > MAX_PAGE_SIZE:
         return {
             'success': False,
@@ -43,7 +50,7 @@ def paginate(result: Any, page_size: Optional[int], next_token: Optional[str], l
                 target_key, offset_str = parts
                 start_offset = int(offset_str)
                 # Validate offset is non-negative and reasonable
-                if start_offset < 0 or start_offset > 1000000:
+                if start_offset < 0 or start_offset > MAX_PAGINATION_OFFSET:
                     return {
                         'success': False,
                         'error': 'Invalid next_token: offset out of valid range',
@@ -136,7 +143,7 @@ def schema_sample(rows: List[dict], sample_size: int) -> dict:
         'is_sample': total > sample_size
     }
 
-def truncate_if_needed(result: dict, max_tokens: int = 100000) -> dict:
+def truncate_if_needed(result: dict, max_tokens: int = DEFAULT_MAX_TOKENS) -> dict:
     """
     Truncate large results to prevent token overflow
 
@@ -167,15 +174,14 @@ def truncate_if_needed(result: dict, max_tokens: int = 100000) -> dict:
         for key in ['rows', 'measures', 'columns', 'tables', 'relationships']:
             if key in truncated and isinstance(truncated[key], list):
                 original_len = len(truncated[key])
-                # Keep first 100 items
-                truncated[key] = truncated[key][:100]
+                # Keep first N items
+                truncated[key] = truncated[key][:TRUNCATION_ITEM_LIMIT]
                 truncated[f'_{key}_truncated_from'] = original_len
 
-        # Truncate long strings (increased from 5000 to 50000 chars to support formatted_output)
-        # Skip truncating 'formatted_output' field for DAX Intelligence
+        # Truncate long strings (skip 'formatted_output' field for DAX Intelligence)
         for key, value in list(truncated.items()):
-            if isinstance(value, str) and len(value) > 50000 and key != 'formatted_output':
-                truncated[key] = value[:50000] + "... [truncated]"
+            if isinstance(value, str) and len(value) > TRUNCATION_STRING_LIMIT and key != 'formatted_output':
+                truncated[key] = value[:TRUNCATION_STRING_LIMIT] + "... [truncated]"
 
         return truncated
 
@@ -403,7 +409,7 @@ def filter_fields(result: Any, fields: Optional[List[str]], list_keys: Optional[
     return filtered
 
 
-def summarize_large_result(result: dict, threshold_tokens: int = 50000) -> dict:
+def summarize_large_result(result: dict, threshold_tokens: int = SUMMARY_THRESHOLD_TOKENS) -> dict:
     """
     Summarize large results to prevent token overflow.
     Returns summary with sample when result exceeds threshold.

@@ -24,6 +24,22 @@ class TmdlTextGenerator:
         self.tmdl_data = tmdl_data
         self.indent_level = 0
 
+    @staticmethod
+    def _escape_tmdl_string(value: str) -> str:
+        """Escape quotes in a TMDL string value by doubling them.
+
+        In TMDL format, double quotes inside quoted strings must be
+        escaped by doubling them (e.g., 'He said "hello"' becomes
+        'He said ""hello""').
+
+        Args:
+            value: The raw string value to escape
+
+        Returns:
+            The escaped string safe for embedding in TMDL double-quoted literals
+        """
+        return value.replace('"', '""')
+
     def generate_full_tmdl(self) -> str:
         """Generate complete TMDL text representation."""
         lines = []
@@ -80,7 +96,7 @@ class TmdlTextGenerator:
             lines.append(f"\tisHidden: true")
 
         if table.get('description'):
-            lines.append(f"\tdescription: \"{table['description']}\"")
+            lines.append(f"\tdescription: \"{self._escape_tmdl_string(table['description'])}\"")
 
         # Columns
         for col in table.get('columns', []):
@@ -127,16 +143,16 @@ class TmdlTextGenerator:
             lines.append(f"\t\tsourceColumn: {col['source_column']}")
 
         if col.get('format_string'):
-            lines.append(f"\t\tformatString: \"{col['format_string']}\"")
+            lines.append(f"\t\tformatString: \"{self._escape_tmdl_string(col['format_string'])}\"")
 
         if col.get('display_folder'):
-            lines.append(f"\t\tdisplayFolder: \"{col['display_folder']}\"")
+            lines.append(f"\t\tdisplayFolder: \"{self._escape_tmdl_string(col['display_folder'])}\"")
 
         if col.get('is_hidden'):
             lines.append(f"\t\tisHidden: true")
 
         if col.get('description'):
-            lines.append(f"\t\tdescription: \"{col['description']}\"")
+            lines.append(f"\t\tdescription: \"{self._escape_tmdl_string(col['description'])}\"")
 
         return lines
 
@@ -154,16 +170,16 @@ class TmdlTextGenerator:
 
         # Measure properties
         if measure.get('format_string'):
-            lines.append(f"\t\tformatString: \"{measure['format_string']}\"")
+            lines.append(f"\t\tformatString: \"{self._escape_tmdl_string(measure['format_string'])}\"")
 
         if measure.get('display_folder'):
-            lines.append(f"\t\tdisplayFolder: \"{measure['display_folder']}\"")
+            lines.append(f"\t\tdisplayFolder: \"{self._escape_tmdl_string(measure['display_folder'])}\"")
 
         if measure.get('is_hidden'):
             lines.append(f"\t\tisHidden: true")
 
         if measure.get('description'):
-            lines.append(f"\t\tdescription: \"{measure['description']}\"")
+            lines.append(f"\t\tdescription: \"{self._escape_tmdl_string(measure['description'])}\"")
 
         return lines
 

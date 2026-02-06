@@ -38,10 +38,11 @@ def handle_analyze_pbip_repository(args: Dict[str, Any]) -> Dict[str, Any]:
         normalized_path = pbip_path
 
         # Convert WSL/Unix paths to Windows paths on Windows systems
-        if re.match(r'^/mnt/([a-z])/', pbip_path, re.IGNORECASE):
+        wsl_match = re.match(r'^/mnt/([a-z])/(.*)', pbip_path, re.IGNORECASE)
+        if wsl_match:
             # Convert /mnt/c/... to C:\...
-            drive_letter = re.match(r'^/mnt/([a-z])/', pbip_path, re.IGNORECASE).group(1)
-            rest_of_path = pbip_path[7:].replace('/', '\\')  # Skip '/mnt/c/' and convert slashes
+            drive_letter = wsl_match.group(1)
+            rest_of_path = wsl_match.group(2).replace('/', '\\')
             normalized_path = f"{drive_letter.upper()}:\\{rest_of_path}"
         elif pbip_path.startswith('/'):
             # Other Unix-style absolute paths - try to convert

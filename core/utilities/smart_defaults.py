@@ -386,7 +386,7 @@ class SmartDefaults:
                 # This would require connection state to have a method to get table info
                 # For now, return a default
                 pass
-            except:
+            except Exception:
                 pass
 
         # Default assumption for unknown tables
@@ -408,7 +408,7 @@ class SmartDefaults:
                 # This would require connection state to have model info
                 # For now, return default
                 pass
-            except:
+            except Exception:
                 pass
 
         return 'medium'  # Safe default

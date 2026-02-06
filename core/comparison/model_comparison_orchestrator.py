@@ -5,9 +5,10 @@ High-level orchestration for comparing two Power BI models using TMDL export,
 parsing, diffing, and report generation.
 """
 
+import json
 import logging
 import os
-import tempfile
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -15,8 +16,6 @@ from typing import Dict, Any, Optional
 from core.comparison.model_diff_engine import ModelDiffer
 from core.comparison.model_diff_report_v2 import ModelDiffReportV2
 from core.infrastructure.multi_instance_manager import multi_instance_manager
-from core.infrastructure.connection_manager import ConnectionManager
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +36,24 @@ class ModelComparisonOrchestrator:
     def __init__(self):
         """Initialize orchestrator."""
         self.temp_files: list[str] = []
+
+    def cleanup_temp_files(self) -> int:
+        """Clean up temporary files created during comparison.
+
+        Returns:
+            Number of files cleaned up
+        """
+        cleaned = 0
+        for file_path in self.temp_files:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    cleaned += 1
+                    logger.debug(f"Cleaned up temp file: {file_path}")
+            except OSError as e:
+                logger.warning(f"Failed to clean up temp file {file_path}: {e}")
+        self.temp_files.clear()
+        return cleaned
 
     def compare_models(
         self,
@@ -89,7 +106,6 @@ class ModelComparisonOrchestrator:
             db_name2 = conn_result2.get('database_name', f'Model (Port {port2})')
 
             # Clean up database names - remove port suffix if present
-            import re
             db_name1 = re.sub(r'\s*\(Port\s+\d+\)\s*$', '', db_name1)
             db_name2 = re.sub(r'\s*\(Port\s+\d+\)\s*$', '', db_name2)
 
@@ -259,18 +275,21 @@ class ModelComparisonOrchestrator:
             }
 
         finally:
-            # Cleanup: disconnect instances
+            # Cleanup: disconnect instances and remove temp files
             try:
                 if port1 in multi_instance_manager.instances:
                     multi_instance_manager.disconnect_instance(port1)
                 if port2 in multi_instance_manager.instances:
                     multi_instance_manager.disconnect_instance(port2)
             except Exception as e:
-                logger.warning(f"Error during cleanup: {e}")
+                logger.warning(f"Error during instance cleanup: {e}")
+
+            cleaned = self.cleanup_temp_files()
+            if cleaned:
+                logger.debug(f"Cleaned up {cleaned} temporary files")
 
     def _is_uuid(self, value: str) -> bool:
         """Check if a string looks like a UUID."""
-        import re
         uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
         return bool(re.match(uuid_pattern, value, re.IGNORECASE))
 
@@ -293,8 +312,6 @@ class ModelComparisonOrchestrator:
 
     def _write_json_export(self, diff_result: Dict[str, Any], json_path: str) -> None:
         """Write diff result to JSON file."""
-        import json
-
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(diff_result, f, indent=2, ensure_ascii=False)
 

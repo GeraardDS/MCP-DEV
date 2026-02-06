@@ -4,6 +4,7 @@ Handles measure dependency analysis with professional formatted output
 """
 from typing import Dict, Any, List, Tuple
 import logging
+import threading
 from server.registry import ToolDefinition
 from core.infrastructure.connection_state import connection_state
 from core.validation.error_handler import ErrorHandler
@@ -13,12 +14,13 @@ from core.dax.dax_reference_parser import normalize_dax_name
 
 logger = logging.getLogger(__name__)
 
-# Global cache instance for sidebar data
+# Global cache instance for sidebar data (protected by lock)
 _sidebar_cache = {
     'all_measures': [],
     'all_columns': [],
     'all_dependencies': {}
 }
+_sidebar_cache_lock = threading.Lock()
 
 
 def _load_sidebar_data(force_refresh: bool = True) -> dict:
@@ -31,11 +33,12 @@ def _load_sidebar_data(force_refresh: bool = True) -> dict:
     """
     global _sidebar_cache
 
-    # Check if we already have COMPLETE data in memory (including dependencies)
-    # Only use memory cache if not forcing refresh
-    if not force_refresh and _sidebar_cache.get('all_measures') and _sidebar_cache.get('all_dependencies'):
-        logger.debug("Using in-memory sidebar cache with dependencies")
-        return _sidebar_cache
+    with _sidebar_cache_lock:
+        # Check if we already have COMPLETE data in memory (including dependencies)
+        # Only use memory cache if not forcing refresh
+        if not force_refresh and _sidebar_cache.get('all_measures') and _sidebar_cache.get('all_dependencies'):
+            logger.debug("Using in-memory sidebar cache with dependencies")
+            return dict(_sidebar_cache)
 
     # Always delete old cache file and recompute to ensure we have all data
     # This fixes issues where old cache had limited data (100 row default)
@@ -50,7 +53,8 @@ def _load_sidebar_data(force_refresh: bool = True) -> dict:
 
     if not query_executor or not dependency_analyzer:
         logger.warning("Query executor or dependency analyzer not available for sidebar data")
-        return _sidebar_cache
+        with _sidebar_cache_lock:
+            return dict(_sidebar_cache)
 
     logger.info("Computing all dependencies for sidebar (this may take a moment)...")
 
@@ -62,15 +66,16 @@ def _load_sidebar_data(force_refresh: bool = True) -> dict:
         save_to_cache=True  # Save to file for faster loads next time
     )
 
-    _sidebar_cache = {
-        'all_measures': result.get('all_measures', []),
-        'all_columns': result.get('all_columns', []),
-        'all_dependencies': result.get('all_dependencies', {})
-    }
+    with _sidebar_cache_lock:
+        _sidebar_cache = {
+            'all_measures': result.get('all_measures', []),
+            'all_columns': result.get('all_columns', []),
+            'all_dependencies': result.get('all_dependencies', {})
+        }
 
-    logger.info(f"Computed sidebar data: {len(_sidebar_cache['all_measures'])} measures, "
-               f"{len(_sidebar_cache['all_columns'])} columns, {len(_sidebar_cache['all_dependencies'])} dependencies")
-    return _sidebar_cache
+        logger.info(f"Computed sidebar data: {len(_sidebar_cache['all_measures'])} measures, "
+                   f"{len(_sidebar_cache['all_columns'])} columns, {len(_sidebar_cache['all_dependencies'])} dependencies")
+        return dict(_sidebar_cache)
 
 
 def _format_dependency_analysis_output(

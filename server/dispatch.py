@@ -1,24 +1,29 @@
 """
 Central Tool Dispatcher
-Routes tool calls to appropriate handlers with error handling
+Routes tool calls to appropriate handlers with error handling.
+Supports both sync and async dispatch to avoid blocking the event loop.
 """
 from typing import Dict, Any
+import asyncio
 import logging
+import threading
+from functools import partial
 from server.registry import get_registry
 from core.validation.error_handler import ErrorHandler
 
 logger = logging.getLogger(__name__)
 
 class ToolDispatcher:
-    """Dispatches tool calls to registered handlers"""
+    """Dispatches tool calls to registered handlers. Thread-safe call count."""
 
     def __init__(self):
         self.registry = get_registry()
         self._call_count = 0
+        self._count_lock = threading.Lock()
 
     def dispatch(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Dispatch a tool call to its handler
+        Dispatch a tool call to its handler (synchronous).
 
         Args:
             tool_name: Name of the tool to invoke
@@ -27,7 +32,8 @@ class ToolDispatcher:
         Returns:
             Result dictionary from the handler
         """
-        self._call_count += 1
+        with self._count_lock:
+            self._call_count += 1
 
         try:
             # Check if tool exists
@@ -57,6 +63,21 @@ class ToolDispatcher:
         except Exception as e:
             logger.error(f"Error dispatching tool {tool_name}: {e}", exc_info=True)
             return ErrorHandler.handle_unexpected_error(tool_name, e)
+
+    async def dispatch_async(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Dispatch a tool call without blocking the async event loop.
+        Runs the synchronous handler in a thread pool executor.
+
+        Args:
+            tool_name: Name of the tool to invoke
+            arguments: Tool arguments
+
+        Returns:
+            Result dictionary from the handler
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, partial(self.dispatch, tool_name, arguments))
 
     def get_stats(self) -> Dict[str, Any]:
         """Get dispatcher statistics"""

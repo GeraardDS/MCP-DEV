@@ -17,6 +17,11 @@ from core.validation.error_handler import ErrorHandler
 
 logger = logging.getLogger(__name__)
 
+# --- Module-level constants ---
+PBIP_FRESHNESS_THRESHOLD_MINUTES = 5  # Warn if PBIP files are older than this
+DRILL_DETAIL_LIMIT_MIN = 1
+DRILL_DETAIL_LIMIT_MAX = 10000
+
 
 def _compact_response(data: Dict[str, Any], compact: bool = True) -> Dict[str, Any]:
     """
@@ -108,7 +113,7 @@ def _compact_filter_context(filter_breakdown: Dict, compact: bool = True) -> Dic
     return result
 
 
-def _check_pbip_freshness(pbip_folder: str, threshold_minutes: int = 5) -> Optional[Dict[str, Any]]:
+def _check_pbip_freshness(pbip_folder: str, threshold_minutes: int = PBIP_FRESHNESS_THRESHOLD_MINUTES) -> Optional[Dict[str, Any]]:
     """
     Check if PBIP files have been modified recently.
 
@@ -296,7 +301,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
                                 # Skip composite_key and naming_convention - too many false positives
                             elif sc.classification == 'ui_control' and sc.confidence > 0.80:
                                 f.classification = FilterClassification.UI_CONTROL
-            except Exception as se:
+            except (AttributeError, ValueError, TypeError) as se:
                 logger.debug(f"Semantic classification enhancement skipped: {se}")
 
         data_filters = [f for f in all_filters if getattr(f, 'classification', 'data') == FilterClassification.DATA]
@@ -507,7 +512,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
                                 }
                                 for h in hints[:3]  # Limit to 3 most relevant
                             ]
-                except Exception as re:
+                except (AttributeError, ValueError, TypeError) as re:
                     logger.debug(f"Relationship analysis skipped: {re}")
 
                 # Aggregation matching
@@ -524,7 +529,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
                                 'confidence': agg_match.match_confidence,
                                 'recommendation': agg_match.recommendation
                             }
-                except Exception as ae:
+                except (AttributeError, ValueError, TypeError) as ae:
                     logger.debug(f"Aggregation analysis skipped: {ae}")
 
         # Execute query if requested and connected
@@ -580,7 +585,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
                                 anomaly_report = analyze_results(rows)
                                 if anomaly_report:
                                     response['anomalies'] = anomaly_report
-                            except Exception as ae:
+                            except (ImportError, KeyError, ValueError, TypeError) as ae:
                                 logger.debug(f"Anomaly detection skipped: {ae}")
                     else:
                         response['result'] = {'error': exec_result.get('error')}
@@ -802,6 +807,7 @@ def handle_drill_to_detail(args: Dict[str, Any]) -> Dict[str, Any]:
         visual_name = args.get('visual_name')
         fact_table = args.get('fact_table')
         limit = args.get('limit', 100)
+        limit = max(DRILL_DETAIL_LIMIT_MIN, min(DRILL_DETAIL_LIMIT_MAX, limit))  # Clamp to valid range
         include_slicers = args.get('include_slicers', True)
 
         if not connection_state.is_connected():
@@ -1078,7 +1084,7 @@ def handle_analyze_measure(args: Dict[str, Any]) -> Dict[str, Any]:
             from core.dax.dax_best_practices import DaxBestPracticesAnalyzer
             analyzer = DaxBestPracticesAnalyzer()
             analysis_result = analyzer.analyze(expression)
-        except Exception as e:
+        except (ImportError, ValueError, TypeError) as e:
             logger.warning(f"DAX analysis failed: {e}")
             analysis_result = {
                 'success': False,

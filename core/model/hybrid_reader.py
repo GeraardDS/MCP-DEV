@@ -49,8 +49,11 @@ class HybridReader:
         else:
             raise ValueError(f"Invalid analysis structure - expected either test_metadata.json or analysis/ folder at {analysis_path}")
 
-        # Cache for loaded files
+        # Cache for loaded files (bounded by known file types)
         self._cache = {}
+        # Known cache keys: metadata, catalog, measures, dependencies,
+        # relationships, unused_columns, report_dependencies
+        self._max_cache_keys = 10
 
     def read_metadata(self) -> Dict[str, Any]:
         """
@@ -381,7 +384,11 @@ class HybridReader:
         if self.format_type == "test_metadata":
             raise ValueError("TMDL files not available in test_metadata format. Use full hybrid analysis export for TMDL access.")
 
-        tmdl_path = self.tmdl_dir / relative_path
+        tmdl_path = (self.tmdl_dir / relative_path).resolve()
+        # Prevent path traversal attacks
+        tmdl_dir_resolved = self.tmdl_dir.resolve()
+        if not str(tmdl_path).startswith(str(tmdl_dir_resolved)):
+            raise ValueError(f"Path traversal detected: {relative_path}")
         if not tmdl_path.exists():
             raise ValueError(f"TMDL file not found: {relative_path}")
 
@@ -801,7 +808,11 @@ class HybridReader:
         # Filter by name pattern
         if "name_pattern" in filters:
             import re
-            pattern = re.compile(filters["name_pattern"])
+            try:
+                pattern = re.compile(filters["name_pattern"])
+            except re.error:
+                # If invalid regex, treat as literal string
+                pattern = re.compile(re.escape(filters["name_pattern"]))
             result = [obj for obj in result if pattern.search(obj.get("name", ""))]
 
         # Filter by folder (for measures)

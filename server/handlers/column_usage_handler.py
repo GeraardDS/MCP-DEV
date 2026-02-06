@@ -9,6 +9,7 @@ Provides tools to answer:
 """
 
 import logging
+import threading
 from typing import Dict, Any, List, Optional
 from server.registry import ToolDefinition
 from core.infrastructure.connection_state import connection_state
@@ -17,12 +18,13 @@ from core.analysis.column_usage_analyzer import ColumnUsageAnalyzer
 
 logger = logging.getLogger(__name__)
 
-# Singleton analyzer instance (created on first use)
+# Singleton analyzer instance (created on first use) - thread-safe
 _analyzer_instance: Optional[ColumnUsageAnalyzer] = None
+_analyzer_lock = threading.Lock()
 
 
 def _get_analyzer() -> Optional[ColumnUsageAnalyzer]:
-    """Get or create the column usage analyzer instance"""
+    """Get or create the column usage analyzer instance (thread-safe)"""
     global _analyzer_instance
 
     if not connection_state.is_connected():
@@ -33,8 +35,11 @@ def _get_analyzer() -> Optional[ColumnUsageAnalyzer]:
         return None
 
     if _analyzer_instance is None:
-        _analyzer_instance = ColumnUsageAnalyzer(query_executor)
-        logger.info("Created ColumnUsageAnalyzer instance")
+        with _analyzer_lock:
+            # Double-checked locking
+            if _analyzer_instance is None:
+                _analyzer_instance = ColumnUsageAnalyzer(query_executor)
+                logger.info("Created ColumnUsageAnalyzer instance")
 
     return _analyzer_instance
 

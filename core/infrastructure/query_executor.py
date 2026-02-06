@@ -2011,7 +2011,7 @@ class OptimizedQueryExecutor:
                                 row_dict[col_name] = float(value_str)
                             else:
                                 row_dict[col_name] = value_str
-                        except:
+                        except Exception:
                             row_dict[col_name] = value_str
 
                 rows.append(row_dict)

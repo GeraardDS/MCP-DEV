@@ -2,9 +2,9 @@
 MCP Resources Management
 Exposes exported model files as MCP resources for direct access by AI/MCP clients
 """
-import json
 import gzip
 import logging
+import threading
 from typing import Dict, List, Optional, Callable
 from pathlib import Path
 from mcp.types import Resource
@@ -13,13 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 class ResourceManager:
-    """Manages MCP resources for exported model files"""
+    """Manages MCP resources for exported model files. Thread-safe."""
+
+    MAX_EXPORT_CACHE_ENTRIES = 50
+    MAX_DYNAMIC_RESOURCES = 100
 
     def __init__(self):
         """Initialize resource manager"""
         self._export_cache: Dict[str, Dict] = {}  # uri -> metadata
         self._latest_export: Optional[str] = None
         self._dynamic_resources: Dict[str, Dict] = {}  # uri -> {provider, metadata}
+        self._lock = threading.RLock()
 
     def register_export(self, file_path: str, metadata: Dict) -> str:
         """
@@ -37,15 +41,21 @@ class ResourceManager:
             file_name = Path(file_path).name
             uri = f"powerbi://export/{file_name}"
 
-            # Store in cache
-            self._export_cache[uri] = {
-                'file_path': file_path,
-                'metadata': metadata,
-                'uri': uri
-            }
+            with self._lock:
+                # Evict oldest entries if cache is full
+                while len(self._export_cache) >= self.MAX_EXPORT_CACHE_ENTRIES:
+                    oldest_key = next(iter(self._export_cache))
+                    del self._export_cache[oldest_key]
 
-            # Track latest export
-            self._latest_export = uri
+                # Store in cache
+                self._export_cache[uri] = {
+                    'file_path': file_path,
+                    'metadata': metadata,
+                    'uri': uri
+                }
+
+                # Track latest export
+                self._latest_export = uri
 
             logger.info(f"Registered MCP resource: {uri}")
             return uri
@@ -70,20 +80,31 @@ class ResourceManager:
             provider: Callable that returns the resource content
             mime_type: MIME type of the content
         """
-        self._dynamic_resources[uri] = {
-            'name': name,
-            'description': description,
-            'provider': provider,
-            'mime_type': mime_type
-        }
-        logger.info(f"Registered dynamic MCP resource: {uri}")
+        with self._lock:
+            # Evict oldest entries if cache is full
+            while len(self._dynamic_resources) >= self.MAX_DYNAMIC_RESOURCES:
+                oldest_key = next(iter(self._dynamic_resources))
+                del self._dynamic_resources[oldest_key]
+
+            self._dynamic_resources[uri] = {
+                'name': name,
+                'description': description,
+                'provider': provider,
+                'mime_type': mime_type
+            }
+        logger.debug(f"Registered dynamic MCP resource: {uri}")
 
     def list_resources(self) -> List[Resource]:
         """List all available resources"""
         resources = []
 
+        with self._lock:
+            dynamic_snapshot = dict(self._dynamic_resources)
+            export_snapshot = dict(self._export_cache)
+            latest = self._latest_export
+
         # Add dynamic resources first (like token usage)
-        for uri, data in self._dynamic_resources.items():
+        for uri, data in dynamic_snapshot.items():
             resources.append(Resource(
                 uri=uri,
                 name=data['name'],
@@ -92,7 +113,7 @@ class ResourceManager:
             ))
 
         # Add latest export as a special resource
-        if self._latest_export:
+        if latest:
             resources.append(Resource(
                 uri="powerbi://export/latest",
                 name="Latest Model Export",
@@ -101,7 +122,7 @@ class ResourceManager:
             ))
 
         # Add all cached exports
-        for uri, data in self._export_cache.items():
+        for uri, data in export_snapshot.items():
             metadata = data['metadata']
             resources.append(Resource(
                 uri=uri,
@@ -123,48 +144,41 @@ class ResourceManager:
             Resource content as string
         """
         try:
-            # Check if it's a dynamic resource
-            if uri in self._dynamic_resources:
-                logger.info(f"Reading dynamic resource: {uri}")
-                provider = self._dynamic_resources[uri]['provider']
-                return provider()
+            with self._lock:
+                # Check if it's a dynamic resource
+                if uri in self._dynamic_resources:
+                    provider = self._dynamic_resources[uri]['provider']
+                    return provider()
 
-            # Handle latest export alias
-            if uri == "powerbi://export/latest":
-                if not self._latest_export:
-                    raise ValueError("No exports available")
-                uri = self._latest_export
+                # Handle latest export alias
+                if uri == "powerbi://export/latest":
+                    if not self._latest_export:
+                        raise ValueError("No exports available")
+                    uri = self._latest_export
 
-            # Get resource data
-            if uri not in self._export_cache:
-                raise ValueError(f"Resource not found: {uri}")
+                # Get resource data
+                if uri not in self._export_cache:
+                    raise ValueError(f"Resource not found: {uri}")
 
-            resource_data = self._export_cache[uri]
-            file_path = resource_data['file_path']
+                resource_data = self._export_cache[uri]
+                file_path = resource_data['file_path']
 
-            # Log the file path being accessed
-            logger.info(f"Reading resource from: {file_path}")
+            # File I/O outside lock to avoid holding lock during slow ops
+            logger.debug(f"Reading resource from: {file_path}")
 
             # Verify file exists
-            if not Path(file_path).exists():
-                logger.error(f"File not found: {file_path}")
+            file_path_obj = Path(file_path)
+            if not file_path_obj.exists():
                 raise FileNotFoundError(f"Export file not found: {file_path}")
 
             # Read file content based on format
             if file_path.endswith('.json.gz'):
-                logger.info(f"Reading compressed JSON from {file_path}")
                 with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-                    content = f.read()
-                    logger.info(f"Read {len(content)} characters from compressed JSON")
-                    return content
+                    return f.read()
             elif file_path.endswith('.json'):
-                logger.info(f"Reading uncompressed JSON from {file_path}")
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    logger.info(f"Read {len(content)} characters from JSON")
-                    return content
+                    return f.read()
             elif file_path.endswith('.md'):
-                logger.info(f"Reading markdown from {file_path}")
                 with open(file_path, 'r', encoding='utf-8') as f:
                     return f.read()
             else:
@@ -182,8 +196,9 @@ class ResourceManager:
 
     def clear_cache(self):
         """Clear all cached resources"""
-        self._export_cache.clear()
-        self._latest_export = None
+        with self._lock:
+            self._export_cache.clear()
+            self._latest_export = None
         logger.info("Resource cache cleared")
 
     def _get_mime_type(self, file_path: str) -> str:
