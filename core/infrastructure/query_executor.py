@@ -34,19 +34,8 @@ AdomdConnection: Any = None
 AdomdCommand: Any = None
 
 try:
-    import clr
-    import os
-
-    # Determine DLL path (this file is in core/infrastructure/)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    core_dir = os.path.dirname(script_dir)  # core/
-    root_dir = os.path.dirname(core_dir)     # project root
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-
-    # Load ADOMD.NET
-    adomd_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.AdomdClient.dll")
-    if os.path.exists(adomd_dll):
-        clr.AddReference(adomd_dll)  # type: ignore[attr-defined]
+    from core.infrastructure.dll_paths import load_adomd_assembly, load_amo_assemblies
+    if load_adomd_assembly():
         from Microsoft.AnalysisServices.AdomdClient import AdomdConnection, AdomdCommand  # type: ignore
         ADOMD_AVAILABLE = True
         logger.info("ADOMD.NET loaded successfully")
@@ -56,24 +45,9 @@ except Exception as e:
 # Try to load AMO/TOM assemblies early so helpers can use them
 AMO_AVAILABLE = False
 try:
-    import clr  # type: ignore
-    import os as _os
-    # This file is in core/infrastructure/, go up 2 levels to project root
-    _script_dir = _os.path.dirname(_os.path.abspath(__file__))
-    _core_dir = _os.path.dirname(_script_dir)  # core/
-    _root_dir = _os.path.dirname(_core_dir)     # project root
-    _dll_folder = _os.path.join(_root_dir, "lib", "dotnet")
-    _core_dll = _os.path.join(_dll_folder, "Microsoft.AnalysisServices.Core.dll")
-    _amo_dll = _os.path.join(_dll_folder, "Microsoft.AnalysisServices.dll")
-    _tabular_dll = _os.path.join(_dll_folder, "Microsoft.AnalysisServices.Tabular.dll")
-    if _os.path.exists(_core_dll):
-        clr.AddReference(_core_dll)  # type: ignore[attr-defined]
-    if _os.path.exists(_amo_dll):
-        clr.AddReference(_amo_dll)  # type: ignore[attr-defined]
-    if _os.path.exists(_tabular_dll):
-        clr.AddReference(_tabular_dll)  # type: ignore[attr-defined]
-    from Microsoft.AnalysisServices.Tabular import Server as _AMOServer  # type: ignore
-    AMO_AVAILABLE = True
+    if load_amo_assemblies():
+        from Microsoft.AnalysisServices.Tabular import Server as _AMOServer  # type: ignore
+        AMO_AVAILABLE = True
 except Exception as _e:
     logger.warning(f"AMO/TOM not available: {_e}")
 

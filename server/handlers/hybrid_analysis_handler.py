@@ -7,7 +7,7 @@ Provides MCP tool handlers for PBIP dependency analysis.
 import logging
 import traceback
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from core.utilities.pbip_dependency_html_generator import generate_pbip_dependency_html
 from server.registry import ToolDefinition
@@ -17,27 +17,14 @@ from server.pbip_cache import pbip_cache, normalize_pbip_path
 logger = logging.getLogger(__name__)
 
 
-def handle_generate_pbip_dependency_diagram(
-    pbip_folder_path: str,
-    auto_open: bool = True,
-    output_path: Optional[str] = None,
-    main_item: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Generate an interactive HTML dependency diagram for a PBIP project.
-
-    Uses the shared PBIP cache for model parsing and dependency analysis.
-
-    Args:
-        pbip_folder_path: Path to .pbip file, .SemanticModel folder, or parent folder
-        auto_open: Whether to automatically open the diagram in browser (default: True)
-        output_path: Optional custom output path for the HTML file
-        main_item: Optional specific item to select initially (e.g., 'Table[Measure]')
-
-    Returns:
-        Result dictionary with success status and diagram path
-    """
+def handle_generate_pbip_dependency_diagram(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate an interactive HTML dependency diagram for a PBIP project."""
     try:
+        pbip_folder_path = args.get('pbip_folder_path', '')
+        auto_open = args.get('auto_open', True)
+        output_path = args.get('output_path')
+        main_item = args.get('main_item')
+
         # Use shared cache for parsing + dependency analysis
         path = normalize_pbip_path(pbip_folder_path)
         data = pbip_cache.get_or_parse(path)
@@ -117,17 +104,11 @@ def handle_generate_pbip_dependency_diagram(
 def register_hybrid_analysis_handlers(registry):
     """Register hybrid analysis tool handlers"""
 
-    # Simple wrapper to handle arguments dict
-    def make_handler(func):
-        def wrapper(args):
-            return func(**args)
-        return wrapper
-
     registry.register(ToolDefinition(
         name='07_PBIP_Dependency_Analysis',
         description='[PBIP Analysis] Generate interactive HTML dependency analysis for PBIP project. Features a sidebar with ALL measures, columns, and field parameters - click any item to view its upstream and downstream dependencies in clean tables. Shows model overview with statistics. Auto-opens in browser.',
-        handler=make_handler(handle_generate_pbip_dependency_diagram),
-        input_schema=TOOL_SCHEMAS['pbip_dependency_analysis'],
+        handler=handle_generate_pbip_dependency_diagram,
+        input_schema=TOOL_SCHEMAS.get('pbip_dependency_analysis', {}),
         category='pbip',
         sort_order=72  # 07 = PBIP Analysis
     ))

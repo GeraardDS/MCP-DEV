@@ -13,12 +13,12 @@ from typing import Dict, Any, Optional, List
 logger = logging.getLogger(__name__)
 
 
-def handle_aggregation_analysis(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def handle_aggregation_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
     """
     Handle aggregation analysis requests.
 
     Args:
-        arguments: Tool arguments including:
+        args: Tool arguments including:
             - pbip_path: Path to PBIP project
             - output_format: summary, detailed, html, json
             - output_path: Optional output path for reports
@@ -33,11 +33,11 @@ def handle_aggregation_analysis(arguments: Dict[str, Any]) -> Dict[str, Any]:
         AggregationReportBuilder,
     )
 
-    pbip_path = arguments.get("pbip_path", "")
-    output_format = arguments.get("output_format", "summary")
-    output_path = arguments.get("output_path")
-    page_filter = arguments.get("page_filter")
-    include_visual_details = arguments.get("include_visual_details", True)
+    pbip_path = args.get("pbip_path", "")
+    output_format = args.get("output_format", "summary")
+    output_path = args.get("output_path")
+    page_filter = args.get("page_filter")
+    include_visual_details = args.get("include_visual_details", True)
 
     # Validate path
     if not pbip_path:
@@ -178,7 +178,7 @@ def _strip_visual_details(json_data: Dict) -> Dict:
 
 def register_aggregation_handler(registry) -> None:
     """Register aggregation analysis handler with the tool registry."""
-    from server.handler_factory import ToolDefinition
+    from server.registry import ToolDefinition
 
     tool = ToolDefinition(
         name="07_Analyze_Aggregation",

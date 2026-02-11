@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 import logging
 
+from core.utilities.json_utils import load_json
+
 logger = logging.getLogger(__name__)
 
 class BPASeverity(IntEnum):
@@ -108,8 +110,7 @@ class BPAAnalyzer:
     def load_rules(self, rules_file_path: str) -> None:
         """Load BPA rules from JSON file"""
         try:
-            with open(rules_file_path, 'r', encoding='utf-8') as f:
-                rules_data = json.load(f)
+            rules_data = load_json(rules_file_path)
 
             self.rules = []
             for rule_data in rules_data.get('rules', []):
@@ -138,8 +139,7 @@ class BPAAnalyzer:
     def validate_rules_file(self, rules_file_path: str) -> bool:
         """Validate BPA rules file schema"""
         try:
-            with open(rules_file_path, 'r', encoding='utf-8') as f:
-                rules_data = json.load(f)
+            rules_data = load_json(rules_file_path)
             for rule in rules_data.get('rules', []):
                 required = ['ID', 'Name', 'Category', 'Description', 'Severity', 'Scope', 'Expression']
                 for key in required:

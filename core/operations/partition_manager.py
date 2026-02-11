@@ -15,27 +15,11 @@ AMOServer = None
 RefreshType = None
 
 try:
-    import clr
-    import os
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(script_dir)  # core/operations
-    root_dir = os.path.dirname(parent_dir)     # core -> need one more level
-    root_dir = os.path.dirname(root_dir)       # root
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-
-    core_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Core.dll")
-    tabular_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Tabular.dll")
-
-    if os.path.exists(core_dll):
-        clr.AddReference(core_dll)
-    if os.path.exists(tabular_dll):
-        clr.AddReference(tabular_dll)
-
+    from core.infrastructure.dll_paths import load_amo_assemblies
+    load_amo_assemblies()
     from Microsoft.AnalysisServices.Tabular import Server as AMOServer, RefreshType
     AMO_AVAILABLE = True
     logger.info("AMO available for partition management")
-
 except Exception as e:
     logger.warning(f"AMO not available: {e}")
 

@@ -55,6 +55,11 @@ class HybridReader:
         # relationships, unused_columns, report_dependencies
         self._max_cache_keys = 10
 
+        # TMDL parse cache: (file_path, mtime) -> parsed result
+        # Avoids re-reading and re-parsing the same TMDL files on repeated calls
+        self._tmdl_parse_cache: Dict[str, Any] = {}
+        self._tmdl_max_entries = 50
+
     def read_metadata(self) -> Dict[str, Any]:
         """
         Read metadata.json (supports both formats)
@@ -370,6 +375,53 @@ class HybridReader:
 
         return self._cache["report_dependencies"]
 
+    def _get_tmdl_measures(self, tmdl_path: Path) -> list:
+        """Get parsed measures from a TMDL file with mtime-based caching."""
+        return self._cached_tmdl_parse(tmdl_path, "measures", TMDLParser.parse_all_measures)
+
+    def _get_tmdl_columns(self, tmdl_path: Path) -> list:
+        """Get parsed columns from a TMDL file with mtime-based caching."""
+        return self._cached_tmdl_parse(tmdl_path, "columns", TMDLParser.parse_all_columns)
+
+    def _get_tmdl_metadata(self, tmdl_path: Path) -> dict:
+        """Get parsed table metadata from a TMDL file with mtime-based caching."""
+        return self._cached_tmdl_parse(tmdl_path, "metadata", TMDLParser.parse_table_metadata)
+
+    def _cached_tmdl_parse(self, tmdl_path: Path, parse_type: str, parser_func):
+        """Read and parse a TMDL file with mtime-based caching.
+
+        Args:
+            tmdl_path: Absolute path to the TMDL file
+            parse_type: Cache key suffix ('measures', 'columns', 'metadata')
+            parser_func: TMDLParser static method to call on the content
+
+        Returns:
+            Parsed result from parser_func
+        """
+        try:
+            mtime = tmdl_path.stat().st_mtime
+        except OSError:
+            # File doesn't exist or can't be stat'd - parse without caching
+            content = tmdl_path.read_text(encoding='utf-8')
+            return parser_func(content)
+
+        cache_key = f"{tmdl_path}:{parse_type}:{mtime}"
+        if cache_key in self._tmdl_parse_cache:
+            return self._tmdl_parse_cache[cache_key]
+
+        content = tmdl_path.read_text(encoding='utf-8')
+        result = parser_func(content)
+
+        # Evict oldest entries if cache is full
+        if len(self._tmdl_parse_cache) >= self._tmdl_max_entries:
+            # Remove first 10 entries (oldest insertions in dict order)
+            keys_to_remove = list(self._tmdl_parse_cache.keys())[:10]
+            for k in keys_to_remove:
+                del self._tmdl_parse_cache[k]
+
+        self._tmdl_parse_cache[cache_key] = result
+        return result
+
     def read_tmdl_file(self, relative_path: str) -> str:
         """
         Read TMDL file content
@@ -576,10 +628,11 @@ class HybridReader:
                     tmdl_path = table.get("tmdl_path", "").replace("tmdl/", "")
                     if tmdl_path and self.tmdl_dir.exists():
                         tmdl_content = self.read_tmdl_file(tmdl_path)
-                        # Parse table TMDL
-                        parsed = TMDLParser.parse_table_metadata(tmdl_content)
-                        columns = TMDLParser.parse_all_columns(tmdl_content)
-                        measures = TMDLParser.parse_all_measures(tmdl_content)
+                        tmdl_abs = (self.tmdl_dir / tmdl_path).resolve()
+                        # Parse table TMDL (cached)
+                        parsed = self._get_tmdl_metadata(tmdl_abs)
+                        columns = self._get_tmdl_columns(tmdl_abs)
+                        measures = self._get_tmdl_measures(tmdl_abs)
 
                         return {
                             "name": object_name,
@@ -917,10 +970,8 @@ class HybridReader:
             if expr_path.exists():
                 logger.debug(f"Searching for measure in {expr_path}")
                 try:
-                    content = expr_path.read_text(encoding='utf-8')
                     if use_pattern:
-                        # Search all measures for pattern match
-                        all_measures = TMDLParser.parse_all_measures(content)
+                        all_measures = self._get_tmdl_measures(expr_path)
                         import re
                         pattern = re.compile(measure_name, re.IGNORECASE)
                         for measure in all_measures:
@@ -928,6 +979,7 @@ class HybridReader:
                                 logger.info(f"Found measure '{measure['name']}' matching pattern '{measure_name}'")
                                 return measure
                     else:
+                        content = expr_path.read_text(encoding='utf-8')
                         measure_def = TMDLParser.parse_measure(content, measure_name)
                         if measure_def:
                             logger.info(f"Found measure '{measure_name}' in expressions.tmdl")
@@ -946,10 +998,8 @@ class HybridReader:
                 logger.debug(f"Searching for measure in {tables_dir}")
                 for table_file in tables_dir.glob("*.tmdl"):
                     try:
-                        content = table_file.read_text(encoding='utf-8')
                         if use_pattern:
-                            # Search all measures for pattern match
-                            all_measures = TMDLParser.parse_all_measures(content)
+                            all_measures = self._get_tmdl_measures(table_file)
                             import re
                             pattern = re.compile(measure_name, re.IGNORECASE)
                             for measure in all_measures:
@@ -958,6 +1008,7 @@ class HybridReader:
                                     logger.info(f"Found measure '{measure['name']}' in {table_file.name}")
                                     return measure
                         else:
+                            content = table_file.read_text(encoding='utf-8')
                             measure_def = TMDLParser.parse_measure(content, measure_name)
                             if measure_def:
                                 measure_def["table"] = table_file.stem
@@ -1000,8 +1051,7 @@ class HybridReader:
         for expr_path in expr_paths:
             if expr_path.exists():
                 try:
-                    content = expr_path.read_text(encoding='utf-8')
-                    all_measures = TMDLParser.parse_all_measures(content)
+                    all_measures = self._get_tmdl_measures(expr_path)
                     for measure in all_measures:
                         if regex_pattern.search(measure["name"]):
                             measure["table"] = "Model"
@@ -1020,8 +1070,7 @@ class HybridReader:
             if tables_dir.exists():
                 for table_file in tables_dir.glob("*.tmdl"):
                     try:
-                        content = table_file.read_text(encoding='utf-8')
-                        all_measures = TMDLParser.parse_all_measures(content)
+                        all_measures = self._get_tmdl_measures(table_file)
                         for measure in all_measures:
                             if regex_pattern.search(measure["name"]):
                                 measure["table"] = table_file.stem
@@ -1061,8 +1110,7 @@ class HybridReader:
             if expr_path.exists():
                 logger.debug(f"Reading shared measures from {expr_path}")
                 try:
-                    content = expr_path.read_text(encoding='utf-8')
-                    measures = TMDLParser.parse_all_measures(content)
+                    measures = self._get_tmdl_measures(expr_path)
                     for measure in measures:
                         measure["table"] = "Model"  # Shared measures
                     all_measures.extend(measures)
@@ -1083,8 +1131,7 @@ class HybridReader:
                 table_count = 0
                 for table_file in tables_dir.glob("*.tmdl"):
                     try:
-                        content = table_file.read_text(encoding='utf-8')
-                        measures = TMDLParser.parse_all_measures(content)
+                        measures = self._get_tmdl_measures(table_file)
                         for measure in measures:
                             measure["table"] = table_file.stem
                         all_measures.extend(measures)

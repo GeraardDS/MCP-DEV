@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
+from core.utilities.json_utils import load_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -132,8 +134,7 @@ class PBIPReader:
         item_metadata = {}
         if metadata_file.exists():
             try:
-                with open(metadata_file, 'r', encoding='utf-8') as f:
-                    item_metadata = json.load(f)
+                item_metadata = load_json(metadata_file)
             except Exception as e:
                 logger.warning(f"Could not parse item.metadata.json: {e}")
 

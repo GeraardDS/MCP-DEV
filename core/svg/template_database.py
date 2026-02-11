@@ -4,11 +4,12 @@ SVG Template Database - Load and manage SVG templates
 This module provides template loading, caching, and retrieval for SVG visuals.
 Templates are stored as JSON files organized by category.
 """
-import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+
+from core.utilities.json_utils import load_json
 
 logger = logging.getLogger(__name__)
 
@@ -201,8 +202,7 @@ class TemplateDatabase:
 
     def _load_template_file(self, file_path: Path) -> List[SVGTemplate]:
         """Load templates from a single JSON file"""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        data = load_json(file_path)
 
         # Support both single template and array of templates
         if 'templates' in data:

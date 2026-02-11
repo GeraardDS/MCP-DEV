@@ -21,19 +21,8 @@ class CalculationGroupManager:
     def _connect_amo_server_db(self):
         """Open a TOM Server using the ADOMD connection string and return (server, db, TabularModule) or (None, None, None)."""
         try:
-            import clr  # type: ignore
-            import os as _os
-            script_dir = _os.path.dirname(_os.path.abspath(__file__))
-            # Go up from core/operations -> core -> root
-            parent_dir = _os.path.dirname(script_dir)  # core
-            root_dir = _os.path.dirname(parent_dir)     # root
-            dll_folder = _os.path.join(root_dir, "lib", "dotnet")
-            core_dll = _os.path.join(dll_folder, "Microsoft.AnalysisServices.Core.dll")
-            tabular_dll = _os.path.join(dll_folder, "Microsoft.AnalysisServices.Tabular.dll")
-            if _os.path.exists(core_dll):
-                clr.AddReference(core_dll)  # type: ignore[attr-defined]
-            if _os.path.exists(tabular_dll):
-                clr.AddReference(tabular_dll)  # type: ignore[attr-defined]
+            from core.infrastructure.dll_paths import load_amo_assemblies
+            load_amo_assemblies()
             import Microsoft.AnalysisServices.Tabular as Tabular  # type: ignore
             server = Tabular.Server()
             conn_str = getattr(self.connection, 'ConnectionString', None)

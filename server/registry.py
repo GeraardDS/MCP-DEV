@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class ToolCategory(Enum):
     """Tool categories for dynamic loading"""
-    CORE = "core"              # Always loaded (connection, help, discovery)
+    CORE = "core"              # Always loaded (connection, help)
     MODEL = "model"            # Table, column, measure, relationship, calc group, role ops
     BATCH = "batch"            # Batch operations & transactions
     QUERY = "query"            # DAX, search, data sources
@@ -32,7 +32,6 @@ CATEGORY_TOOLS = {
         "01_Detect_PBI_Instances",
         "01_Connect_To_Instance",
         "10_Show_User_Guide",
-        "10_Discover_Tools",
     ],
     ToolCategory.MODEL: [
         "02_Table_Operations",
@@ -94,6 +93,13 @@ CATEGORY_TOOLS = {
     ],
 }
 
+
+# Pre-computed reverse lookup: tool_name -> ToolCategory (O(1) instead of O(n*m))
+_TOOL_TO_CATEGORY = {
+    tool_name: category
+    for category, tools in CATEGORY_TOOLS.items()
+    for tool_name in tools
+}
 
 # Category descriptions for discovery
 CATEGORY_INFO = {
@@ -158,11 +164,9 @@ class HandlerRegistry:
             self._categories[tool_def.category] = []
         self._categories[tool_def.category].append(tool_def.name)
 
-        # Build reverse lookup index: tool_name -> ToolCategory
-        for category, tools in CATEGORY_TOOLS.items():
-            if tool_def.name in tools:
-                self._tool_to_category[tool_def.name] = category
-                break
+        # Reverse lookup index: tool_name -> ToolCategory
+        if tool_def.name in _TOOL_TO_CATEGORY:
+            self._tool_to_category[tool_def.name] = _TOOL_TO_CATEGORY[tool_def.name]
 
         # Invalidate cached total_tools count
         self._total_tools = None
@@ -256,7 +260,6 @@ class HandlerRegistry:
     def get_discovery_info(self) -> Dict[str, Any]:
         """
         Get minimal discovery info for all tools.
-        Used by 10_Discover_Tools to provide category overview without loading full schemas.
         """
         categories = []
         for cat in ToolCategory:
@@ -277,7 +280,6 @@ class HandlerRegistry:
             "total_tools": self._total_tools,
             "categories": categories,
             "deferred_mode": self._deferred_mode,
-            "hint": "Use 10_Discover_Tools with category param to load specific tools"
         }
 
     def get_category_tools_info(self, category: ToolCategory) -> Dict[str, Any]:

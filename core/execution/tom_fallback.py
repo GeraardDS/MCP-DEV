@@ -6,21 +6,8 @@ logger = logging.getLogger(__name__)
 
 AMO_AVAILABLE = False
 try:
-    import clr
-    import os
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    core_dir = os.path.dirname(script_dir)
-    root_dir = os.path.dirname(core_dir)
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-    core_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Core.dll")
-    amo_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.dll")
-    tabular_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Tabular.dll")
-    if os.path.exists(core_dll):
-        clr.AddReference(core_dll)
-    if os.path.exists(amo_dll):
-        clr.AddReference(amo_dll)
-    if os.path.exists(tabular_dll):
-        clr.AddReference(tabular_dll)
+    from core.infrastructure.dll_paths import load_amo_assemblies
+    load_amo_assemblies()
     from Microsoft.AnalysisServices.Tabular import Server as AMOServer
     AMO_AVAILABLE = True
 except Exception as e:

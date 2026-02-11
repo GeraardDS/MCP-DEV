@@ -722,8 +722,238 @@ def _configure_single_select_all(visual_data: Dict) -> Dict:
     return visual_data
 
 
+def _op_list_slicers(args: Dict[str, Any], definition_path: Path,
+                     display_name, entity, property_name) -> Dict[str, Any]:
+    """List slicers with their current configuration."""
+    slicers = _find_slicers(definition_path, display_name, entity, property_name)
+
+    if not slicers:
+        return {
+            'success': True,
+            'message': 'No slicers found matching the criteria',
+            'slicers': [],
+            'count': 0
+        }
+
+    summary_only = args.get('summary_only', True)
+
+    if summary_only:
+        condensed_slicers = []
+        for slicer in slicers:
+            condensed = {
+                'display_name': slicer['display_name'],
+                'page_name': slicer.get('page_name', ''),
+                'field_reference': slicer['field_reference'],
+                'selection_mode': slicer['selection_mode'],
+                'visual_name': slicer['visual_name']
+            }
+            if slicer.get('selected_values_count', 0) > 0:
+                condensed['selected_count'] = slicer['selected_values_count']
+            condensed_slicers.append(condensed)
+
+        return {
+            'success': True,
+            'slicers': condensed_slicers,
+            'count': len(slicers),
+            'hint': 'Use summary_only=false for full details including file paths'
+        }
+
+    return {
+        'success': True,
+        'message': f'Found {len(slicers)} slicer(s) matching criteria',
+        'slicers': slicers,
+        'count': len(slicers)
+    }
+
+
+def _op_configure_single_select(args: Dict[str, Any], definition_path: Path,
+                                display_name, entity, property_name) -> Dict[str, Any]:
+    """Configure slicers for single-select mode."""
+    slicers = _find_slicers(definition_path, display_name, entity, property_name)
+
+    if not slicers:
+        return {
+            'success': False,
+            'error': 'No slicers found matching the criteria. Use operation "list" to see available slicers.'
+        }
+
+    dry_run = args.get('dry_run', False)
+    changes = []
+    errors = []
+
+    for slicer in slicers:
+        file_path = Path(slicer['file_path'])
+        before_mode = slicer['selection_mode']
+
+        if dry_run:
+            status = 'would_change' if before_mode != 'single_select_all' else 'already_configured'
+            changes.append({
+                'display_name': slicer['display_name'],
+                'page_name': slicer.get('page_name', ''),
+                'field_reference': slicer['field_reference'],
+                'before_mode': before_mode,
+                'after_mode': 'single_select_all',
+                'status': status
+            })
+        else:
+            visual_data = _load_json_file(file_path)
+            if not visual_data:
+                errors.append({'file_path': str(file_path), 'error': 'Failed to load visual.json'})
+                continue
+
+            modified_data = _configure_single_select_all(visual_data)
+
+            if _save_json_file(file_path, modified_data):
+                changes.append({
+                    'display_name': slicer['display_name'],
+                    'page_name': slicer.get('page_name', ''),
+                    'field_reference': slicer['field_reference'],
+                    'before_mode': before_mode,
+                    'after_mode': 'single_select_all',
+                    'status': 'changed'
+                })
+            else:
+                errors.append({'file_path': str(file_path), 'error': 'Failed to save changes'})
+
+    result = {
+        'success': len(errors) == 0,
+        'operation': 'configure_single_select',
+        'dry_run': dry_run,
+        'message': f'{"Would modify" if dry_run else "Modified"} {len(changes)} slicer(s)',
+        'changes': changes,
+        'changes_count': len(changes)
+    }
+
+    if errors:
+        result['errors'] = errors
+        result['errors_count'] = len(errors)
+        result['message'] += f' with {len(errors)} error(s)'
+
+    return result
+
+
+def _op_list_interactions(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """List visual interactions from page.json files."""
+    result = _find_interactions(
+        definition_path,
+        page_name=args.get('page_name'),
+        source_visual=args.get('source_visual'),
+        target_visual=args.get('target_visual'),
+        interaction_type=args.get('interaction_type'),
+        include_visual_info=args.get('include_visual_info', True)
+    )
+
+    if result['total_interactions'] == 0:
+        return {
+            'success': True,
+            'message': 'No visual interactions found matching the criteria',
+            'pages': [],
+            'total_interactions': 0,
+            'hint': 'Visual interactions define cross-filtering behavior. Default behavior is "Filter" - NoFilter/Highlight are only stored when explicitly set.'
+        }
+
+    summary_only = args.get('summary_only', True)
+    if summary_only:
+        summary_pages = []
+        for page in result['pages']:
+            type_counts = {}
+            for interaction in page['interactions']:
+                int_type = interaction.get('type', 'Unknown')
+                type_counts[int_type] = type_counts.get(int_type, 0) + 1
+
+            summary_pages.append({
+                'page_name': page['page_name'],
+                'interaction_count': page['interaction_count'],
+                'by_type': type_counts,
+            })
+
+        return {
+            'success': True,
+            'pages': summary_pages,
+            'total_interactions': result['total_interactions'],
+            'page_count': result['page_count'],
+            'hint': 'Use page_name filter and summary_only=false to see individual interactions'
+        }
+
+    MAX_INTERACTIONS_PER_PAGE = 25
+    capped_pages = []
+    for page in result['pages']:
+        page_copy = dict(page)
+        if len(page_copy['interactions']) > MAX_INTERACTIONS_PER_PAGE:
+            page_copy['interactions'] = page_copy['interactions'][:MAX_INTERACTIONS_PER_PAGE]
+            page_copy['truncated'] = True
+        capped_pages.append(page_copy)
+
+    return {
+        'success': True,
+        'pages': capped_pages,
+        'total_interactions': result['total_interactions'],
+        'page_count': result['page_count']
+    }
+
+
+def _op_set_interaction(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Set a single interaction between two visuals."""
+    page_name_param = args.get('page_name')
+    source_visual = args.get('source_visual')
+    target_visual = args.get('target_visual')
+    interaction_type = args.get('interaction_type')
+    dry_run = args.get('dry_run', False)
+
+    if not all([page_name_param, source_visual, target_visual, interaction_type]):
+        return {
+            'success': False,
+            'error': 'set_interaction requires: page_name, source_visual, target_visual, interaction_type'
+        }
+
+    if dry_run:
+        return {
+            'success': True,
+            'dry_run': True,
+            'message': f'Would set interaction: {source_visual} -> {target_visual} = {interaction_type} on page matching "{page_name_param}"'
+        }
+
+    return _set_interaction(
+        definition_path,
+        page_name=page_name_param,
+        source_visual=source_visual,
+        target_visual=target_visual,
+        interaction_type=interaction_type
+    )
+
+
+def _op_bulk_set_interactions(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Set multiple interactions at once."""
+    page_name_param = args.get('page_name')
+    interactions_list = args.get('interactions', [])
+    replace_all = args.get('replace_all', False)
+    dry_run = args.get('dry_run', False)
+
+    if not page_name_param:
+        return {'success': False, 'error': 'bulk_set_interactions requires: page_name'}
+
+    if not interactions_list:
+        return {'success': False, 'error': 'bulk_set_interactions requires: interactions (array of {source, target, type})'}
+
+    if dry_run:
+        return {
+            'success': True,
+            'dry_run': True,
+            'message': f'Would set {len(interactions_list)} interaction(s) on page matching "{page_name_param}"',
+            'replace_all': replace_all,
+            'interactions_preview': interactions_list[:5] if len(interactions_list) > 5 else interactions_list
+        }
+
+    return _bulk_set_interactions(
+        definition_path,
+        page_name=page_name_param,
+        interactions=interactions_list,
+        replace_all=replace_all
+    )
+
+
 def handle_slicer_operations(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle slicer configuration operations"""
+    """Handle slicer configuration operations - dispatches to per-operation functions."""
     operation = args.get('operation', 'list')
     pbip_path = args.get('pbip_path')
 
@@ -733,7 +963,6 @@ def handle_slicer_operations(args: Dict[str, Any]) -> Dict[str, Any]:
             'error': 'pbip_path parameter is required - path to PBIP project, .Report folder, or definition folder'
         }
 
-    # Find definition folder
     definition_path = _find_definition_folder(pbip_path)
     if not definition_path:
         return {
@@ -741,283 +970,25 @@ def handle_slicer_operations(args: Dict[str, Any]) -> Dict[str, Any]:
             'error': f'Could not find definition folder in: {pbip_path}. Ensure path points to a valid PBIP project.'
         }
 
-    # Get filter parameters
     display_name = args.get('display_name')
     entity = args.get('entity')
     property_name = args.get('property')
 
     if operation == 'list':
-        # Find and list slicers with their current configuration
-        slicers = _find_slicers(definition_path, display_name, entity, property_name)
-
-        if not slicers:
-            return {
-                'success': True,
-                'message': 'No slicers found matching the criteria',
-                'slicers': [],
-                'count': 0
-            }
-
-        # Check for summary_only mode (default: True to reduce response size)
-        summary_only = args.get('summary_only', True)
-
-        if summary_only:
-            # Return condensed slicer info to reduce response size
-            condensed_slicers = []
-            for slicer in slicers:
-                condensed = {
-                    'display_name': slicer['display_name'],
-                    'page_name': slicer.get('page_name', ''),
-                    'field_reference': slicer['field_reference'],
-                    'selection_mode': slicer['selection_mode'],
-                    'visual_name': slicer['visual_name']  # Needed for configure operation
-                }
-                # Only include selected values info if there are any
-                if slicer.get('selected_values_count', 0) > 0:
-                    condensed['selected_count'] = slicer['selected_values_count']
-                condensed_slicers.append(condensed)
-
-            return {
-                'success': True,
-                'slicers': condensed_slicers,
-                'count': len(slicers),
-                'hint': 'Use summary_only=false for full details including file paths'
-            }
-
-        return {
-            'success': True,
-            'message': f'Found {len(slicers)} slicer(s) matching criteria',
-            'slicers': slicers,
-            'count': len(slicers)
-        }
-
+        return _op_list_slicers(args, definition_path, display_name, entity, property_name)
     elif operation == 'configure_single_select':
-        # Find matching slicers
-        slicers = _find_slicers(definition_path, display_name, entity, property_name)
-
-        if not slicers:
-            return {
-                'success': False,
-                'error': 'No slicers found matching the criteria. Use operation "list" to see available slicers.'
-            }
-
-        # Check for dry_run mode
-        dry_run = args.get('dry_run', False)
-
-        changes = []
-        errors = []
-
-        for slicer in slicers:
-            file_path = Path(slicer['file_path'])
-
-            # Capture before state
-            before_state = {
-                'selection_mode': slicer['selection_mode'],
-                'single_select': slicer['single_select'],
-                'strict_single_select': slicer['strict_single_select'],
-                'select_all_checkbox': slicer['select_all_checkbox'],
-                'is_inverted_selection': slicer['is_inverted_selection'],
-                'selected_values': slicer['selected_values'],
-                'has_filter': slicer['has_filter']
-            }
-
-            if dry_run:
-                # Just report what would change - condensed format
-                status = 'would_change' if before_state['selection_mode'] != 'single_select_all' else 'already_configured'
-                changes.append({
-                    'display_name': slicer['display_name'],
-                    'page_name': slicer.get('page_name', ''),
-                    'field_reference': slicer['field_reference'],
-                    'before_mode': before_state['selection_mode'],
-                    'after_mode': 'single_select_all',
-                    'status': status
-                })
-            else:
-                # Load, modify, and save
-                visual_data = _load_json_file(file_path)
-                if not visual_data:
-                    errors.append({
-                        'file_path': str(file_path),
-                        'error': 'Failed to load visual.json'
-                    })
-                    continue
-
-                # Apply configuration
-                modified_data = _configure_single_select_all(visual_data)
-
-                # Save changes
-                if _save_json_file(file_path, modified_data):
-                    changes.append({
-                        'display_name': slicer['display_name'],
-                        'page_name': slicer.get('page_name', ''),
-                        'field_reference': slicer['field_reference'],
-                        'before_mode': before_state['selection_mode'],
-                        'after_mode': 'single_select_all',
-                        'status': 'changed'
-                    })
-                else:
-                    errors.append({
-                        'file_path': str(file_path),
-                        'error': 'Failed to save changes'
-                    })
-
-        result = {
-            'success': len(errors) == 0,
-            'operation': 'configure_single_select',
-            'dry_run': dry_run,
-            'message': f'{"Would modify" if dry_run else "Modified"} {len(changes)} slicer(s)',
-            'changes': changes,
-            'changes_count': len(changes)
-        }
-
-        if errors:
-            result['errors'] = errors
-            result['errors_count'] = len(errors)
-            result['message'] += f' with {len(errors)} error(s)'
-
-        return result
-
+        return _op_configure_single_select(args, definition_path, display_name, entity, property_name)
     elif operation == 'list_interactions':
-        # List visual interactions from page.json files
-        page_name_filter = args.get('page_name')
-        source_visual = args.get('source_visual')
-        target_visual = args.get('target_visual')
-        interaction_type = args.get('interaction_type')
-        include_visual_info = args.get('include_visual_info', True)
-        summary_only = args.get('summary_only', True)
-
-        result = _find_interactions(
-            definition_path,
-            page_name=page_name_filter,
-            source_visual=source_visual,
-            target_visual=target_visual,
-            interaction_type=interaction_type,
-            include_visual_info=include_visual_info
-        )
-
-        if result['total_interactions'] == 0:
-            return {
-                'success': True,
-                'message': 'No visual interactions found matching the criteria',
-                'pages': [],
-                'total_interactions': 0,
-                'hint': 'Visual interactions define cross-filtering behavior. Default behavior is "Filter" - NoFilter/Highlight are only stored when explicitly set.'
-            }
-
-        # Summary mode: type counts per page only (no individual interactions)
-        if summary_only:
-            summary_pages = []
-            for page in result['pages']:
-                type_counts = {}
-                for interaction in page['interactions']:
-                    int_type = interaction.get('type', 'Unknown')
-                    type_counts[int_type] = type_counts.get(int_type, 0) + 1
-
-                summary_pages.append({
-                    'page_name': page['page_name'],
-                    'interaction_count': page['interaction_count'],
-                    'by_type': type_counts,
-                })
-
-            return {
-                'success': True,
-                'pages': summary_pages,
-                'total_interactions': result['total_interactions'],
-                'page_count': result['page_count'],
-                'hint': 'Use page_name filter and summary_only=false to see individual interactions'
-            }
-
-        # Full mode: cap interactions per page
-        MAX_INTERACTIONS_PER_PAGE = 25
-        capped_pages = []
-        for page in result['pages']:
-            page_copy = dict(page)
-            if len(page_copy['interactions']) > MAX_INTERACTIONS_PER_PAGE:
-                page_copy['interactions'] = page_copy['interactions'][:MAX_INTERACTIONS_PER_PAGE]
-                page_copy['truncated'] = True
-            capped_pages.append(page_copy)
-
-        return {
-            'success': True,
-            'pages': capped_pages,
-            'total_interactions': result['total_interactions'],
-            'page_count': result['page_count']
-        }
-
+        return _op_list_interactions(args, definition_path)
     elif operation == 'set_interaction':
-        # Set a single interaction between two visuals
-        page_name_param = args.get('page_name')
-        source_visual = args.get('source_visual')
-        target_visual = args.get('target_visual')
-        interaction_type = args.get('interaction_type')
-        dry_run = args.get('dry_run', False)
-
-        # Validate required parameters
-        if not all([page_name_param, source_visual, target_visual, interaction_type]):
-            return {
-                'success': False,
-                'error': 'set_interaction requires: page_name, source_visual, target_visual, interaction_type'
-            }
-
-        if dry_run:
-            return {
-                'success': True,
-                'dry_run': True,
-                'message': f'Would set interaction: {source_visual} -> {target_visual} = {interaction_type} on page matching "{page_name_param}"'
-            }
-
-        result = _set_interaction(
-            definition_path,
-            page_name=page_name_param,
-            source_visual=source_visual,
-            target_visual=target_visual,
-            interaction_type=interaction_type
-        )
-
-        return result
-
+        return _op_set_interaction(args, definition_path)
     elif operation == 'bulk_set_interactions':
-        # Set multiple interactions at once
-        page_name_param = args.get('page_name')
-        interactions_list = args.get('interactions', [])
-        replace_all = args.get('replace_all', False)
-        dry_run = args.get('dry_run', False)
+        return _op_bulk_set_interactions(args, definition_path)
 
-        if not page_name_param:
-            return {
-                'success': False,
-                'error': 'bulk_set_interactions requires: page_name'
-            }
-
-        if not interactions_list:
-            return {
-                'success': False,
-                'error': 'bulk_set_interactions requires: interactions (array of {source, target, type})'
-            }
-
-        if dry_run:
-            return {
-                'success': True,
-                'dry_run': True,
-                'message': f'Would set {len(interactions_list)} interaction(s) on page matching "{page_name_param}"',
-                'replace_all': replace_all,
-                'interactions_preview': interactions_list[:5] if len(interactions_list) > 5 else interactions_list
-            }
-
-        result = _bulk_set_interactions(
-            definition_path,
-            page_name=page_name_param,
-            interactions=interactions_list,
-            replace_all=replace_all
-        )
-
-        return result
-
-    else:
-        return {
-            'success': False,
-            'error': f'Unknown operation: {operation}. Valid operations: list, configure_single_select, list_interactions, set_interaction, bulk_set_interactions'
-        }
+    return {
+        'success': False,
+        'error': f'Unknown operation: {operation}. Valid operations: list, configure_single_select, list_interactions, set_interaction, bulk_set_interactions'
+    }
 
 
 def register_slicer_operations_handler(registry):

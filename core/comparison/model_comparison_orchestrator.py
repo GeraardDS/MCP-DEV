@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional
 from core.comparison.model_diff_engine import ModelDiffer
 from core.comparison.model_diff_report_v2 import ModelDiffReportV2
 from core.infrastructure.multi_instance_manager import multi_instance_manager
+from core.utilities.json_utils import load_json
 
 logger = logging.getLogger(__name__)
 
@@ -163,13 +164,11 @@ class ModelComparisonOrchestrator:
             # Step 3: Load TMDL structures from exported JSON files
             logger.info("Loading TMDL structures from files...")
 
-            with open(tmdl_export1['export_file'], 'r', encoding='utf-8') as f:
-                export1_data = json.load(f)
-                model1 = export1_data['tmdl']
+            export1_data = load_json(tmdl_export1['export_file'])
+            model1 = export1_data['tmdl']
 
-            with open(tmdl_export2['export_file'], 'r', encoding='utf-8') as f:
-                export2_data = json.load(f)
-                model2 = export2_data['tmdl']
+            export2_data = load_json(tmdl_export2['export_file'])
+            model2 = export2_data['tmdl']
 
             # Convert tables dict to list (differ expects list format)
             if isinstance(model1.get('tables'), dict):

@@ -731,23 +731,10 @@ class DependencyAnalyzer:
             visited = set()
             column_nodes = set()  # Track which nodes are columns
 
+            from core.utilities.mermaid_utils import sanitize_node_id as _sanitize_node_id
+
             def sanitize_node_id(name: str, prefix: str = "M") -> str:
-                """Convert name to valid Mermaid node ID (alphanumeric and underscores only)"""
-                import re
-                clean = name.replace("[", "_").replace("]", "").replace(" ", "_")
-                clean = clean.replace("-", "_").replace("/", "_").replace("\\", "_")
-                clean = clean.replace("(", "_").replace(")", "_").replace("%", "pct")
-                clean = clean.replace("&", "and").replace("'", "").replace('"', "")
-                clean = clean.replace(".", "_").replace(",", "_").replace(":", "_")
-                clean = clean.replace("+", "plus").replace("*", "x").replace("=", "eq")
-                clean = clean.replace("<", "lt").replace(">", "gt").replace("!", "not")
-                clean = clean.replace("#", "num").replace("@", "at").replace("$", "dollar")
-                # Remove any remaining non-alphanumeric chars except underscore
-                clean = re.sub(r'[^a-zA-Z0-9_]', '', clean)
-                # Collapse multiple underscores
-                clean = re.sub(r'_+', '_', clean)
-                clean = clean.strip("_")
-                return f"{prefix}_{clean}" if clean else f"{prefix}_node"
+                return _sanitize_node_id(name, prefix=prefix)
 
             def get_table_type(tbl_name: str) -> str:
                 """Determine table type hint based on naming convention"""
@@ -771,38 +758,13 @@ class DependencyAnalyzer:
                 nodes_by_table[tbl].append((node_key, node_name, node_type))
 
             # Build measure name lookup for resolving unqualified references
-            # Use multiple key formats for robust matching
-            measure_name_to_table = {}
+            from core.utilities.mermaid_utils import build_measure_name_lookup, resolve_measure_table as _resolve
             measures_result = self.query_executor.execute_info_query("MEASURES")
-            if measures_result.get('success'):
-                for m in measures_result.get('rows', []):
-                    m_table = m.get('Table', '') or m.get('[Table]', '') or ''
-                    m_name = m.get('Name', '') or m.get('[Name]', '') or ''
-                    if m_table and m_name:
-                        # Store by multiple key formats for robust matching
-                        measure_name_to_table[m_name.lower()] = m_table
-                        measure_name_to_table[' '.join(m_name.lower().split())] = m_table  # normalized whitespace
-                        measure_name_to_table[m_name] = m_table  # exact match
-                logger.debug(f"Built measure lookup with {len(measure_name_to_table)} entries for {len(measures_result.get('rows', []))} measures")
+            measure_name_to_table = build_measure_name_lookup(measures_result)
+            logger.debug(f"Built measure lookup with {len(measure_name_to_table)} entries for {len(measures_result.get('rows', []))} measures")
 
             def resolve_measure_table(dep_tbl: str, dep_name: str) -> str:
-                """Resolve table name for a measure, using lookup if needed."""
-                if dep_tbl:
-                    return dep_tbl
-                # Try multiple lookup strategies
-                if dep_name:
-                    # Try exact match first
-                    if dep_name in measure_name_to_table:
-                        return measure_name_to_table[dep_name]
-                    # Try lowercase
-                    if dep_name.lower() in measure_name_to_table:
-                        return measure_name_to_table[dep_name.lower()]
-                    # Try normalized (lowercase + collapsed whitespace)
-                    normalized = ' '.join(dep_name.lower().split())
-                    if normalized in measure_name_to_table:
-                        return measure_name_to_table[normalized]
-                    logger.warning(f"Could not resolve table for measure [{dep_name}]")
-                return 'Unknown'
+                return _resolve(dep_tbl, dep_name, measure_name_to_table)
 
             if direction == "upstream":
                 # Get what this measure depends on
@@ -1055,62 +1017,19 @@ class DependencyAnalyzer:
             visited_upstream = set()
             visited_downstream = set()
 
-            def sanitize_node_id(name: str) -> str:
-                """Sanitize node ID to only contain alphanumeric and underscore characters."""
-                import re
-                # Replace common special chars with underscore, then remove any remaining invalid chars
-                result = name.replace("[", "_").replace("]", "").replace(" ", "_")
-                result = result.replace("-", "_").replace("/", "_").replace("\\", "_")
-                result = result.replace("(", "_").replace(")", "_").replace("%", "pct")
-                result = result.replace("&", "and").replace("'", "").replace('"', "")
-                result = result.replace(".", "_").replace(",", "_").replace(":", "_")
-                result = result.replace("+", "plus").replace("*", "x").replace("=", "eq")
-                result = result.replace("<", "lt").replace(">", "gt").replace("!", "not")
-                result = result.replace("#", "num").replace("@", "at").replace("$", "dollar")
-                # Remove any remaining non-alphanumeric chars except underscore
-                result = re.sub(r'[^a-zA-Z0-9_]', '', result)
-                # Collapse multiple underscores
-                result = re.sub(r'_+', '_', result)
-                # Ensure it starts with a letter (Mermaid requirement)
-                if result and not result[0].isalpha():
-                    result = 'n_' + result
-                return result.strip('_') or 'node'
+            from core.utilities.mermaid_utils import sanitize_node_id
 
             def sanitize_label(name: str) -> str:
                 return name.replace('"', '\\"')
 
             # Build measure name lookup for resolving unqualified references
-            # Use multiple key formats for robust matching
-            measure_name_to_table = {}
+            from core.utilities.mermaid_utils import build_measure_name_lookup, resolve_measure_table as _resolve_impact
             measures_result = self.query_executor.execute_info_query("MEASURES")
-            if measures_result.get('success'):
-                for m in measures_result.get('rows', []):
-                    m_table = m.get('Table', '') or m.get('[Table]', '') or ''
-                    m_name = m.get('Name', '') or m.get('[Name]', '') or ''
-                    if m_table and m_name:
-                        # Store by multiple key formats for robust matching
-                        measure_name_to_table[m_name.lower()] = m_table
-                        measure_name_to_table[' '.join(m_name.lower().split())] = m_table
-                        measure_name_to_table[m_name] = m_table
-                logger.debug(f"Impact mermaid: Built lookup with {len(measure_name_to_table)} entries")
+            measure_name_to_table = build_measure_name_lookup(measures_result)
+            logger.debug(f"Impact mermaid: Built lookup with {len(measure_name_to_table)} entries")
 
             def resolve_table(dep_tbl: str, dep_name: str) -> str:
-                """Resolve table name for a measure, using lookup if needed."""
-                if dep_tbl:
-                    return dep_tbl
-                if dep_name:
-                    # Try exact match first
-                    if dep_name in measure_name_to_table:
-                        return measure_name_to_table[dep_name]
-                    # Try lowercase
-                    if dep_name.lower() in measure_name_to_table:
-                        return measure_name_to_table[dep_name.lower()]
-                    # Try normalized
-                    normalized = ' '.join(dep_name.lower().split())
-                    if normalized in measure_name_to_table:
-                        return measure_name_to_table[normalized]
-                    logger.warning(f"Impact mermaid: Could not resolve table for [{dep_name}]")
-                return 'Unknown'
+                return _resolve_impact(dep_tbl, dep_name, measure_name_to_table, context="Impact mermaid")
 
             # Collect upstream (measures AND columns)
             def collect_upstream(tbl: str, msr: str, depth: int):
