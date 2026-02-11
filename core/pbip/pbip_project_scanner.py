@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
+from core.utilities.json_utils import load_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,8 +137,7 @@ class PbipProjectScanner:
             Dictionary with project information or None if parsing fails
         """
         try:
-            with open(pbip_file, 'r', encoding='utf-8') as f:
-                pbip_data = json.load(f)
+            pbip_data = load_json(pbip_file)
 
             # Get project name (filename without extension)
             project_name = os.path.splitext(os.path.basename(pbip_file))[0]

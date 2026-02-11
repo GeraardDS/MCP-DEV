@@ -21,18 +21,11 @@ Server = None
 SaveOptions = None
 
 try:
-    import clr
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(script_dir)  # core
-    root_dir = os.path.dirname(parent_dir)     # root
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-
-    tom_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Tabular.dll")
-    if os.path.exists(tom_dll):
-        clr.AddReference(tom_dll)
-        from Microsoft.AnalysisServices.Tabular import Server, SaveOptions
-        TOM_AVAILABLE = True
-        logger.info("TOM (Tabular Object Model) available for TMDL export")
+    from core.infrastructure.dll_paths import load_amo_assemblies
+    load_amo_assemblies()
+    from Microsoft.AnalysisServices.Tabular import Server, SaveOptions
+    TOM_AVAILABLE = True
+    logger.info("TOM (Tabular Object Model) available for TMDL export")
 except Exception as e:
     logger.warning(f"TOM not available for TMDL export: {e}")
 

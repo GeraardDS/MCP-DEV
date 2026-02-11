@@ -7,6 +7,8 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+from core.utilities.json_utils import load_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,18 +42,16 @@ class ConfigManager:
             # Load default configuration
             default_config_path = os.path.join(self.config_dir, "default_config.json")
             if os.path.exists(default_config_path):
-                with open(default_config_path, 'r') as f:
-                    self.config = json.load(f)
+                self.config = load_json(default_config_path)
                 logger.info("Loaded default configuration")
             else:
                 logger.warning(f"Default config not found at {default_config_path}")
                 self.config = self._get_fallback_config()
-            
+
             # Load local overrides if they exist
             local_config_path = os.path.join(self.config_dir, "local_config.json")
             if os.path.exists(local_config_path):
-                with open(local_config_path, 'r') as f:
-                    local_config = json.load(f)
+                local_config = load_json(local_config_path)
                 self._merge_config(self.config, local_config)
                 logger.info("Applied local configuration overrides")
             

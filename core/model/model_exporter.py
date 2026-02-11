@@ -18,26 +18,8 @@ AMO_AVAILABLE = False
 AMOServer = None
 
 try:
-    import clr  # type: ignore
-    import os
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(script_dir)  # core/model
-    root_dir = os.path.dirname(parent_dir)     # core -> need one more level
-    root_dir = os.path.dirname(root_dir)       # root
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-
-    core_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Core.dll")
-    amo_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.dll")
-    tabular_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Tabular.dll")
-
-    if os.path.exists(core_dll):
-        clr.AddReference(core_dll)  # type: ignore[attr-defined]
-    if os.path.exists(amo_dll):
-        clr.AddReference(amo_dll)  # type: ignore[attr-defined]
-    if os.path.exists(tabular_dll):
-        clr.AddReference(tabular_dll)  # type: ignore[attr-defined]
-
+    from core.infrastructure.dll_paths import load_amo_assemblies
+    load_amo_assemblies()
     from Microsoft.AnalysisServices.Tabular import Server as AMOServer  # type: ignore
     AMO_AVAILABLE = True
     logger.info("AMO available for model export")

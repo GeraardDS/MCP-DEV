@@ -65,22 +65,8 @@ def generate_dependency_html(
     referenced_columns = referenced_columns or []
     used_by_measures = used_by_measures or []
 
-    # Helper to create Mermaid-compatible node IDs (must match dependency_analyzer.py)
-    import re
-    def sanitize_node_id(name: str) -> str:
-        result = name.replace("[", "_").replace("]", "").replace(" ", "_")
-        result = result.replace("-", "_").replace("/", "_").replace("\\", "_")
-        result = result.replace("(", "_").replace(")", "_").replace("%", "pct")
-        result = result.replace("&", "and").replace("'", "").replace('"', "")
-        result = result.replace(".", "_").replace(",", "_").replace(":", "_")
-        result = result.replace("+", "plus").replace("*", "x").replace("=", "eq")
-        result = result.replace("<", "lt").replace(">", "gt").replace("!", "not")
-        result = result.replace("#", "num").replace("@", "at").replace("$", "dollar")
-        result = re.sub(r'[^a-zA-Z0-9_]', '', result)
-        result = re.sub(r'_+', '_', result)
-        if result and not result[0].isalpha():
-            result = 'n_' + result
-        return result.strip('_') or 'node'
+    # Helper to create Mermaid-compatible node IDs (shared with dependency_analyzer.py)
+    from core.utilities.mermaid_utils import sanitize_node_id
 
     # Extract ALL node IDs from the mermaid code (includes transitive dependencies)
     # This ensures we catch all levels of dependencies, not just direct ones

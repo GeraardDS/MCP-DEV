@@ -10,12 +10,12 @@ Returns pure data about:
 """
 from typing import Dict, Any, List, Optional
 import logging
-import json
 import os
 import re
 from pathlib import Path
 from server.registry import ToolDefinition
 from core.validation.error_handler import ErrorHandler
+from core.utilities.json_utils import load_json
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +79,7 @@ def _find_definition_folder(pbip_path: str) -> Optional[Path]:
 def _load_json_file(file_path: Path) -> Optional[Dict]:
     """Load JSON file safely"""
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        return load_json(file_path)
     except Exception as e:
         logger.warning(f"Failed to load JSON from {file_path}: {e}")
         return None

@@ -15,18 +15,8 @@ ADOMD_AVAILABLE = False
 AdomdConnection = None
 
 try:
-    import clr
-    import os
-
-    # This file is in core/infrastructure/, go up 2 levels to project root
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    core_dir = os.path.dirname(script_dir)  # core/
-    root_dir = os.path.dirname(core_dir)     # project root
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-
-    adomd_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.AdomdClient.dll")
-    if os.path.exists(adomd_dll):
-        clr.AddReference(adomd_dll)
+    from core.infrastructure.dll_paths import load_adomd_assembly
+    if load_adomd_assembly():
         from Microsoft.AnalysisServices.AdomdClient import AdomdConnection
         ADOMD_AVAILABLE = True
         logger.info("ADOMD.NET available for connections")

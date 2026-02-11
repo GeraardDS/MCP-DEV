@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from typing import Dict, Optional
 
+from core.utilities.json_utils import load_json
+
 logger = logging.getLogger(__name__)
 
 # Pre-compiled regex for WSL path detection (avoids recompiling on every call)
@@ -87,8 +89,7 @@ def load_json_file(file_path: Path) -> Optional[Dict]:
     - PermissionError for access issues
     """
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        return load_json(file_path)
     except json.JSONDecodeError as e:
         logger.warning(f"Invalid JSON in {file_path}: {e}")
         return None

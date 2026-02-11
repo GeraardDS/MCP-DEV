@@ -1,294 +1,183 @@
 """
-TMDL Parser - Parse TMDL files to extract structured data
+TMDL Parser - Facade over UnifiedTmdlParser
 
-Extracts:
-- Measure definitions and DAX expressions
-- Column definitions
-- Relationship details
-- Calculation groups
-- Table metadata
+Provides backward-compatible static methods that parse TMDL string content
+and return camelCase dictionaries, delegating to the canonical UnifiedTmdlParser
+for actual parsing logic.
+
+Consumers: hybrid_reader.py, hybrid_analyzer.py
 """
 
-import re
 import logging
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from pathlib import Path
+
+from core.tmdl.unified_parser import UnifiedTmdlParser
 
 logger = logging.getLogger(__name__)
 
+# Shared parser instance for content-level parsing (no directory needed)
+_parser = UnifiedTmdlParser.__new__(UnifiedTmdlParser)
+
 
 class TMDLParser:
-    """Parser for TMDL (Tabular Model Definition Language) files"""
+    """Facade for TMDL parsing that delegates to UnifiedTmdlParser.
+
+    All methods return camelCase dicts for backward compatibility with
+    hybrid_reader.py and hybrid_analyzer.py consumers.
+    """
 
     @staticmethod
     def parse_measure(tmdl_content: str, measure_name: str) -> Optional[Dict[str, Any]]:
-        """
-        Parse a specific measure from TMDL content
-
-        Args:
-            tmdl_content: TMDL file content
-            measure_name: Name of measure to extract
-
-        Returns:
-            Measure definition dict or None if not found
-        """
-        # Pattern to match measure definition
-        pattern = rf"measure\s+(?:'|`)?{re.escape(measure_name)}(?:'|`)?\s*="
-
-        match = re.search(pattern, tmdl_content, re.IGNORECASE | re.MULTILINE)
-        if not match:
+        """Parse a specific measure from TMDL content."""
+        table = _parser._parse_table_content(tmdl_content)
+        if not table:
             return None
 
-        start_pos = match.start()
-        expr_start = tmdl_content.find('=', start_pos) + 1
+        for m in table.measures:
+            if m.name == measure_name:
+                return _measure_to_camel(m)
 
-        # Find the end of the measure
-        next_measure = re.search(r'\n\s*measure\s+', tmdl_content[expr_start:], re.MULTILINE)
-        next_section = re.search(r'\n\s*(column|hierarchy|partition|annotation)', tmdl_content[expr_start:], re.MULTILINE)
-
-        if next_measure and next_section:
-            end_pos = expr_start + min(next_measure.start(), next_section.start())
-        elif next_measure:
-            end_pos = expr_start + next_measure.start()
-        elif next_section:
-            end_pos = expr_start + next_section.start()
-        else:
-            end_pos = len(tmdl_content)
-
-        expression = tmdl_content[expr_start:end_pos].strip()
-        measure_block = tmdl_content[start_pos:end_pos]
-
-        # Extract properties
-        format_match = re.search(r'formatString:\s*"([^"]*)"', measure_block)
-        desc_match = re.search(r'description:\s*"([^"]*)"', measure_block)
-        folder_match = re.search(r'displayFolder:\s*"([^"]*)"', measure_block)
-        hidden_match = re.search(r'isHidden:\s*(true|false)', measure_block)
-
-        return {
-            "name": measure_name,
-            "expression": expression,
-            "formatString": format_match.group(1) if format_match else None,
-            "description": desc_match.group(1) if desc_match else None,
-            "displayFolder": folder_match.group(1) if folder_match else None,
-            "isHidden": hidden_match.group(1) == 'true' if hidden_match else False
-        }
+        return None
 
     @staticmethod
     def parse_all_measures(tmdl_content: str) -> List[Dict[str, Any]]:
-        """Parse all measures from TMDL content"""
-        measures = []
-        measure_pattern = r"measure\s+(?:'([^']+)'|`([^`]+)`|(\S+))\s*="
-        matches = re.finditer(measure_pattern, tmdl_content, re.MULTILINE)
+        """Parse all measures from TMDL content."""
+        table = _parser._parse_table_content(tmdl_content)
+        if not table:
+            return []
 
-        for match in matches:
-            measure_name = match.group(1) or match.group(2) or match.group(3)
-            measure_def = TMDLParser.parse_measure(tmdl_content, measure_name)
-            if measure_def:
-                measures.append(measure_def)
-
-        logger.info(f"Parsed {len(measures)} measures from TMDL")
-        return measures
+        result = [_measure_to_camel(m) for m in table.measures]
+        logger.info(f"Parsed {len(result)} measures from TMDL")
+        return result
 
     @staticmethod
     def parse_column(tmdl_content: str, column_name: str) -> Optional[Dict[str, Any]]:
-        """Parse a specific column from TMDL content"""
-        pattern = rf"column\s+(?:'|`)?{re.escape(column_name)}(?:'|`)?"
-        match = re.search(pattern, tmdl_content, re.IGNORECASE | re.MULTILINE)
-        if not match:
+        """Parse a specific column from TMDL content."""
+        table = _parser._parse_table_content(tmdl_content)
+        if not table:
             return None
 
-        start_pos = match.start()
-        next_item = re.search(r'\n\s*(column|measure|hierarchy|partition)', tmdl_content[start_pos+1:], re.MULTILINE)
-        end_pos = start_pos + next_item.start() if next_item else len(tmdl_content)
-        column_block = tmdl_content[start_pos:end_pos]
+        for c in table.columns:
+            if c.name == column_name:
+                return _column_to_camel(c)
 
-        # Extract properties
-        dtype_match = re.search(r'dataType:\s*(\w+)', column_block)
-        source_match = re.search(r'sourceColumn:\s*"([^"]*)"', column_block)
-        format_match = re.search(r'formatString:\s*"([^"]*)"', column_block)
-        hidden_match = re.search(r'isHidden:\s*(true|false)', column_block)
-        key_match = re.search(r'isKey:\s*(true|false)', column_block)
-        summarize_match = re.search(r'summarizeBy:\s*(\w+)', column_block)
-        desc_match = re.search(r'description:\s*"([^"]*)"', column_block)
-        folder_match = re.search(r'displayFolder:\s*"([^"]*)"', column_block)
-
-        return {
-            "name": column_name,
-            "dataType": dtype_match.group(1) if dtype_match else None,
-            "sourceColumn": source_match.group(1) if source_match else None,
-            "formatString": format_match.group(1) if format_match else None,
-            "isHidden": hidden_match.group(1) == 'true' if hidden_match else False,
-            "isKey": key_match.group(1) == 'true' if key_match else False,
-            "summarizeBy": summarize_match.group(1) if summarize_match else None,
-            "description": desc_match.group(1) if desc_match else None,
-            "displayFolder": folder_match.group(1) if folder_match else None
-        }
+        return None
 
     @staticmethod
     def parse_all_columns(tmdl_content: str) -> List[Dict[str, Any]]:
-        """Parse all columns from TMDL content"""
-        columns = []
-        column_pattern = r"column\s+(?:'([^']+)'|`([^`]+)`|(\S+))"
-        matches = re.finditer(column_pattern, tmdl_content, re.MULTILINE)
+        """Parse all columns from TMDL content."""
+        table = _parser._parse_table_content(tmdl_content)
+        if not table:
+            return []
 
-        for match in matches:
-            column_name = match.group(1) or match.group(2) or match.group(3)
-            column_def = TMDLParser.parse_column(tmdl_content, column_name)
-            if column_def:
-                columns.append(column_def)
-
-        logger.info(f"Parsed {len(columns)} columns from TMDL")
-        return columns
+        result = [_column_to_camel(c) for c in table.columns]
+        logger.info(f"Parsed {len(result)} columns from TMDL")
+        return result
 
     @staticmethod
     def parse_relationships(tmdl_content: str) -> List[Dict[str, Any]]:
-        """Parse relationships from relationships.tmdl content"""
+        """Parse relationships from relationships.tmdl content."""
+        import re
+
         relationships = []
-        # Fixed: Use [\w-]+ instead of \w+ to capture hashes with dashes
-        rel_pattern = r"relationship\s+([\w-]+)\s*\n(.*?)(?=\n\s*relationship|\Z)"
-        matches = re.finditer(rel_pattern, tmdl_content, re.DOTALL | re.MULTILINE)
+        lines = tmdl_content.split("\n")
+        i = 0
 
-        for match in matches:
-            rel_hash = match.group(1)
-            rel_block = match.group(2)
+        while i < len(lines):
+            line = lines[i].strip()
 
-            # Updated regex to handle TableName.'Column Name' format correctly
-            # Pattern: capture everything after fromColumn: until end of line
-            from_match = re.search(r"fromColumn:\s*(.+?)$", rel_block, re.MULTILINE)
-            to_match = re.search(r"toColumn:\s*(.+?)$", rel_block, re.MULTILINE)
-            from_card_match = re.search(r"fromCardinality:\s*(\w+)", rel_block)
-            to_card_match = re.search(r"toCardinality:\s*(\w+)", rel_block)
-            cross_filter_match = re.search(r"crossFilteringBehavior:\s*(\w+)", rel_block)
-            active_match = re.search(r"isActive:\s*(true|false)", rel_block)
-            security_match = re.search(r"securityFilteringBehavior:\s*(\w+)", rel_block)
+            if not line or line.startswith("///"):
+                i += 1
+                continue
 
-            from_column = from_match.group(1).strip() if from_match else None
-            to_column = to_match.group(1).strip() if to_match else None
+            if line.startswith("relationship "):
+                rel_match = re.match(r"^relationship\s+(.+)", line)
+                if rel_match:
+                    from core.tmdl.models import TmdlRelationship
+                    from core.tmdl.unified_parser import _parse_property, _parse_bool
 
-            # Extract table names - support multiple formats:
-            # - TableName.ColumnName
-            # - TableName.'Column Name'  (quoted column)
-            # - 'Table Name'.ColumnName  (quoted table)
-            # - TableName[ColumnName]  (bracket notation)
-            from_table, from_col = None, None
-            if from_column:
-                # Try bracket format first: TableName[ColumnName]
-                if '[' in from_column:
-                    parts = from_column.split('[', 1)
-                    if len(parts) == 2:
-                        from_table = parts[0].strip("' \"")
-                        from_col = parts[1].rstrip(']').strip("' \"")
-                # Try dot format: TableName.ColumnName or TableName.'Column Name'
-                elif '.' in from_column:
-                    # Find the last dot that's not inside quotes
-                    # Simple approach: split on dot and handle quotes
-                    dot_idx = from_column.rfind('.')
-                    if dot_idx > 0:
-                        from_table = from_column[:dot_idx].strip("' \"")
-                        from_col = from_column[dot_idx+1:].strip("' \"")
+                    rel = TmdlRelationship(id=rel_match.group(1))
+                    i += 1
 
-            to_table, to_col = None, None
-            if to_column:
-                # Try bracket format first: TableName[ColumnName]
-                if '[' in to_column:
-                    parts = to_column.split('[', 1)
-                    if len(parts) == 2:
-                        to_table = parts[0].strip("' \"")
-                        to_col = parts[1].rstrip(']').strip("' \"")
-                # Try dot format: TableName.ColumnName or TableName.'Column Name'
-                elif '.' in to_column:
-                    # Find the last dot that's not inside quotes
-                    # Simple approach: split on dot and handle quotes
-                    dot_idx = to_column.rfind('.')
-                    if dot_idx > 0:
-                        to_table = to_column[:dot_idx].strip("' \"")
-                        to_col = to_column[dot_idx+1:].strip("' \"")
+                    while i < len(lines):
+                        prop_line = lines[i].strip()
+                        if not prop_line or prop_line.startswith("///"):
+                            i += 1
+                            continue
+                        if prop_line.startswith("relationship "):
+                            break
 
-            # Map fromCardinality and toCardinality to standard cardinality field
-            from_card = from_card_match.group(1) if from_card_match else "many"
-            to_card = to_card_match.group(1) if to_card_match else "one"
+                        if prop_line == "isActive":
+                            rel.is_active = True
+                            i += 1
+                            continue
 
-            # Standard cardinality mapping
-            cardinality_map = {
-                ("one", "one"): "OneToOne",
-                ("one", "many"): "OneToMany",
-                ("many", "one"): "ManyToOne",
-                ("many", "many"): "ManyToMany"
-            }
-            cardinality = cardinality_map.get((from_card.lower(), to_card.lower()), "ManyToOne")
+                        if ":" in prop_line:
+                            key, value = _parse_property(prop_line)
+                            if key == "fromColumn":
+                                rel.from_column = value
+                            elif key == "fromCardinality":
+                                rel.from_cardinality = value
+                            elif key == "toColumn":
+                                rel.to_column = value
+                            elif key == "toCardinality":
+                                rel.to_cardinality = value
+                            elif key == "crossFilteringBehavior":
+                                rel.cross_filtering_behavior = value
+                            elif key == "securityFilteringBehavior":
+                                rel.security_filtering_behavior = value
+                            elif key == "isActive":
+                                rel.is_active = _parse_bool(value) if value else True
 
-            # Generate a meaningful name from table and column names
-            name = f"{from_table or 'Unknown'}.{from_col or 'Unknown'} -> {to_table or 'Unknown'}.{to_col or 'Unknown'}"
+                        i += 1
 
-            relationships.append({
-                "name": name,  # Add name field (generated from relationship details)
-                "hash": rel_hash,  # Keep hash for reference
-                "fromTable": from_table,
-                "fromColumn": from_col,
-                "toTable": to_table,
-                "toColumn": to_col,
-                "fromCardinality": from_card,  # Keep original for reference
-                "toCardinality": to_card,  # Keep original for reference
-                "cardinality": cardinality,  # Add standard cardinality field
-                "crossFilteringBehavior": cross_filter_match.group(1) if cross_filter_match else "OneDirection",
-                "isActive": active_match.group(1) == 'true' if active_match else True,
-                "securityFilteringBehavior": security_match.group(1) if security_match else "OneDirection"
-            })
+                    relationships.append(_relationship_to_camel(rel))
+                    continue
+
+            i += 1
 
         logger.info(f"Parsed {len(relationships)} relationships from TMDL")
         return relationships
 
     @staticmethod
     def parse_table_metadata(tmdl_content: str) -> Dict[str, Any]:
-        """Parse table-level metadata from table TMDL content"""
-        metadata = {}
+        """Parse table-level metadata from table TMDL content."""
+        table = _parser._parse_table_content(tmdl_content)
+        if not table:
+            return {}
 
-        table_match = re.search(r"table\s+(?:'([^']+)'|`([^`]+)`|(\S+))", tmdl_content)
-        if table_match:
-            metadata["name"] = table_match.group(1) or table_match.group(2) or table_match.group(3)
+        metadata: Dict[str, Any] = {}
+        metadata["name"] = table.name
 
-        desc_match = re.search(r'description:\s*"([^"]*)"', tmdl_content)
-        if desc_match:
-            metadata["description"] = desc_match.group(1)
+        if table.description:
+            metadata["description"] = table.description
+        if table.is_hidden:
+            metadata["isHidden"] = table.is_hidden
 
-        hidden_match = re.search(r'isHidden:\s*(true|false)', tmdl_content)
-        if hidden_match:
-            metadata["isHidden"] = hidden_match.group(1) == 'true'
-
-        has_partition = re.search(r'\bpartition\s+', tmdl_content) is not None
-        metadata["hasPartition"] = has_partition
-
-        columns = TMDLParser.parse_all_columns(tmdl_content)
-        measures = TMDLParser.parse_all_measures(tmdl_content)
-
-        metadata["columnCount"] = len(columns)
-        metadata["measureCount"] = len(measures)
+        metadata["hasPartition"] = len(table.partitions) > 0
+        metadata["columnCount"] = len(table.columns)
+        metadata["measureCount"] = len(table.measures)
 
         return metadata
 
     @staticmethod
     def parse_calculation_group(tmdl_content: str) -> Optional[Dict[str, Any]]:
-        """Parse calculation group from TMDL content"""
-        calc_group_match = re.search(r"table\s+(?:'([^']+)'|`([^`]+)`|(\S+))", tmdl_content)
-        if not calc_group_match or 'calculationGroup' not in tmdl_content:
+        """Parse calculation group from TMDL content."""
+        table = _parser._parse_table_content(tmdl_content)
+        if not table or not table.is_calculation_group:
             return None
 
-        table_name = calc_group_match.group(1) or calc_group_match.group(2) or calc_group_match.group(3)
-        calc_items = []
+        calc_items = [
+            {"name": ci.name, "expression": ci.expression}
+            for ci in table.calculation_items
+        ]
 
-        calc_item_pattern = r"calculationItem\s+(?:'([^']+)'|`([^`]+)`|(\S+))\s*=\s*(.*?)(?=\n\s*calculationItem|\Z)"
-        matches = re.finditer(calc_item_pattern, tmdl_content, re.DOTALL | re.MULTILINE)
-
-        for match in matches:
-            item_name = match.group(1) or match.group(2) or match.group(3)
-            expression = match.group(4).strip()
-            calc_items.append({"name": item_name, "expression": expression})
-
-        return {"name": table_name, "calculationItems": calc_items}
+        return {"name": table.name, "calculationItems": calc_items}
 
     @staticmethod
     def parse_file(file_path: Path) -> Dict[str, Any]:
-        """Parse a TMDL file and extract all relevant information"""
+        """Parse a TMDL file and extract all relevant information."""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -318,3 +207,71 @@ class TMDLParser:
         except Exception as e:
             logger.error(f"Error parsing TMDL file {file_path}: {e}")
             raise
+
+
+# ── camelCase conversion helpers ─────────────────────────────────────
+
+
+def _measure_to_camel(m) -> Dict[str, Any]:
+    """Convert TmdlMeasure to camelCase dict for backward compat."""
+    return {
+        "name": m.name,
+        "expression": m.expression,
+        "formatString": m.format_string,
+        "description": m.description,
+        "displayFolder": m.display_folder,
+        "isHidden": m.is_hidden,
+    }
+
+
+def _column_to_camel(c) -> Dict[str, Any]:
+    """Convert TmdlColumn to camelCase dict for backward compat."""
+    return {
+        "name": c.name,
+        "dataType": c.data_type,
+        "sourceColumn": c.source_column,
+        "formatString": c.format_string,
+        "isHidden": c.is_hidden,
+        "isKey": c.is_key,
+        "summarizeBy": c.summarize_by,
+        "description": c.description,
+        "displayFolder": c.display_folder,
+    }
+
+
+def _relationship_to_camel(r) -> Dict[str, Any]:
+    """Convert TmdlRelationship to camelCase dict for backward compat."""
+    from_card = r.from_cardinality or "many"
+    to_card = r.to_cardinality or "one"
+
+    cardinality_map = {
+        ("one", "one"): "OneToOne",
+        ("one", "many"): "OneToMany",
+        ("many", "one"): "ManyToOne",
+        ("many", "many"): "ManyToMany",
+    }
+    cardinality = cardinality_map.get(
+        (from_card.lower(), to_card.lower()), "ManyToOne"
+    )
+
+    from_table = r.from_table
+    from_col = r.from_column_name
+    to_table = r.to_table
+    to_col = r.to_column_name
+
+    name = f"{from_table or 'Unknown'}.{from_col or 'Unknown'} -> {to_table or 'Unknown'}.{to_col or 'Unknown'}"
+
+    return {
+        "name": name,
+        "hash": r.id,
+        "fromTable": from_table,
+        "fromColumn": from_col,
+        "toTable": to_table,
+        "toColumn": to_col,
+        "fromCardinality": from_card,
+        "toCardinality": to_card,
+        "cardinality": cardinality,
+        "crossFilteringBehavior": r.cross_filtering_behavior or "OneDirection",
+        "isActive": r.is_active,
+        "securityFilteringBehavior": r.security_filtering_behavior or "OneDirection",
+    }

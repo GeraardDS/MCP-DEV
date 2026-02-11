@@ -95,6 +95,13 @@ CATEGORY_TOOLS = {
 }
 
 
+# Pre-computed reverse lookup: tool_name -> ToolCategory (O(1) instead of O(n*m))
+_TOOL_TO_CATEGORY = {
+    tool_name: category
+    for category, tools in CATEGORY_TOOLS.items()
+    for tool_name in tools
+}
+
 # Category descriptions for discovery
 CATEGORY_INFO = {
     ToolCategory.CORE: {"name": "Connection & Help", "description": "Connect to Power BI, get help", "tool_count": 4},
@@ -158,11 +165,9 @@ class HandlerRegistry:
             self._categories[tool_def.category] = []
         self._categories[tool_def.category].append(tool_def.name)
 
-        # Build reverse lookup index: tool_name -> ToolCategory
-        for category, tools in CATEGORY_TOOLS.items():
-            if tool_def.name in tools:
-                self._tool_to_category[tool_def.name] = category
-                break
+        # Reverse lookup index: tool_name -> ToolCategory
+        if tool_def.name in _TOOL_TO_CATEGORY:
+            self._tool_to_category[tool_def.name] = _TOOL_TO_CATEGORY[tool_def.name]
 
         # Invalidate cached total_tools count
         self._total_tools = None

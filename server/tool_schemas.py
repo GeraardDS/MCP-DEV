@@ -7,140 +7,6 @@ Use the 10_Get_Tool_Examples tool or get_tool_examples() to retrieve examples on
 """
 
 TOOL_SCHEMAS = {
-    # Query & Preview (5 tools)
-    'run_dax': {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "DAX query (EVALUATE statement)"},
-            "top_n": {"type": "integer", "description": "Row limit (default: 100)", "default": 100},
-            "mode": {"type": "string", "description": "auto|analyze|profile|simple", "enum": ["auto", "analyze", "profile", "simple"], "default": "auto"}
-        },
-        "required": ["query"]
-    },
-
-    'get_column_value_distribution': {
-        "type": "object",
-        "properties": {
-            "table": {"type": "string", "description": "Table name"},
-            "column": {"type": "string", "description": "Column name"},
-            "top_n": {"type": "integer", "description": "Top values count (default: 10)", "default": 10}
-        },
-        "required": ["table", "column"]
-    },
-
-    'get_column_summary': {
-        "type": "object",
-        "properties": {
-            "table": {"type": "string", "description": "Table name"},
-            "column": {"type": "string", "description": "Column name"}
-        },
-        "required": ["table", "column"]
-    },
-
-    'validate_dax_query': {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "DAX query to validate"}
-        },
-        "required": ["query"]
-    },
-
-    # Data Sources (2 tools)
-    'get_data_sources': {
-        "type": "object",
-        "properties": {},
-        "required": []
-    },
-
-    'get_m_expressions': {
-        "type": "object",
-        "properties": {
-            "limit": {"type": "integer", "description": "Max expressions to return"}
-        },
-        "required": []
-    },
-
-    # Relationships (1 tool)
-    'list_relationships': {
-        "type": "object",
-        "properties": {
-            "active_only": {"type": "boolean", "description": "Active only (default: false)", "default": False}
-        },
-        "required": []
-    },
-
-    # Measures (2 tools - Microsoft MCP operations)
-    'list_measures': {
-        "type": "object",
-        "properties": {
-            "table": {"type": "string", "description": "Filter by table (optional)"},
-            "page_size": {"type": "integer", "description": "Max measures (default: 100)", "default": 100},
-            "next_token": {"type": "string", "description": "Pagination token"}
-        },
-        "required": []
-    },
-
-    'get_measure_details': {
-        "type": "object",
-        "properties": {
-            "table": {"type": "string", "description": "Table name"},
-            "measure": {"type": "string", "description": "Measure name"}
-        },
-        "required": ["table", "measure"]
-    },
-
-    # Model Management (7 tools)
-    'bulk_create_measures': {
-        "type": "object",
-        "properties": {
-            "measures": {
-                "type": "array",
-                "description": "Measure definitions [{table, measure, expression}]",
-                "items": {"type": "object", "properties": {"table": {"type": "string"}, "measure": {"type": "string"}, "expression": {"type": "string"}}}
-            }
-        },
-        "required": ["measures"]
-    },
-
-    'bulk_delete_measures': {
-        "type": "object",
-        "properties": {
-            "measures": {"type": "array", "description": "Measures to delete [{table, measure}]", "items": {"type": "object"}}
-        },
-        "required": ["measures"]
-    },
-
-    'list_calculation_groups': {
-        "type": "object",
-        "properties": {},
-        "required": []
-    },
-
-    'create_calculation_group': {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "Group name"},
-            "items": {"type": "array", "description": "Items [{name, expression}]", "items": {"type": "object", "properties": {"name": {"type": "string"}, "expression": {"type": "string"}}}},
-            "description": {"type": "string", "description": "Optional description"},
-            "precedence": {"type": "integer", "description": "Optional precedence level"}
-        },
-        "required": ["name"]
-    },
-
-    'delete_calculation_group': {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "Group name"}
-        },
-        "required": ["name"]
-    },
-
-    'list_roles': {
-        "type": "object",
-        "properties": {},
-        "required": []
-    },
-
     # Analysis (2 tools)
     'simple_analysis': {
         "type": "object",
@@ -188,24 +54,6 @@ TOOL_SCHEMAS = {
         "required": ["table", "measure"]
     },
 
-    # Documentation (2 tools)
-    'generate_model_documentation_word': {
-        "type": "object",
-        "properties": {
-            "output_path": {"type": "string", "description": "Output Word file path"}
-        },
-        "required": []
-    },
-
-    'update_model_documentation_word': {
-        "type": "object",
-        "properties": {
-            "input_path": {"type": "string", "description": "Existing Word document"},
-            "output_path": {"type": "string", "description": "Output path"}
-        },
-        "required": ["input_path"]
-    },
-
     # Comparison (1 tool)
     'compare_pbi_models': {
         "type": "object",
@@ -214,16 +62,6 @@ TOOL_SCHEMAS = {
             "new_port": {"type": "integer", "description": "Port of NEW model"}
         },
         "required": []
-    },
-
-    # PBIP Offline Analysis (1 tool)
-    'analyze_pbip_repository': {
-        "type": "object",
-        "properties": {
-            "pbip_path": {"type": "string", "description": "Path to .pbip file or directory"},
-            "output_path": {"type": "string", "description": "Output directory for HTML report"}
-        },
-        "required": ["pbip_path"]
     },
 
     # DAX Intelligence (1 unified tool)
@@ -333,19 +171,6 @@ TOOL_SCHEMAS = {
             "page_name": {"type": "string", "description": "Filter by page name (substring match)"},
             "summary_only": {"type": "boolean", "description": "Compact output - visual types/titles/field refs only, no positions/nested objects.", "default": True},
             "max_visuals_per_page": {"type": "integer", "description": "Max visuals returned per page (0=unlimited)", "default": 50}
-        },
-        "required": ["pbip_path"]
-    },
-
-    # Aggregation Analysis
-    'analyze_aggregation': {
-        "type": "object",
-        "properties": {
-            "pbip_path": {"type": "string", "description": "Path to PBIP/.SemanticModel folder"},
-            "output_format": {"type": "string", "enum": ["summary", "detailed", "html", "json"], "description": "summary|detailed|html|json", "default": "summary"},
-            "output_path": {"type": "string", "description": "Output path for reports"},
-            "page_filter": {"type": "string", "description": "Filter by page name"},
-            "include_visual_details": {"type": "boolean", "description": "Include visual analysis", "default": True}
         },
         "required": ["pbip_path"]
     },

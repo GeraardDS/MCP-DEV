@@ -6,6 +6,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
+from core.utilities.json_utils import load_json
 from .utils import ensure_dir, now_iso, relationship_id, safe_filename, SNAPSHOT_SUFFIX
 
 
@@ -100,8 +101,7 @@ def load_snapshot(
     for candidate in candidates:
         if os.path.exists(candidate):
             try:
-                with open(candidate, "r", encoding="utf-8") as handle:
-                    return json.load(handle)
+                return load_json(candidate)
             except Exception:
                 continue
     return None
@@ -229,10 +229,8 @@ def compare_snapshots(
     """
     try:
         # Load snapshots
-        with open(snapshot1_path, "r", encoding="utf-8") as f:
-            snapshot1 = json.load(f)
-        with open(snapshot2_path, "r", encoding="utf-8") as f:
-            snapshot2 = json.load(f)
+        snapshot1 = load_json(snapshot1_path)
+        snapshot2 = load_json(snapshot2_path)
 
         # Compute diff
         diff = compute_diff(snapshot1, snapshot2)

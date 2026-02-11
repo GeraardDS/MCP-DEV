@@ -15,25 +15,8 @@ DataColumn = None
 CalculatedColumn = None
 
 try:
-    import clr
-    import os
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(script_dir)  # core
-    root_dir = os.path.dirname(parent_dir)     # root
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-
-    core_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Core.dll")
-    amo_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.dll")
-    tabular_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Tabular.dll")
-
-    if os.path.exists(core_dll):
-        clr.AddReference(core_dll)
-    if os.path.exists(amo_dll):
-        clr.AddReference(amo_dll)
-    if os.path.exists(tabular_dll):
-        clr.AddReference(tabular_dll)
-
+    from core.infrastructure.dll_paths import load_amo_assemblies
+    load_amo_assemblies()
     from Microsoft.AnalysisServices.Tabular import (
         Server as AMOServer,
         Column,
@@ -43,7 +26,6 @@ try:
     )
     AMO_AVAILABLE = True
     logger.info("AMO available for column CRUD operations")
-
 except Exception as e:
     logger.warning(f"AMO not available for column CRUD: {e}")
 
@@ -53,17 +35,8 @@ AdomdConnection = None
 AdomdCommand = None
 
 try:
-    import clr
-    import os
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(script_dir)  # core
-    root_dir = os.path.dirname(parent_dir)     # root
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-
-    adomd_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.AdomdClient.dll")
-    if os.path.exists(adomd_dll):
-        clr.AddReference(adomd_dll)
+    from core.infrastructure.dll_paths import load_adomd_assembly
+    if load_adomd_assembly():
         from Microsoft.AnalysisServices.AdomdClient import AdomdConnection, AdomdCommand
 except Exception:
     pass
