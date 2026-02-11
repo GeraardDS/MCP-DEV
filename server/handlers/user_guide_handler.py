@@ -715,7 +715,7 @@ def register_user_guide_handlers(registry):
             description="Show comprehensive user guide",
             handler=handle_show_user_guide,
             input_schema=TOOL_SCHEMAS.get('show_user_guide', {}),
-            category="help",
+            category="core",
             sort_order=110  # 10 = Help
         ),
     ]

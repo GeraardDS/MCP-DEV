@@ -497,7 +497,7 @@ def register_tmdl_operations_handler(registry):
                 }
             ]
         },
-        category="tmdl",
+        category="model",
         sort_order=26  # 02 = Model Operations
     )
 

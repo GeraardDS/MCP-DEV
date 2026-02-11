@@ -94,8 +94,9 @@ TOOL_EXAMPLES = {
     ],
     'report_info': [
         {"_description": "Full report info", "pbip_path": "C:/repos/MyProject.Report"},
+        {"_description": "Compact single page", "pbip_path": "C:/repos/MyProject", "page_name": "Dashboard", "summary_only": True},
         {"_description": "Filters only", "pbip_path": "C:/repos/MyProject", "include_visuals": False},
-        {"_description": "Specific page", "pbip_path": "C:/repos/MyProject", "page_name": "Dashboard"}
+        {"_description": "Summary of all pages", "pbip_path": "C:/repos/MyProject", "summary_only": True}
     ],
     'analyze_aggregation': [
         {"_description": "Quick summary", "pbip_path": "C:/repos/MyModel", "output_format": "summary"},

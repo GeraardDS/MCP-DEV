@@ -561,7 +561,7 @@ Creates a CSV with columns: Table, Measure_Name, Display_Folder, DAX_Expression
 Use this to get a complete list of all measures in the model with their DAX definitions.""",
         handler=handle_export_dax_measures,
         input_schema=input_schema,
-        category="dependencies",
+        category="dax",
         sort_order=53  # 05 = DAX Intelligence
     )
 
@@ -694,7 +694,7 @@ OTHER USE CASES:
 Returns CSV file paths or compact JSON results.""",
         handler=handle_column_usage_mapping,
         input_schema=input_schema,
-        category="dependencies",
+        category="dax",
         sort_order=54  # 05 = DAX Intelligence
     )
 

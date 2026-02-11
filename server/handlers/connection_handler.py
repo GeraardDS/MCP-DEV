@@ -107,7 +107,7 @@ def register_connection_handlers(registry):
                     }
                 ]
             },
-            category="connection",
+            category="core",
             sort_order=10
         ),
         ToolDefinition(
@@ -130,7 +130,7 @@ def register_connection_handlers(registry):
                     }
                 ]
             },
-            category="connection",
+            category="core",
             sort_order=11
         ),
     ]

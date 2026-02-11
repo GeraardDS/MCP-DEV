@@ -182,7 +182,7 @@ def register_relationship_operations_handler(registry):
                 }
             ]
         },
-        category="metadata",
+        category="model",
         sort_order=23  # 02 = Model Operations
     )
 

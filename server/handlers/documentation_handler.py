@@ -1,6 +1,6 @@
 """
 Documentation Handler
-Handles Word documentation and HTML model explorer generation
+Handles Word documentation generation and updates via unified tool.
 """
 from typing import Dict, Any
 import logging
@@ -10,8 +10,9 @@ from core.validation.error_handler import ErrorHandler
 
 logger = logging.getLogger(__name__)
 
-def handle_generate_model_documentation_word(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate Word documentation report"""
+
+def handle_documentation_word(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Unified Word documentation: generate or update."""
     if not connection_state.is_connected():
         return ErrorHandler.handle_not_connected()
 
@@ -19,54 +20,58 @@ def handle_generate_model_documentation_word(args: Dict[str, Any]) -> Dict[str, 
     if not agent_policy:
         return ErrorHandler.handle_manager_unavailable('agent_policy')
 
+    mode = args.get('mode', 'generate')
     output_path = args.get('output_path')
 
-    return agent_policy.documentation_orch.generate_word_documentation(connection_state, output_path)
+    if mode == 'update':
+        input_path = args.get('input_path')
+        if not input_path:
+            return {
+                'success': False,
+                'error': "input_path is required for mode='update'"
+            }
+        return agent_policy.documentation_orch.update_word_documentation(
+            connection_state, input_path, output_path
+        )
 
-def handle_update_model_documentation_word(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Update Word documentation report"""
-    if not connection_state.is_connected():
-        return ErrorHandler.handle_not_connected()
+    # Default: generate
+    return agent_policy.documentation_orch.generate_word_documentation(
+        connection_state, output_path
+    )
 
-    agent_policy = connection_state.agent_policy
-    if not agent_policy:
-        return ErrorHandler.handle_manager_unavailable('agent_policy')
-
-    input_path = args.get('input_path')
-    output_path = args.get('output_path')
-
-    if not input_path:
-        return {
-            'success': False,
-            'error': 'input_path parameter is required'
-        }
-
-    return agent_policy.documentation_orch.update_word_documentation(connection_state, input_path, output_path)
 
 def register_documentation_handlers(registry):
-    """Register all documentation handlers"""
-    from server.tool_schemas import TOOL_SCHEMAS
-
-    tools = [
-        ToolDefinition(
-            name="08_Generate_Documentation_Word",
-            description="Generate Word documentation report",
-            handler=handle_generate_model_documentation_word,
-            input_schema=TOOL_SCHEMAS.get('generate_model_documentation_word', {}),
-            category="documentation",
-            sort_order=80  # 08 = Documentation
+    """Register documentation handler"""
+    tool = ToolDefinition(
+        name="08_Documentation_Word",
+        description=(
+            "Generate or update Word documentation report. "
+            "mode='generate' (default) creates new doc; "
+            "mode='update' requires input_path to detect changes."
         ),
-        ToolDefinition(
-            name="08_Update_Documentation_Word",
-            description="Update Word documentation report",
-            handler=handle_update_model_documentation_word,
-            input_schema=TOOL_SCHEMAS.get('update_model_documentation_word', {}),
-            category="documentation",
-            sort_order=81  # 08 = Documentation
-        ),
-    ]
+        handler=handle_documentation_word,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["generate", "update"],
+                    "description": "Mode: 'generate' (default) creates new doc, 'update' detects changes from previous doc",
+                },
+                "output_path": {
+                    "type": "string",
+                    "description": "Output Word file path (optional)",
+                },
+                "input_path": {
+                    "type": "string",
+                    "description": "Existing Word document path (required for mode='update')",
+                },
+            },
+            "required": [],
+        },
+        category="docs",
+        sort_order=80,
+    )
 
-    for tool in tools:
-        registry.register(tool)
-
-    logger.info(f"Registered {len(tools)} documentation handlers")
+    registry.register(tool)
+    logger.info("Registered 1 documentation handler")

@@ -779,10 +779,8 @@ def handle_slicer_operations(args: Dict[str, Any]) -> Dict[str, Any]:
 
             return {
                 'success': True,
-                'message': f'Found {len(slicers)} slicer(s) matching criteria',
                 'slicers': condensed_slicers,
                 'count': len(slicers),
-                'summary_only': True,
                 'hint': 'Use summary_only=false for full details including file paths'
             }
 
@@ -906,12 +904,10 @@ def handle_slicer_operations(args: Dict[str, Any]) -> Dict[str, Any]:
                 'hint': 'Visual interactions define cross-filtering behavior. Default behavior is "Filter" - NoFilter/Highlight are only stored when explicitly set.'
             }
 
-        # Summary mode: condense output for large datasets
+        # Summary mode: type counts per page only (no individual interactions)
         if summary_only:
-            # Group by page and summarize
             summary_pages = []
             for page in result['pages']:
-                # Count interaction types
                 type_counts = {}
                 for interaction in page['interactions']:
                     int_type = interaction.get('type', 'Unknown')
@@ -921,24 +917,29 @@ def handle_slicer_operations(args: Dict[str, Any]) -> Dict[str, Any]:
                     'page_name': page['page_name'],
                     'interaction_count': page['interaction_count'],
                     'by_type': type_counts,
-                    'interactions': page['interactions'][:10] if len(page['interactions']) > 10 else page['interactions'],
-                    'truncated': len(page['interactions']) > 10
                 })
 
             return {
                 'success': True,
-                'message': f'Found {result["total_interactions"]} interaction(s) across {result["page_count"]} page(s)',
                 'pages': summary_pages,
                 'total_interactions': result['total_interactions'],
                 'page_count': result['page_count'],
-                'summary_only': True,
-                'hint': 'Use summary_only=false for full interaction list'
+                'hint': 'Use page_name filter and summary_only=false to see individual interactions'
             }
+
+        # Full mode: cap interactions per page
+        MAX_INTERACTIONS_PER_PAGE = 25
+        capped_pages = []
+        for page in result['pages']:
+            page_copy = dict(page)
+            if len(page_copy['interactions']) > MAX_INTERACTIONS_PER_PAGE:
+                page_copy['interactions'] = page_copy['interactions'][:MAX_INTERACTIONS_PER_PAGE]
+                page_copy['truncated'] = True
+            capped_pages.append(page_copy)
 
         return {
             'success': True,
-            'message': f'Found {result["total_interactions"]} interaction(s) across {result["page_count"]} page(s)',
-            'pages': result['pages'],
+            'pages': capped_pages,
             'total_interactions': result['total_interactions'],
             'page_count': result['page_count']
         }

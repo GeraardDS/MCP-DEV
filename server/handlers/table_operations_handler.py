@@ -178,7 +178,7 @@ def register_table_operations_handler(registry):
                 }
             ]
         },
-        category="metadata",
+        category="model",
         sort_order=20
     )
 

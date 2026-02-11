@@ -152,7 +152,7 @@ def register_measure_operations_handler(registry):
                 }
             ]
         },
-        category="metadata",
+        category="model",
         sort_order=22  # 02 = Model Operations
     )
 

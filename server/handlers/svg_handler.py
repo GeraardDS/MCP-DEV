@@ -109,7 +109,7 @@ def register_svg_operations_handler(registry):
             },
             "required": ["operation"]
         },
-        category="visualization",
+        category="pbip",
         sort_order=50
     )
 
