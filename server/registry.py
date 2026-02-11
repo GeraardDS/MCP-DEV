@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class ToolCategory(Enum):
     """Tool categories for dynamic loading"""
-    CORE = "core"              # Always loaded (connection, help, discovery)
+    CORE = "core"              # Always loaded (connection, help)
     MODEL = "model"            # Table, column, measure, relationship, calc group, role ops
     BATCH = "batch"            # Batch operations & transactions
     QUERY = "query"            # DAX, search, data sources
@@ -32,7 +32,6 @@ CATEGORY_TOOLS = {
         "01_Detect_PBI_Instances",
         "01_Connect_To_Instance",
         "10_Show_User_Guide",
-        "10_Discover_Tools",
     ],
     ToolCategory.MODEL: [
         "02_Table_Operations",
@@ -261,7 +260,6 @@ class HandlerRegistry:
     def get_discovery_info(self) -> Dict[str, Any]:
         """
         Get minimal discovery info for all tools.
-        Used by 10_Discover_Tools to provide category overview without loading full schemas.
         """
         categories = []
         for cat in ToolCategory:
@@ -282,7 +280,6 @@ class HandlerRegistry:
             "total_tools": self._total_tools,
             "categories": categories,
             "deferred_mode": self._deferred_mode,
-            "hint": "Use 10_Discover_Tools with category param to load specific tools"
         }
 
     def get_category_tools_info(self, category: ToolCategory) -> Dict[str, Any]:

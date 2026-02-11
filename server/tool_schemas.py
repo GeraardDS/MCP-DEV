@@ -79,13 +79,6 @@ TOOL_SCHEMAS = {
         "required": ["expression"]
     },
 
-    # User Guide (1 tool)
-    'show_user_guide': {
-        "type": "object",
-        "properties": {},
-        "required": []
-    },
-
     # PBIP Dependency Analysis (1 tool)
     'pbip_dependency_analysis': {
         "type": "object",

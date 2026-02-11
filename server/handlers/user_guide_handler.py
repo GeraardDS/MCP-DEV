@@ -1,726 +1,570 @@
 """
 User Guide Handler
-Handles user guide display
+Shows comprehensive user guide with all tools, operations, and parameters.
 """
 from typing import Dict, Any
 import logging
-import os
 from server.registry import ToolDefinition
 
 logger = logging.getLogger(__name__)
 
+
 def handle_show_user_guide(args: Dict[str, Any]) -> Dict[str, Any]:
     """Show comprehensive user guide"""
-    try:
-        # Get the guide path
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(os.path.dirname(script_dir))
-        guide_path = os.path.join(project_root, 'docs', 'PBIXRAY_Quickstart.md')
+    return {
+        'success': True,
+        'guide': _get_user_guide(),
+    }
 
-        if os.path.exists(guide_path):
-            with open(guide_path, 'r', encoding='utf-8') as f:
-                guide_content = f.read()
 
-            return {
-                'success': True,
-                'guide': guide_content,
-                'path': guide_path
-            }
-        else:
-            # Return basic usage guide if file not found
-            return {
-                'success': True,
-                'guide': _get_inline_guide(),
-                'note': 'Using inline guide (file not found)'
-            }
+def _get_user_guide() -> str:
+    return """# MCP-PowerBi-Finvision User Guide
 
-    except Exception as e:
-        logger.error(f"Error loading user guide: {e}", exc_info=True)
-        return {
-            'success': False,
-            'error': f'Error loading user guide: {str(e)}',
-            'fallback_guide': _get_inline_guide()
-        }
+## QUICK START
 
-def _get_inline_guide() -> str:
-    """Get inline user guide"""
-    return """# MCP-PowerBi-Finvision Comprehensive User Guide v5.01
-
-Welcome to MCP-PowerBi-Finvision! This guide covers all 50+ tools across 13 categories.
-
----
-
-## 📋 QUICK START
-
-### Step 1: Connect to Power BI
-```
 1. Open Power BI Desktop with your model
-2. Use: 01 Detect PBI Instances
-3. Use: 01 Connect To Instance (typically model_index=0)
-```
-
-### Step 2: Explore Your Model
-```
-- List tables: 02 Table Operations
-- Describe a table: 02 Table Operations
-- List measures: 02 Measure Operations
-- Get measure details: 02 Measure Operations
-```
+2. Use `01_Detect_PBI_Instances` to find running instances
+3. Use `01_Connect_To_Instance` (typically model_index=0)
+4. Explore with `06_Simple_Analysis` or `02_Table_Operations` (operation='list')
 
 ---
 
-## 🔧 CATEGORY 01: CONNECTION (2 tools)
+## CATEGORY 01: CONNECTION (2 tools)
 
-### 01 Detect PBI Instances
-**Purpose**: Detect running Power BI Desktop instances
-**When to use**: Start of every session to find available models
-**Parameters**: None
-**Returns**: List of instances with ports and model names
+### 01_Detect_PBI_Instances
+Detect running Power BI Desktop instances.
+- **Parameters**: None
+- **Returns**: List of instances with ports and model names
 
-### 01 Connect To Instance
-**Purpose**: Connect to a specific Power BI Desktop instance
-**When to use**: After detecting instances, to establish connection
-**Parameters**:
-  - model_index: Index from detection list (usually 0)
-**Returns**: Connection status and model information
+### 01_Connect_To_Instance
+Connect to a Power BI Desktop instance (auto-detect or specify index).
+- **Parameters**:
+  - `model_index` (int, optional): Index of model to connect to (default: 0)
+- **Returns**: Connection status and model information
 
 ---
 
-## 📊 CATEGORY 02: SCHEMA/METADATA (8 tools)
+## CATEGORY 02: MODEL OPERATIONS (7 tools)
 
-### 02_list_tables
-**Purpose**: List all tables in the model
-**When to use**: Initial exploration, understanding model structure
-**Parameters**: None
-**Returns**: Table names, row counts, types (fact/dimension)
+### 02_Table_Operations
+Unified table CRUD with 9 operations.
+- **operation** (required): `list` | `describe` | `preview` | `sample_data` | `create` | `update` | `delete` | `rename` | `refresh`
+- **Key parameters**:
+  - `table_name` (str): Required for all except list
+  - `new_name` (str): For rename
+  - `description` (str): For create/update
+  - `expression` (str): DAX expression for calculated tables (create/update)
+  - `hidden` (bool): Hide from client tools (create/update)
+  - `max_rows` (int, default 10): For preview/sample_data
+  - `columns` (array): Column selection for sample_data
+  - `order_by` / `order_direction`: Sorting for sample_data
+  - `page_size` / `next_token`: Pagination for list
 
-### 02_describe_table
-**Purpose**: Get comprehensive table information
-**When to use**: Deep dive into specific table
-**Parameters**:
-  - table: Table name
-**Returns**: Columns, measures, relationships, partitions, descriptions
+### 02_Column_Operations
+Unified column CRUD with 8 operations.
+- **operation** (required): `list` | `get` | `statistics` | `distribution` | `create` | `update` | `delete` | `rename`
+- **Key parameters**:
+  - `table_name` (str): Required for most operations
+  - `column_name` (str): Required for get/statistics/distribution/update/delete/rename
+  - `column_type` (str): Filter by 'all'|'data'|'calculated' (list)
+  - `top_n` (int, default 10): For distribution
+  - `data_type` (str): String|Int64|Double|Decimal|Boolean|DateTime|Binary|Variant (create)
+  - `expression` (str): DAX for calculated columns (create/update)
+  - `format_string` (str): e.g. '#,0' (create/update)
+  - `new_name` (str): For rename
 
-### 02_list_columns
-**Purpose**: List columns across tables
-**When to use**: Finding columns by name or type
-**Parameters**:
-  - table (optional): Filter by table name
-**Returns**: Column names, data types, tables
+### 02_Measure_Operations
+Unified measure CRUD with 7 operations.
+- **operation** (required): `list` | `get` | `create` | `update` | `delete` | `rename` | `move`
+- **Key parameters**:
+  - `table_name` (str): Required for most operations
+  - `measure_name` (str): Required for get/update/delete/rename/move
+  - `expression` (str): DAX formula (create/update)
+  - `format_string` (str): e.g. '#,0' or '0.0%' (create/update)
+  - `display_folder` (str): Folder path (create/update)
+  - `description` (str): Measure description (create/update)
+  - `new_name` (str): For rename
+  - `new_table` (str): Target table for move
+- **Note**: `list` returns names only. Use `get` to see DAX expressions.
 
-### 02_list_measures
-**Purpose**: List all measures in the model
-**When to use**: Understanding calculated metrics
-**Parameters**:
-  - table (optional): Filter by table name
-**Returns**: Measure names, tables, display folders
+### 02_Relationship_Operations
+Unified relationship CRUD with 8 operations.
+- **operation** (required): `list` | `get` | `find` | `create` | `update` | `delete` | `activate` | `deactivate`
+- **Key parameters**:
+  - `relationship_name` (str): For get/update/delete/activate/deactivate
+  - `table_name` (str): For find (finds relationships for a table)
+  - `from_table`, `from_column`, `to_table`, `to_column` (str): For create
+  - `from_cardinality` (str): 'One'|'Many' (default: Many)
+  - `to_cardinality` (str): 'One'|'Many' (default: One)
+  - `cross_filtering_behavior` (str): 'OneDirection'|'BothDirections'|'Automatic' (create/update)
+  - `is_active` (bool): Active state (create/update)
+  - `active_only` (bool): Filter active only (list)
 
-### 02_get_measure_details
-**Purpose**: Get detailed measure information
-**When to use**: Analyzing specific measure logic
-**Parameters**:
-  - table: Table name
-  - measure: Measure name
-**Returns**: DAX formula, format string, dependencies, folder
+### 02_Calculation_Group_Operations
+Unified calculation group CRUD with 4 operations.
+- **operation** (required): `list` | `list_items` | `create` | `delete`
+- **Key parameters**:
+  - `group_name` (str): Required for list_items/create/delete
+  - `items` (array): Array of {name, expression, ordinal} for create
+  - `description` (str): Optional for create
+  - `precedence` (int): Optional for create
 
-### 02_list_calculated_columns
-**Purpose**: List calculated columns
-**When to use**: Finding calculated columns vs regular columns
-**Parameters**: None
-**Returns**: Column names, tables, DAX expressions
+### 02_Role_Operations
+RLS/OLS security role operations.
+- **operation** (required): `list`
+- **Returns**: All security roles with table permissions and DAX filters
 
-### 02_search_objects
-**Purpose**: Search across tables, columns, and measures
-**When to use**: Finding objects by name pattern
-**Parameters**:
-  - search_term: Text to search for
-  - object_type (optional): Filter by type
-**Returns**: Matching objects with details
-
-### 02_search_string
-**Purpose**: Search in measure names and expressions
-**When to use**: Finding measures containing specific DAX patterns
-**Parameters**:
-  - search_string: Text to search for
-  - search_in: 'name', 'expression', or 'both'
-**Returns**: Matching measures with highlighted matches
-
----
-
-## 🔍 CATEGORY 03: QUERY & DATA + DAX INTELLIGENCE (9 tools)
-
-### 03 Preview Table Data
-**Purpose**: Preview actual data from a table
-**When to use**: Checking data content and quality
-**Parameters**:
-  - table: Table name
-  - max_rows: Limit (default: 10)
-**Returns**: Sample rows from table
-
-### 03 Run DAX
-**Purpose**: Execute any DAX query
-**When to use**: Custom queries, testing calculations
-**Parameters**:
-  - query: DAX EVALUATE statement
-  - top_n: Row limit (default: 100)
-  - mode: 'auto', 'analyze', 'profile', or 'simple'
-**Returns**: Query results with optional timing statistics
-
-### 03 Standard DAX Analysis (UNIFIED TOOL)
-**Purpose**: Complete DAX analysis: syntax validation + context analysis + debugging
-**When to use**: Understanding complex DAX, debugging issues, getting optimization recommendations
-**Parameters**:
-  - expression: DAX expression or measure name
-  - analysis_mode: 'all' (default - complete analysis), 'analyze', 'debug', or 'report'
-  - skip_validation: Skip syntax check (default: false)
-  - output_format: 'friendly' or 'steps' (debug mode)
-  - include_optimization: Include suggestions (report mode)
-  - include_profiling: Include performance (report mode)
-**Returns**: Comprehensive DAX analysis with optimization recommendations
-**Modes**:
-  - all (DEFAULT): Complete analysis - analyze + debug + report + best practices
-  - analyze: Context transition analysis with anti-patterns
-  - debug: Step-by-step execution breakdown
-  - report: Full analysis with optimization + profiling
-**IMPORTANT WORKFLOW**:
-  1. Tool provides analysis with detailed improvement recommendations
-  2. The AI writes the optimized DAX code based on those recommendations
-  3. The tool does NOT auto-generate optimized code - that's the AI's job
-**Example**:
-  Input: "Total Sales" (measure name) → Tool fetches expression → Analyzes → AI writes optimized version
-
-### 03 Validate DAX Query
-**Purpose**: Validate DAX syntax without execution
-**When to use**: Quick syntax checks
-**Parameters**:
-  - query: DAX query to validate
-**Returns**: Validation status and errors if any
-
-### 03 Get Column Value Distribution
-**Purpose**: Get top N values for a column
-**When to use**: Understanding column content, checking for issues
-**Parameters**:
-  - table: Table name
-  - column: Column name
-  - top_n: Number of values (default: 10)
-**Returns**: Values with counts and percentages
-
-### 03 Get Column Summary
-**Purpose**: Get statistical summary of column
-**When to use**: Understanding numeric/date column ranges
-**Parameters**:
-  - table: Table name
-  - column: Column name
-**Returns**: Min, max, distinct count, null count
-
-### 03 List Relationships
-**Purpose**: List model relationships
-**When to use**: Understanding model connectivity
-**Parameters**:
-  - active_only: Filter active relationships (default: false)
-**Returns**: From/to tables/columns, cardinality, cross-filter direction
-
-### 03 Get Data Sources
-**Purpose**: List all data sources
-**When to use**: Understanding data origins
-**Parameters**: None
-**Returns**: Connection strings, types, credentials info
-
-### 03 Get M Expressions
-**Purpose**: List Power Query M expressions
-**When to use**: Reviewing data transformation logic
-**Parameters**:
-  - limit (optional): Maximum expressions to return
-**Returns**: M code for each partition/table
+### 02_TMDL_Operations
+TMDL automation with 5 operations.
+- **operation** (required): `export` | `find_replace` | `bulk_rename` | `generate_script` | `migrate_measures`
+- **Operations**:
+  - **export**: Export full TMDL to file. Optional: `output_dir`
+  - **find_replace**: Find/replace in TMDL files. Requires: `tmdl_path`, `pattern`, `replacement`. Optional: `dry_run` (default true), `regex`, `case_sensitive`, `target`
+  - **bulk_rename**: Rename objects with reference updates. Requires: `tmdl_path`, `renames` [{old_name, new_name, object_type?, table_name?}]. Optional: `dry_run` (default true), `update_references` (default true)
+  - **generate_script**: Generate TMDL code. Requires: `definition`. Optional: `object_type` (table|measure|relationship|calc_group)
+  - **migrate_measures**: Copy measures between TMDL files. Requires: `source_path`, `target_path`. Optional: `display_folder_filter`, `replace_target`, `skip_duplicates`
+- **Safety**: Always run find_replace and bulk_rename with dry_run=true first!
 
 ---
 
-## ⚙️ CATEGORY 04: MODEL OPERATIONS (8 tools)
+## CATEGORY 03: BATCH & TRANSACTIONS (2 tools)
 
-### 04_upsert_measure
-**Purpose**: Create or update a measure
-**When to use**: Adding new calculations or fixing existing ones
-**Parameters**:
-  - table: Target table name
-  - measure: Measure name
-  - expression: DAX formula
-  - format_string (optional): Format like "#,0" or "0.0%"
-  - description (optional): Measure description
-  - display_folder (optional): Folder path
-**Returns**: Success status
-**Note**: Automatically backs up before changes
+### 03_Batch_Operations
+Execute batch operations on model objects (3-5x faster than individual operations).
+- **Parameters** (all required):
+  - `operation` (str): 'measures'|'tables'|'columns'|'relationships'
+  - `batch_operation` (str): 'create'|'update'|'delete'|'rename'|'move'|'activate'|'deactivate'|'refresh'
+  - `items` (array): List of object definitions
+- **options** (optional):
+  - `use_transaction` (bool, default true): Atomic all-or-nothing
+  - `continue_on_error` (bool, default false): Continue on error (only with use_transaction=false)
+  - `dry_run` (bool, default false): Validate without executing
 
-### 04_delete_measure
-**Purpose**: Delete a measure
-**When to use**: Removing unused or incorrect measures
-**Parameters**:
-  - table: Table name
-  - measure: Measure name
-**Returns**: Success status
-**Note**: Check dependencies first with analyze_measure_dependencies
-
-### 04_bulk_create_measures
-**Purpose**: Create multiple measures at once
-**When to use**: Initializing measure sets, batch operations
-**Parameters**:
-  - measures: Array of {table, measure, expression, format_string?, description?, display_folder?}
-**Returns**: Success count and any errors
-
-### 04_bulk_delete_measures
-**Purpose**: Delete multiple measures at once
-**When to use**: Cleanup operations
-**Parameters**:
-  - measures: Array of {table, measure}
-**Returns**: Success count and any errors
-
-### 04_list_calculation_groups
-**Purpose**: List calculation groups
-**When to use**: Understanding time intelligence or other calculation modifiers
-**Parameters**: None
-**Returns**: Calculation group names, items, precedence
-
-### 04_create_calculation_group
-**Purpose**: Create a new calculation group
-**When to use**: Implementing time intelligence or custom calculation patterns
-**Parameters**:
-  - name: Calculation group name
-  - items: Array of {name, expression}
-  - description (optional)
-  - precedence (optional)
-**Returns**: Success status
-
-### 04_delete_calculation_group
-**Purpose**: Delete a calculation group
-**When to use**: Removing calculation groups
-**Parameters**:
-  - name: Calculation group name
-**Returns**: Success status
-
-### 04_list_roles
-**Purpose**: List Row-Level Security (RLS) roles
-**When to use**: Understanding security configuration
-**Parameters**: None
-**Returns**: Role names, descriptions, table permissions, DAX filters
+### 03_Manage_Transactions
+ACID transactions for atomic model changes with rollback.
+- **operation** (required): `begin` | `commit` | `rollback` | `status` | `list_active`
+- **Parameters**:
+  - `transaction_id` (str): Required for commit/rollback/status
+  - `connection_name` (str): Optional for begin
 
 ---
 
-## 📈 CATEGORY 05: ANALYSIS (1 unified tool)
+## CATEGORY 04: QUERY & SEARCH (5 tools)
 
-### 05_comprehensive_analysis (UNIFIED ANALYSIS TOOL)
-**Purpose**: Complete model analysis: Best Practices + Performance + Integrity
-**When to use**: Model health checks, optimization, documentation
-**Parameters**:
-  - scope: 'all' (default), 'best_practices', 'performance', 'integrity'
-  - depth: 'fast', 'balanced' (default), 'deep'
-  - include_bpa: Include BPA rules (default: true)
-  - include_performance: Include performance analysis (default: true)
-  - include_integrity: Include validation (default: true)
-  - max_seconds: Time limit for BPA (5-300)
-**Returns**: Comprehensive analysis report with:
-  - Best practices violations (120+ BPA rules)
-  - Performance metrics (cardinality, data types)
-  - Integrity issues (circular refs, duplicates, nulls)
-  - Recommendations and priority levels
-**Scope Options**:
-  - all: Complete analysis (recommended for full health check)
-  - best_practices: Focus on BPA and M practices
-  - performance: Focus on cardinality and optimization
-  - integrity: Focus on validation and errors
-**Depth Options**:
-  - fast: Quick scan (< 1 minute)
-  - balanced: Standard analysis (recommended)
-  - deep: Thorough analysis (may take several minutes)
+### 04_Run_DAX
+Execute DAX query with auto limits.
+- **Parameters**:
+  - `query` (str, required): DAX EVALUATE statement
+  - `top_n` (int, default 100): Row limit
+  - `mode` (str, default 'auto'): 'auto'|'analyze'|'profile'|'simple'
+    - auto: Smart mode selection
+    - analyze/profile: Include timing analysis
+    - simple: Preview only
 
----
+### 04_Get_Data_Sources
+List all data sources. No parameters. Returns connection strings, types, credentials info.
 
-## 🔗 CATEGORY 06: DEPENDENCIES (2 tools)
+### 04_Get_M_Expressions
+List M/Power Query expressions.
+- **Parameters**:
+  - `limit` (int, optional): Max expressions to return
 
-### 06 Analyze Measure Dependencies
-**Purpose**: Analyze what a measure depends on
-**When to use**: Understanding measure calculation chain
-**Parameters**:
-  - table: Table name
-  - measure: Measure name
-**Returns**: Dependency tree showing referenced measures, columns, tables
-**Note**: Critical before modifying or deleting measures
+### 04_Search_Objects
+Search tables/columns/measures by name pattern (wildcard).
+- **Parameters**:
+  - `pattern` (str): Search pattern
+  - `types` (array): Filter by ['tables', 'columns', 'measures']
+  - `page_size` / `next_token`: Pagination
 
-### 06 Get Measure Impact
-**Purpose**: Analyze what uses a measure
-**When to use**: Impact analysis before changes
-**Parameters**:
-  - table: Table name
-  - measure: Measure name
-**Returns**: List of measures that reference this measure
-**Note**: Use with analyze_measure_dependencies for complete picture
+### 04_Search_String
+Search inside DAX expressions and measure names.
+- **Parameters**:
+  - `search_text` (str, required): Text to search for
+  - `search_in_expression` (bool, default true): Search DAX code
+  - `search_in_name` (bool, default true): Search measure names
+  - `page_size` / `next_token`: Pagination
 
 ---
 
-## 💾 CATEGORY 07: EXPORT (1 tool)
+## CATEGORY 05: DAX INTELLIGENCE (5 tools)
 
-### 07 Get Live Model Schema
-**Purpose**: Get live model schema (inline, without DAX expressions)
-**When to use**: Quick model overview, structure analysis, lightweight documentation
-**Parameters**:
-  - include_hidden (optional): Include hidden objects (default: true)
-**Returns**: Lightweight schema (~1-2k tokens) with:
-  - Tables, columns, measures (names, data types, formats, folders)
-  - Relationships (endpoints, cardinality, direction)
-  - No DAX expressions (keeps token usage low)
-**Note**: Returned inline, not saved to file
+### 05_DAX_Intelligence
+Comprehensive DAX analysis with optimization recommendations.
+- **Parameters**:
+  - `expression` (str, required): DAX expression OR measure name (auto-detects and fetches)
+  - `analysis_mode` (str, default 'all'): 'all'|'analyze'|'debug'|'report'
+    - **all**: Complete analysis (context + anti-patterns + debug + report + best practices)
+    - **analyze**: Context transition analysis with anti-patterns
+    - **debug**: Step-by-step execution breakdown
+    - **report**: Full analysis with optimization + profiling
+  - `skip_validation` (bool, default false): Skip syntax check
+  - `output_format` (str): 'friendly'|'steps' (debug mode)
+  - `include_optimization` (bool, default true): Include suggestions
+  - `include_profiling` (bool, default true): Include performance
+  - `breakpoints` (array[int]): Char positions for debugging
+- **Workflow**: Tool provides analysis recommendations -> AI writes optimized DAX
 
----
+### 05_Analyze_Dependencies
+Analyze measure dependencies with interactive diagram.
+- **Parameters**:
+  - `table` (str, required): Table name
+  - `measure` (str, required): Measure name
+  - `include_diagram` (bool, default true): Include Mermaid diagram
+- **Returns**: Formatted dependency tree + interactive HTML diagram (auto-opens in browser)
 
-## 📄 CATEGORY 08: DOCUMENTATION (3 tools)
+### 05_Get_Measure_Impact
+Get what depends on this measure (reverse dependencies).
+- **Parameters**:
+  - `table` (str, required): Table name
+  - `measure` (str, required): Measure name
+- **Returns**: List of measures that reference this measure
 
-### 08 Generate Model Documentation
-**Purpose**: Generate comprehensive Word documentation
-**When to use**: Formal documentation, stakeholder reports
-**Parameters**:
-  - output_path (optional): Custom file path
-**Returns**: Word document with tables, measures, relationships, best practices
-**Contents**:
-  - Model overview
-  - Tables and columns
-  - Measures with DAX
-  - Relationships diagram
-  - Best practices analysis
+### 05_Export_DAX_Measures
+Export all DAX measures to CSV.
+- **Parameters**:
+  - `output_path` (str, optional): Directory path (default: exports/)
+- **Returns**: CSV with Table, Measure_Name, Display_Folder, DAX_Expression
 
-### 08 Update Model Documentation
-**Purpose**: Update existing Word documentation
-**When to use**: Incremental documentation updates
-**Parameters**:
-  - input_path: Existing Word document
-  - output_path: Where to save updated version
-**Returns**: Updated Word document
-
-### 08 Export Model Explorer HTML
-**Purpose**: Generate interactive HTML documentation
-**When to use**: Shareable, searchable documentation
-**Parameters**:
-  - output_path (optional): Custom file path
-**Returns**: Interactive HTML with search, filtering, collapsible sections
-**Features**:
-  - Search across all objects
-  - Filter by type
-  - Collapsible sections
-  - Copy DAX to clipboard
-  - No dependencies, self-contained
-
----
-
-## 🔄 CATEGORY 09: COMPARISON (1 tool)
-
-### 09 Compare Open Live Models
-**Purpose**: Compare two live/open Power BI models - detects instances and compares OLD vs NEW
-**When to use**: When you want to compare two Power BI models
-**Parameters** (optional on first call):
-  - old_port: Port number of OLD model
-  - new_port: Port number of NEW model
-**How it works**:
-  1. First call: Detects all running Power BI instances (no parameters needed)
-  2. Returns list of detected models with their ports
-  3. Second call: Provide old_port and new_port to perform comparison
-**Returns**: Detailed comparison report:
-  - Added/removed/modified tables
-  - Added/removed/modified measures
-  - Added/removed/modified columns
-  - Relationship changes
-  - DAX formula differences
-**Workflow**:
-  1. Open both Power BI files in separate Desktop instances
-  2. Run 09 Compare Open Live Models (without parameters) to detect models
-  3. Identify which is OLD and which is NEW from the returned list
-  4. Run 09 Compare Open Live Models again with old_port and new_port
-**Use cases**:
-  - Version comparison
-  - Development vs production
-  - Impact analysis of changes
+### 05_Column_Usage_Mapping
+Analyze column usage - find unused columns, check measure dependencies.
+- **operation** (required): `get_unused_columns` | `get_measures_for_tables` | `get_columns_for_measure` | `get_measures_for_column` | `get_full_mapping` | `export_to_csv`
+- **Key parameters**:
+  - `tables` (array): Filter by table names
+  - `table` / `measure` / `column` (str): For specific lookups
+  - `group_by` (str): 'table'|'column'|'measure'|'flat' (for get_measures_for_tables)
+  - `include_dax` (bool, default false): Include DAX expressions
+  - `force_refresh` (bool, default false): Force cache refresh
+- **Primary use**: `get_unused_columns` finds columns not used by measures OR relationships
 
 ---
 
-## 📦 CATEGORY 10: PBIP ANALYSIS - HTML (1 tool)
+## CATEGORY 06: ANALYSIS & COMPARISON (3 tools)
 
-### 10 PBIP Analysis HTML
-**Purpose**: Analyze PBIP format without Power BI Desktop
-**When to use**: CI/CD pipelines, Git repo analysis, no desktop access
-**Parameters**:
-  - pbip_path: Path to .pbip file or folder
-  - output_path (optional): Output directory for report
-**Returns**: HTML report with model analysis
-**Features**:
-  - Works offline (no Power BI connection)
-  - Analyzes TMDL definition
-  - Identifies tables, measures, relationships
-  - Best practices from file analysis
-  - Perfect for Git hooks and CI/CD
-**Note**: PBIP format introduced in Power BI 2024
+### 06_Simple_Analysis
+Quick model analysis with expert insights (2-5 seconds).
+- **Parameters**:
+  - `mode` (str, default 'all'): 'all'|'tables'|'stats'|'measures'|'measure'|'columns'|'relationships'|'roles'|'database'|'calculation_groups'
+  - `table` (str): Table filter (for measures/columns/measure modes)
+  - `measure_name` (str): Required for mode=measure
+  - `max_results` (int): Limit results
+  - `active_only` (bool, default false): Active relationships only
 
----
+### 06_Full_Analysis
+Comprehensive analysis: Best practices (BPA 120+ rules), performance, integrity (10-180s).
+- **Parameters**:
+  - `scope` (str, default 'all'): 'all'|'best_practices'|'performance'|'integrity'
+  - `depth` (str, default 'balanced'): 'fast'|'balanced'|'deep'
+  - `include_bpa` (bool, default true): Include BPA rules
+  - `include_performance` (bool, default true): Include performance analysis
+  - `include_integrity` (bool, default true): Include integrity validation
+  - `max_seconds` (int, 5-300): Max execution time
 
-## 🔧 CATEGORY 11: TMDL OPERATIONS (1 unified tool)
-
-### 11 TMDL Operations
-**Purpose**: Unified handler for ALL TMDL automation tasks
-**When to use**: TMDL export, find/replace, bulk rename, script generation
-**Operations**:
-  - **export**: Export complete model as TMDL to file
-    - Optional: output_dir (output directory path)
-    - Returns: Full TMDL export file with all DAX expressions
-    - Example: {'operation': 'export', 'output_dir': 'C:/exports/tmdl'}
-
-  - **find_replace**: Find and replace patterns in TMDL files
-    - Required: tmdl_path, pattern, replacement
-    - Optional: dry_run (default: true), regex (default: false)
-    - Returns: List of matches and changes
-    - Example: {'operation': 'find_replace', 'tmdl_path': 'C:/exports/tmdl', 'pattern': 'SUM', 'replacement': 'SUMX'}
-
-  - **bulk_rename**: Rename objects with automatic reference updates
-    - Required: tmdl_path, renames (array of {old_name, new_name})
-    - Optional: dry_run (default: true), update_references (default: true)
-    - Returns: Preview of rename operations
-    - Example: {'operation': 'bulk_rename', 'tmdl_path': 'C:/exports/tmdl', 'renames': [{'old_name': 'Rev', 'new_name': 'Revenue'}]}
-
-  - **generate_script**: Generate TMDL code for new objects
-    - Required: definition (object properties dict)
-    - Optional: object_type (table|measure|relationship|calc_group, default: 'table')
-    - Returns: Valid TMDL code ready to use
-    - Example: {'operation': 'generate_script', 'object_type': 'measure', 'definition': {'name': 'Total Sales', 'expression': 'SUM(Sales[Amount])'}}}
-
-**Use cases**:
-  - Export for version control or backup
-  - Bulk DAX refactoring and renaming patterns
-  - Rename tables/measures while maintaining references
-  - Generate templates for new objects
-
-**Safety**: Always run find_replace and bulk_rename with dry_run=true first!
+### 06_Compare_PBI_Models
+Compare two live/open Power BI models.
+- **Workflow**: Call without parameters first to detect instances, then call with ports.
+- **Parameters**:
+  - `old_port` (int): Port of OLD model
+  - `new_port` (int): Port of NEW model
+- **Returns**: Detailed diff of tables, measures, columns, relationships, DAX formulas
 
 ---
 
-## ❓ CATEGORY 12: HELP (1 tool)
+## CATEGORY 07: PBIP ANALYSIS (7 tools) - No live connection required
 
-### 12 Show User Guide
-**Purpose**: Display this comprehensive user guide
-**When to use**: Anytime you need tool reference
-**Parameters**: None
-**Returns**: This guide
+### 07_PBIP_Operations
+Offline PBIP analysis with 9 operations.
+- **operation** (required): `analyze` | `query_dependencies` | `query_measures` | `query_relationships` | `query_unused` | `validate_model` | `compare_models` | `generate_documentation` | `git_diff`
+- **Key parameters**:
+  - `pbip_path` (str): Path to .pbip file or .SemanticModel folder
+  - `object_name` (str): For query_dependencies (e.g., '[Total Sales]')
+  - `direction` (str): 'forward'|'reverse'|'both' (query_dependencies)
+  - `table` / `display_folder` / `pattern` / `expression_search` (str): Filters for query_measures
+  - `source_path` / `target_path` (str): For compare_models
+  - `output_path` (str): For analyze or generate_documentation
+- **Operations**:
+  - **analyze**: Full HTML report with model analysis
+  - **query_dependencies**: Dependency graph for an object
+  - **query_measures**: Search/list measures by name, folder, or DAX expression
+  - **query_relationships**: Relationships with quality analysis
+  - **query_unused**: Find unused measures/columns
+  - **validate_model**: TMDL validation and linting
+  - **compare_models**: Compare two PBIP projects
+  - **generate_documentation**: Markdown docs from TMDL metadata
+  - **git_diff**: Semantic analysis of git changes in TMDL files
+
+### 07_Report_Info
+Get report structure - pages, filters, visuals.
+- **Parameters**:
+  - `pbip_path` (str, required): Path to PBIP/Report folder
+  - `include_visuals` (bool, default true): Include visual info
+  - `include_filters` (bool, default true): Include filter info
+  - `page_name` (str): Filter by page name (substring match)
+  - `summary_only` (bool, default true): Compact output
+  - `max_visuals_per_page` (int, default 50): Limit visuals per page
+
+### 07_PBIP_Dependency_Analysis
+Generate interactive HTML dependency browser.
+- **Parameters**:
+  - `pbip_folder_path` (str, required): Path to .SemanticModel or PBIP folder
+  - `auto_open` (bool, default true): Open HTML in browser
+  - `output_path` (str): Custom HTML output path
+  - `main_item` (str): Initial item to select (e.g., 'Table[Measure]')
+- **Features**: Sidebar with ALL measures/columns, click to view upstream/downstream deps
+
+### 07_Slicer_Operations
+Configure Power BI slicers and visual interactions.
+- **operation** (default 'list'): `list` | `configure_single_select` | `list_interactions` | `set_interaction` | `bulk_set_interactions`
+- **Key parameters**:
+  - `pbip_path` (str, required): Path to PBIP/Report folder
+  - `display_name` / `entity` / `property` (str): Slicer filters
+  - `page_name` (str): Filter by page
+  - `source_visual` / `target_visual` (str): For interaction operations
+  - `interaction_type` (str): 'NoFilter'|'Filter'|'Highlight'
+  - `interactions` (array): [{source, target, type}] for bulk operations
+  - `dry_run` (bool, default false): Preview changes
+  - `summary_only` (bool, default true): Compact output
+
+### 07_Analyze_Aggregation
+Analyze aggregation table usage and optimization opportunities.
+- **Parameters**:
+  - `pbip_path` (str, required): Path to PBIP project
+  - `output_format` (str, default 'summary'): 'summary'|'detailed'|'html'|'json'
+  - `output_path` (str): Output path for reports
+  - `page_filter` (str): Filter by page name
+  - `include_visual_details` (bool, default true): Per-visual analysis
+
+### 07_Analyze_Bookmarks
+Analyze bookmarks in a PBIP report with HTML output.
+- **Parameters**:
+  - `pbip_path` (str, required): Path to PBIP/Report folder
+  - `auto_open` (bool, default true): Open HTML in browser
+  - `output_path` (str): Custom HTML output path
+
+### 07_Analyze_Theme_Compliance
+Analyze theme compliance in a PBIP report with HTML output.
+- **Parameters**:
+  - `pbip_path` (str, required): Path to PBIP/Report folder
+  - `theme_path` (str): Custom theme JSON path
+  - `auto_open` (bool, default true): Open HTML in browser
+  - `output_path` (str): Custom HTML output path
 
 ---
 
-## 🔀 CATEGORY 13: FULL MODEL (PBIP + SAMPLE) (2 tools)
+## CATEGORY 08: VISUALS & DOCS (2 tools)
 
-### 13 PBIP Model - Sample Export
-**Purpose**: Export combined TMDL + metadata + sample data
-**When to use**: Complete offline analysis package
-**Parameters**:
-  - pbip_folder_path: Path to .SemanticModel folder or parent
-  - output_dir (optional): Output location
-  - connection_string/server/database (optional): Manual connection
-  - include_sample_data: Include data samples (default: true)
-  - sample_rows: Rows per table (default: 1000, max: 5000)
-  - sample_compression: 'snappy' (default) or 'zstd'
-  - include_row_counts: Include row counts (default: true)
-  - track_column_usage: Track usage stats (default: true)
-  - track_cardinality: Track cardinality (default: true)
-  - tmdl_strategy: 'symlink' (default) or 'copy'
-**Returns**: Folder with TMDL + metadata.json + sample_data (parquet)
-**Features**:
-  - Auto-detects running Power BI Desktop
-  - Combines static TMDL with live metadata
-  - Extracts sample data for testing
-  - Optimized for AI analysis
-**Use cases**:
-  - AI-powered model analysis
-  - Testing with real data
-  - Comprehensive documentation
+### 08_Visual_Operations
+Edit Power BI visual properties in PBIP files.
+- **operation** (default 'list'): `list` | `update_position` | `replace_measure` | `sync_visual` | `sync_column_widths` | `update_visual_config`
+- **Key parameters**:
+  - `pbip_path` (str, required): Path to PBIP/Report folder
+  - `page_name` / `visual_name` / `visual_type` / `display_title` (str): Filters
+  - `x`, `y`, `width`, `height` (number): For update_position
+  - `z` (int): Z-order for update_position
+  - `source_entity`, `source_property`, `target_entity`, `target_property` (str): For replace_measure
+  - `source_visual_name`, `source_page`, `target_pages` (str/array): For sync_visual
+  - `sync_position` / `sync_children` (bool): Sync options
+  - `config_type` / `property_name` / `property_value` (str): For update_visual_config
+  - `config_updates` (array): Batch config changes
+  - `dry_run` (bool, default false): Preview changes
+  - `summary_only` (bool, default true): Compact output
 
-### 13 PBIP Model + Sample Analysis (FULLY AUTOMATED)
-**Purpose**: Analyze exported hybrid model (reads all files internally)
-**When to use**: After 13 PBIP Model - Sample Export
-**Parameters**:
-  - analysis_path: Path to analysis folder (tool reads all files internally)
-  - operation: Type of analysis
-    - 'read_metadata': Parse TMDL + JSON
-    - 'find_objects': Search TMDL files
-    - 'get_object_definition': Extract DAX from TMDL
-    - 'analyze_dependencies': Parse dependency tree
-    - 'analyze_performance': Scan measures for issues
-    - 'get_sample_data': Read parquet data
-    - 'get_unused_columns': Read JSON stats
-    - 'get_report_dependencies': Read JSON usage
-    - 'smart_analyze': Natural language query
-  - intent: Natural language query (for smart_analyze)
-  - object_filter: Filter criteria
-  - format_type: 'json' (default) or 'toon' (compact)
-  - batch_size/batch_number: Pagination
-  - priority: Filter by priority level
-  - detailed: Include detailed analysis
-**Returns**: Analysis results based on operation
-**Key Feature**: Fully automated - NO manual file reading needed!
-**Intelligence**:
-  - Fuzzy search (e.g., "base scenario" finds "PL-AMT-BASE Scenario")
-  - Natural language queries with smart_analyze
-  - Automatic pagination for large results
-  - TOON format for 50% size reduction
+### 08_Documentation_Word
+Generate or update Word documentation report.
+- **Parameters**:
+  - `mode` (str, default 'generate'): 'generate' (new doc) | 'update' (detect changes)
+  - `output_path` (str): Output Word file path
+  - `input_path` (str): Existing doc path (required for mode='update')
 
 ---
 
-## 🎯 COMMON WORKFLOWS
+## CATEGORY 09: DEBUG (10 tools)
 
-### Workflow 1: Model Health Check
-```
-1. 01 Detect PBI Instances
-2. 01 Connect To Instance
-3. 05 Live Model Full Analysis (scope='all', depth='balanced')
+### 09_Debug_Visual
+Visual debugger - discover pages/visuals, show filter context, execute queries.
+- **Parameters**:
+  - `page_name` (str): Omit to list all pages
+  - `visual_id` / `visual_name` (str): Omit to list all visuals on page
+  - `measure_name` (str): Specific measure to query
+  - `include_slicers` (bool, default true): Include slicer selections
+  - `execute_query` (bool, default true): Execute query (false = filters only)
+  - `filters` (array[str]): Manual DAX filter expressions
+  - `skip_auto_filters` (bool, default false): Use only manual filters
+  - `compact` (bool, default true): Compact output
+
+### 09_Compare_Measures
+Compare original vs optimized measure with the same filter context.
+- **Parameters**:
+  - `original_measure` (str, required): Original measure name (e.g., '[Total Sales]')
+  - `optimized_expression` (str, required): Optimized DAX expression
+  - `page_name` / `visual_id` / `visual_name` (str): Filter context source
+  - `filters` (array[str]): Manual DAX filters
+  - `include_slicers` (bool, default true)
+
+### 09_Drill_To_Detail
+Show underlying rows for an aggregated value using visual filter context.
+- **Parameters**:
+  - `page_name` / `visual_id` / `visual_name` (str): Filter context source
+  - `fact_table` (str): Fact table to query (if visual not specified)
+  - `limit` (int, default 100): Max rows
+  - `include_slicers` (bool, default true)
+
+### 09_Set_PBIP_Path
+Manually set PBIP folder path for visual debugging if auto-detection failed.
+- **Parameters**:
+  - `pbip_path` (str, required): Full path to PBIP project folder
+
+### 09_Get_Debug_Status
+Get current debug capabilities status (PBIP and model connection).
+- **Parameters**:
+  - `compact` (bool, default true): Compact output
+
+### 09_Analyze_Measure
+Analyze measure DAX for anti-patterns and get fix suggestions.
+- **Parameters**:
+  - `measure_name` (str, required): Measure name
+  - `table_name` (str): Table containing measure (optional, searches all)
+  - `page_name` / `visual_id` / `visual_name` (str): Filter context
+  - `include_slicers` (bool, default true)
+  - `execute_measure` (bool, default true): Execute to see current value
+  - `compact` (bool, default true)
+
+### 09_Validate
+Validation tests: cross_visual, expected_value, filter_permutation.
+- **operation** (required): `cross_visual` | `expected_value` | `filter_permutation`
+- **Parameters**:
+  - `measure_name` (str): For cross_visual
+  - `page_name` / `page_names` (str/array): Page context
+  - `visual_id` / `visual_name` (str): Visual context
+  - `expected_value` (number|str): For expected_value test
+  - `filters` (array[str]): Additional DAX filters
+  - `tolerance` (number, default 0.001): Numeric comparison tolerance
+  - `max_permutations` (int, default 20): Max combinations for filter_permutation
+
+### 09_Profile
+Performance profiling.
+- **operation** (default 'page'): `page` | `filter_matrix`
+- **Parameters**:
+  - `page_name` (str, required): Page to profile
+  - `visual_id` / `visual_name` (str): For filter_matrix
+  - `iterations` (int, default 3): Iterations per visual
+  - `include_slicers` (bool, default true)
+  - `filter_columns` (array[str]): Columns to vary (auto-detect if not set)
+  - `max_combinations` (int, default 15): Max filter combinations
+
+### 09_Document
+Documentation generation from PBIP + live model.
+- **operation** (required): `page` | `report` | `measure_lineage` | `filter_lineage`
+- **Parameters**:
+  - `page_name` (str): Required for page operation
+  - `measure_name` (str): For measure_lineage
+  - `lightweight` (bool, default true): Fast mode (skips DMV queries)
+  - `include_ui_elements` (bool, default false): Include shapes/buttons
+
+### 09_Advanced_Analysis
+Advanced analysis operations.
+- **operation** (required): `decompose` | `contribution` | `trend` | `root_cause` | `export`
+- **Parameters**:
+  - `page_name` (str): Required for decompose/contribution/trend/root_cause
+  - `visual_id` / `visual_name` (str): Visual target
+  - `dimension` (str): Dimension column for decompose/contribution
+  - `date_column` (str): For trend analysis
+  - `granularity` (str, default 'month'): day|week|month|quarter|year
+  - `baseline_filters` / `comparison_filters` (array[str]): For root_cause
+  - `dimensions` (array[str]): Dimensions for root_cause
+  - `top_n` (int): Top results
+  - `format` (str, default 'markdown'): For export
+
+---
+
+## SVG VISUAL GENERATION
+
+### SVG_Visual_Operations
+40+ DAX templates for KPIs, sparklines, gauges, data bars.
+- **operation** (required): `list_templates` | `get_template` | `preview_template` | `generate_measure` | `inject_measure` | `list_categories` | `search_templates` | `validate_svg` | `create_custom`
+- **Key parameters**:
+  - `category` (str): 'kpi'|'sparklines'|'gauges'|'databars'|'advanced'
+  - `complexity` (str): 'basic'|'intermediate'|'advanced'|'complex'
+  - `template_id` (str): For get/preview/generate/inject
+  - `parameters` (object): Template params (measure_name, value_measure, thresholds, colors)
+  - `table_name` (str): Target table for inject_measure
+  - `search_query` (str): For search_templates
+  - `svg_code` (str): For validate_svg/create_custom
+  - `dynamic_vars` (object): Variable name -> DAX expression for create_custom
+  - `context_aware` (bool, default true): Use connected model for suggestions
+
+---
+
+## COMMON WORKFLOWS
+
+### Model Health Check
+1. `01_Detect_PBI_Instances`
+2. `01_Connect_To_Instance`
+3. `06_Full_Analysis` (scope='all', depth='balanced')
 4. Review best practices violations
 5. Address critical/high priority issues
-```
 
-### Workflow 2: Measure Development
-```
-1. 02 Measure Operations (study existing measures)
-2. 03 Standard DAX Analysis (test DAX logic, mode='debug')
-3. 02 Measure Operations (create new measure)
-4. 03 Run DAX (test with real data)
-5. 06 Analyze Measure Dependencies (verify dependencies)
-```
+### Measure Development
+1. `02_Measure_Operations` (operation='list') - study existing measures
+2. `05_DAX_Intelligence` (mode='all') - analyze DAX
+3. `02_Measure_Operations` (operation='create') - create new measure
+4. `04_Run_DAX` - test with real data
+5. `05_Analyze_Dependencies` - verify dependencies
 
-### Workflow 3: Model Documentation
-```
-1. 02 Table Operations (get model overview)
-2. 05 Live Model Full Analysis (get full analysis)
-3. 08 Generate Model Documentation
-4. 08 Export Model Explorer HTML (shareable version)
-5. 11 TMDL Operations with operation='export' (full backup for version control)
-```
+### Model Documentation
+1. `06_Simple_Analysis` (mode='all') - get model overview
+2. `08_Documentation_Word` - generate Word doc
+3. `07_PBIP_Operations` (operation='analyze') - HTML report
+4. `02_TMDL_Operations` (operation='export') - TMDL backup
 
-### Workflow 4: Performance Optimization
-```
-1. 05 Live Model Full Analysis (scope='performance')
-2. Review cardinality issues
-3. 03 Get Column Value Distribution (check high-cardinality columns)
-4. 03 List Relationships (verify relationship direction)
-5. 03 Standard DAX Analysis (mode='report') (optimize measures)
-```
+### DAX Debugging
+1. `09_Debug_Visual` - discover pages/visuals and filter context
+2. `09_Analyze_Measure` - analyze anti-patterns
+3. `05_DAX_Intelligence` (mode='all') - get optimization recommendations
+4. AI writes optimized DAX based on recommendations
+5. `09_Compare_Measures` - validate original vs optimized
+6. `02_Measure_Operations` (operation='update') - save optimized version
 
-### Workflow 5: Model Comparison
-```
+### Model Comparison
 1. Open both Power BI files in separate Desktop instances
-2. 09 Compare Open Live Models (no parameters) - detects models
-3. Identify which is OLD and which is NEW from the list
-4. 09 Compare Open Live Models (old_port, new_port) - performs comparison
-5. Review changes and impacts
-```
+2. `06_Compare_PBI_Models` (no parameters) - detect models
+3. Identify OLD vs NEW from returned list
+4. `06_Compare_PBI_Models` (old_port, new_port) - perform comparison
 
-### Workflow 6: CI/CD Integration
-```
-1. 10 PBIP Analysis HTML (offline analysis)
-2. Review best practices from PBIP
-3. 13 PBIP Model - Sample Export (if live model available)
-4. 13 PBIP Model + Sample Analysis (automated analysis)
-5. Generate reports for pipeline
-```
-
-### Workflow 7: DAX Debugging & Optimization
-```
-1. 02 Measure Operations (get measure formula)
-2. 06 Analyze Measure Dependencies (understand dependencies)
-3. 03 Standard DAX Analysis (mode='all' or 'analyze') (get complete analysis)
-4. AI writes optimized DAX based on recommendations from step 3
-5. 03 Run DAX (test the optimized DAX with real data)
-6. 02 Measure Operations (save optimized version)
-
-IMPORTANT: The tool provides analysis and recommendations. The AI must write the optimized code.
-```
+### Offline PBIP Analysis
+1. `07_PBIP_Operations` (operation='analyze') - full offline analysis
+2. `07_PBIP_Operations` (operation='validate_model') - TMDL linting
+3. `07_PBIP_Operations` (operation='query_unused') - find dead code
+4. `07_PBIP_Dependency_Analysis` - interactive dependency browser
+5. `07_Analyze_Aggregation` - aggregation optimization
 
 ---
 
-## 💡 TIPS & BEST PRACTICES
+## TIPS
 
-### Connection Tips
-- Always start with detect_pbi_instances
-- Typically use model_index=0 for single file
-- Keep Power BI Desktop open during analysis
-
-### Analysis Tips
-- Run comprehensive_analysis regularly (weekly recommended)
-- Address CRITICAL and HIGH priority issues first
-- Use depth='balanced' for most cases, 'deep' for problem areas
-
-### DAX Development Tips
-- Always use 03_standard_dax_analysis (mode='all') to get complete analysis with optimization recommendations
-- The AI writes optimized code based on the tool's recommendations - the tool does NOT auto-generate code
-- Test optimized DAX with 03_run_dax before committing
-- Check dependencies with analyze_measure_dependencies before making changes
-- Use mode='debug' for step-by-step context transition understanding
-
-### Performance Tips
-- Check cardinality with comprehensive_analysis
-- Review column data types (integers > strings)
-- Optimize bidirectional relationships
-- Use calculated columns sparingly
-
-### Documentation Tips
-- Generate docs before major changes (baseline)
-- Use HTML export for team sharing
-- Export TMDL for version control (Git)
-- Update docs after significant changes
-
-### TMDL Automation Tips
-- ALWAYS use dry_run=true first
-- Test on a copy before bulk operations
-- Use version control before find/replace
-- Export TMDL before major refactoring
-
-### Safety Tips
-- Comprehensive_analysis backs up before changes
-- Check measure_impact before deleting
-- Use compare_pbi_models without parameters first to detect models
-- Test DAX with validate_dax_query first
-
----
-
-## 🚀 VERSION INFORMATION
-
-**Current Version**: 5.01
-**Tools**: 50+ across 13 categories
-**Platform**: Windows 10/11 (64-bit)
-**Requirements**:
-  - Power BI Desktop installed
-  - .NET Framework 4.7.2+
-**Communication**: stdio (no exposed ports)
-
----
-
-## 📞 SUPPORT & RESOURCES
-
-For detailed documentation, visit:
-- GitHub: https://github.com/bibiibjorn/MCP-PowerBi-Finvision
-- Issues: Report bugs and feature requests on GitHub
-
----
-
-**Note**: This MCP server runs locally and securely communicates via stdio. No data leaves your machine.
-All operations are performed directly on your local Power BI Desktop instances.
-
-**Last Updated**: January 2025
+- Always start with `01_Detect_PBI_Instances` then `01_Connect_To_Instance`
+- Use `06_Simple_Analysis` for quick checks, `06_Full_Analysis` for thorough review
+- Run `05_DAX_Intelligence` with mode='all' for complete analysis recommendations
+- Always use dry_run=true first for find_replace and bulk_rename operations
+- Check `05_Analyze_Dependencies` and `05_Get_Measure_Impact` before modifying/deleting measures
+- PBIP tools (07_*) work offline without Power BI Desktop connection
+- Debug tools (09_*) combine PBIP report layout with live model data
+- Use `03_Batch_Operations` for bulk changes (3-5x faster than individual operations)
 """
+
 
 def register_user_guide_handlers(registry):
     """Register user guide handler"""
-    from server.tool_schemas import TOOL_SCHEMAS
-
-    tools = [
-        ToolDefinition(
-            name="10_Show_User_Guide",
-            description="Show comprehensive user guide",
-            handler=handle_show_user_guide,
-            input_schema=TOOL_SCHEMAS.get('show_user_guide', {}),
-            category="core",
-            sort_order=110  # 10 = Help
-        ),
-    ]
-
-    for tool in tools:
-        registry.register(tool)
-
-    logger.info(f"Registered {len(tools)} user guide handlers")
+    tool = ToolDefinition(
+        name="10_Show_User_Guide",
+        description="Show comprehensive user guide with all tools, operations, parameters, and workflows",
+        handler=handle_show_user_guide,
+        input_schema={
+            "type": "object",
+            "properties": {},
+            "required": []
+        },
+        category="core",
+        sort_order=110
+    )
+    registry.register(tool)
+    logger.info("Registered user guide handler")
