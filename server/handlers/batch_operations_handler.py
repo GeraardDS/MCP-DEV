@@ -143,7 +143,7 @@ def register_batch_operations_handler(registry):
                 }
             ]
         },
-        category="model_operations",
+        category="batch",
         sort_order=30  # 03 = Batch & Transactions
     )
 

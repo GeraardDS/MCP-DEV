@@ -24,7 +24,6 @@ class ToolCategory(Enum):
     PBIP = "pbip"              # PBIP analysis, report info, slicers, visuals
     DOCS = "docs"              # Documentation generation
     DEBUG = "debug"            # Debug tools
-    EXPORT = "export"          # Export handlers
 
 
 # Define which tools belong to each category (for deferred loading)
@@ -68,7 +67,7 @@ CATEGORY_TOOLS = {
         "06_Compare_PBI_Models",
     ],
     ToolCategory.PBIP: [
-        "07_Analyze_PBIP_Repository",
+        "07_PBIP_Operations",
         "07_Report_Info",
         "07_PBIP_Dependency_Analysis",
         "07_Slicer_Operations",
@@ -76,15 +75,14 @@ CATEGORY_TOOLS = {
         "07_Analyze_Bookmarks",
         "07_Analyze_Theme_Compliance",
         "08_Visual_Operations",
+        "SVG_Visual_Operations",
     ],
     ToolCategory.DOCS: [
-        "08_Generate_Documentation_Word",
-        "08_Update_Documentation_Word",
+        "08_Documentation_Word",
     ],
     ToolCategory.DEBUG: [
         "09_Debug_Visual",
         "09_Compare_Measures",
-        "09_List_Slicers",
         "09_Drill_To_Detail",
         "09_Set_PBIP_Path",
         "09_Get_Debug_Status",
@@ -105,9 +103,9 @@ CATEGORY_INFO = {
     ToolCategory.QUERY: {"name": "Query & Search", "description": "DAX queries, search objects", "tool_count": 5},
     ToolCategory.DAX: {"name": "DAX Intelligence", "description": "DAX analysis, dependencies, optimization", "tool_count": 5},
     ToolCategory.ANALYSIS: {"name": "Analysis", "description": "Model analysis, BPA, comparison", "tool_count": 3},
-    ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis", "tool_count": 8},
-    ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs", "tool_count": 2},
-    ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation", "tool_count": 11},
+    ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis, SVG visuals", "tool_count": 9},
+    ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs", "tool_count": 1},
+    ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation", "tool_count": 10},
 }
 
 

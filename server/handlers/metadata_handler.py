@@ -188,7 +188,7 @@ def register_metadata_handlers(registry):
                 },
                 "required": []
             },
-            category="metadata",
+            category="query",
             sort_order=43  # 04 = Query & Search
         ),
         ToolDefinition(
@@ -206,7 +206,7 @@ def register_metadata_handlers(registry):
                 },
                 "required": ["search_text"]
             },
-            category="metadata",
+            category="query",
             sort_order=44  # 04 = Query & Search
         ),
     ]

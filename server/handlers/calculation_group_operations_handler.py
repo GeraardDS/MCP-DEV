@@ -127,7 +127,7 @@ def register_calculation_group_operations_handler(registry):
                 }
             ]
         },
-        category="model_operations",
+        category="model",
         sort_order=24  # 02 = Model Operations
     )
 

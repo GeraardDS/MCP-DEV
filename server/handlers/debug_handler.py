@@ -1552,27 +1552,6 @@ def register_debug_handlers(registry):
             sort_order=91  # 09 = Debug
         ),
         ToolDefinition(
-            name="09_List_Slicers",
-            description="[09_Debug] List all slicers and their current SAVED selections from the PBIP file.",
-            handler=handle_list_slicers,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "page_name": {
-                        "type": "string",
-                        "description": "Filter to specific page (optional, shows all pages if not specified)"
-                    },
-                    "compact": {
-                        "type": "boolean",
-                        "description": "Compact output for reduced token usage (default: true)"
-                    }
-                },
-                "required": []
-            },
-            category="debug",
-            sort_order=93  # 09 = Debug
-        ),
-        ToolDefinition(
             name="09_Drill_To_Detail",
             description="[09_Debug] Show the underlying rows that make up an aggregated value using the visual's filter context.",
             handler=handle_drill_to_detail,

@@ -148,7 +148,7 @@ def register_comparison_handlers(registry):
             description="Compare Open/Live Models",
             handler=handle_compare_pbi_models,
             input_schema=TOOL_SCHEMAS.get('compare_pbi_models', {}),
-            category="comparison",
+            category="analysis",
             sort_order=62  # 06 = Analysis
         ),
     ]

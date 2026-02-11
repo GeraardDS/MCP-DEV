@@ -531,7 +531,7 @@ def register_dependencies_handlers(registry):
             description="Analyze measure dependencies with text output and interactive diagram",
             handler=handle_analyze_measure_dependencies,
             input_schema=TOOL_SCHEMAS.get('analyze_measure_dependencies', {}),
-            category="dependencies",
+            category="dax",
             sort_order=51  # 05 = DAX Intelligence
         ),
         ToolDefinition(
@@ -539,7 +539,7 @@ def register_dependencies_handlers(registry):
             description="Get measure usage impact - shows what depends on this measure",
             handler=handle_get_measure_impact,
             input_schema=TOOL_SCHEMAS.get('get_measure_impact', {}),
-            category="dependencies",
+            category="dax",
             sort_order=52  # 05 = DAX Intelligence
         ),
     ]

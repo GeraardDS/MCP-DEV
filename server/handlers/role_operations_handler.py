@@ -68,7 +68,7 @@ def register_role_operations_handler(registry):
                 }
             ]
         },
-        category="model_operations",
+        category="model",
         sort_order=25  # 02 = Model Operations
     )
 

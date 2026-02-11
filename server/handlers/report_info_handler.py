@@ -296,10 +296,69 @@ def _extract_visual_info(visual_data: Dict, visual_path: Path) -> Dict:
     return result
 
 
-def _get_page_info(page_folder: Path) -> Dict:
-    """Get complete information for a page"""
+def _get_page_display_name(page_folder: Path) -> Optional[str]:
+    """Get just the display name from page.json without loading visuals.
+    Used for early filtering by page name to avoid loading visual JSON files."""
     page_json_path = page_folder / "page.json"
+    if not page_json_path.exists():
+        return None
+    page_data = _load_json_file(page_json_path)
+    if not page_data:
+        return None
+    return page_data.get('displayName', page_folder.name)
 
+
+def _summarize_visual(visual_info: Dict) -> Dict:
+    """Create a compact summary of a visual for summary_only mode."""
+    summary = {
+        'name': visual_info.get('name', ''),
+        'visual_type': visual_info.get('visual_type', ''),
+    }
+    if visual_info.get('title'):
+        summary['title'] = visual_info['title']
+    if visual_info.get('is_hidden'):
+        summary['is_hidden'] = True
+    if visual_info.get('is_group'):
+        summary['is_group'] = True
+        if visual_info.get('group_display_name'):
+            summary['group_display_name'] = visual_info['group_display_name']
+    if visual_info.get('sync_group'):
+        summary['sync_group'] = visual_info['sync_group']
+    # Flatten fields to compact strings: "bucket: reference"
+    fields = visual_info.get('fields', [])
+    if fields:
+        summary['fields'] = [
+            f"{f.get('bucket', '?')}: {f.get('reference', f.get('display_name', '?'))}"
+            for f in fields
+        ]
+    return summary
+
+
+def _summarize_filter(filter_info: Dict) -> Dict:
+    """Create a compact summary of a filter for summary_only mode."""
+    MAX_FILTER_VALUES = 10
+    ref = filter_info.get('field', {}).get('reference', filter_info.get('name', '?'))
+    summary = {'field': ref, 'type': filter_info.get('type', '')}
+    values = filter_info.get('values', [])
+    if values and values != ['(All)']:
+        if len(values) > MAX_FILTER_VALUES:
+            summary['values'] = values[:MAX_FILTER_VALUES]
+            summary['values_truncated'] = len(values)
+        else:
+            summary['values'] = values
+    if filter_info.get('is_inverted'):
+        summary['is_inverted'] = True
+    return summary
+
+
+def _get_page_info(page_folder: Path, summary_only: bool = False) -> Dict:
+    """Get complete information for a page.
+
+    Args:
+        page_folder: Path to the page folder
+        summary_only: If True, return compact visual/filter info to reduce token usage
+    """
+    page_json_path = page_folder / "page.json"
     if not page_json_path.exists():
         return None
 
@@ -310,14 +369,19 @@ def _get_page_info(page_folder: Path) -> Dict:
     page_info = {
         'page_id': page_folder.name,
         'display_name': page_data.get('displayName', page_folder.name),
-        'display_option': page_data.get('displayOption', ''),
-        'width': page_data.get('width', 0),
-        'height': page_data.get('height', 0)
     }
+
+    if not summary_only:
+        page_info['display_option'] = page_data.get('displayOption', '')
+        page_info['width'] = page_data.get('width', 0)
+        page_info['height'] = page_data.get('height', 0)
 
     # Extract filter pane filters
     filters = _extract_page_filters(page_data)
-    page_info['filter_pane_filters'] = filters
+    if summary_only:
+        page_info['filter_pane_filters'] = [_summarize_filter(f) for f in filters]
+    else:
+        page_info['filter_pane_filters'] = filters
     page_info['filter_count'] = len(filters)
 
     # Extract visuals
@@ -340,7 +404,10 @@ def _get_page_info(page_folder: Path) -> Dict:
             visual_info = _extract_visual_info(visual_data, visual_json_path)
             visuals.append(visual_info)
 
-    page_info['visuals'] = visuals
+    if summary_only:
+        page_info['visuals'] = [_summarize_visual(v) for v in visuals]
+    else:
+        page_info['visuals'] = visuals
     page_info['visual_count'] = len(visuals)
 
     return page_info
@@ -352,6 +419,8 @@ def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
     include_visuals = args.get('include_visuals', True)
     include_filters = args.get('include_filters', True)
     page_filter = args.get('page_name', None)
+    summary_only = args.get('summary_only', True)
+    max_visuals_per_page = args.get('max_visuals_per_page', 50)
 
     if not pbip_path:
         return {
@@ -393,26 +462,34 @@ def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
         if not page_folder.is_dir():
             continue
 
-        page_info = _get_page_info(page_folder)
+        # Early filter: check display name before loading visuals
+        if page_filter:
+            display_name = _get_page_display_name(page_folder)
+            if not display_name or page_filter.lower() not in display_name.lower():
+                continue
+
+        page_info = _get_page_info(page_folder, summary_only=summary_only)
         if not page_info:
             continue
 
-        # Filter by page name if specified
-        if page_filter:
-            if page_filter.lower() not in page_info['display_name'].lower():
-                continue
-
-        # Count statistics
+        # Count statistics (use visual_count which is always present)
         total_visuals += page_info['visual_count']
         total_filters += page_info['filter_count']
 
-        # Count visual types
+        # Count visual types from visuals list (present in both modes)
         for visual in page_info.get('visuals', []):
             vtype = visual.get('visual_type', 'unknown')
             if vtype:
                 visual_type_counts[vtype] = visual_type_counts.get(vtype, 0) + 1
 
-        # Optionally exclude visuals/filters from response to keep it smaller
+        # Apply max_visuals_per_page cap (stats already counted above)
+        if max_visuals_per_page > 0 and 'visuals' in page_info:
+            visuals_list = page_info['visuals']
+            if len(visuals_list) > max_visuals_per_page:
+                page_info['visuals'] = visuals_list[:max_visuals_per_page]
+                page_info['visuals_truncated'] = True
+
+        # Optionally exclude visuals/filters from response
         if not include_visuals:
             page_info.pop('visuals', None)
         if not include_filters:
@@ -422,6 +499,10 @@ def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
 
     # Sort pages by display name
     pages.sort(key=lambda x: x.get('display_name', ''))
+
+    # Summarize report-level filters if summary_only
+    if summary_only and report_level_filters:
+        report_level_filters = [_summarize_filter(f) for f in report_level_filters]
 
     result = {
         'success': True,

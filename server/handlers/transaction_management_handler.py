@@ -42,7 +42,7 @@ def register_transaction_management_handler(registry):
             },
             "required": ["operation"]
         },
-        category="model_operations",
+        category="batch",
         sort_order=31  # 03 = Batch & Transactions
     )
 
