@@ -2248,18 +2248,52 @@ def get_vue_app_script(data_json_str: str) -> str:
                 }},
 
                 getTableUsageCount(tableName) {{
-                    if (!this.reportData || !this.reportData.pages) return 0;
                     let count = 0;
-                    this.reportData.pages.forEach(page => {{
-                        (page.visuals || []).forEach(visual => {{
-                            const fields = visual.fields || {{}};
-                            const measures = fields.measures || [];
-                            const columns = fields.columns || [];
-                            if (measures.some(m => m.table === tableName) || columns.some(c => c.table === tableName)) {{
-                                count++;
-                            }}
-                        }});
+                    const table = (this.modelData.tables || []).find(t => t.name === tableName);
+                    const columns = table?.columns || [];
+                    const deps = this.dependencies || {{}};
+                    const colToMeasure = deps.column_to_measure || {{}};
+                    const colToFieldParam = deps.column_to_field_params || {{}};
+
+                    // Count unique measure refs, field param refs, visual refs, and filter refs across all columns
+                    const measureRefs = new Set();
+                    const fieldParamRefs = new Set();
+                    columns.forEach(col => {{
+                        const key = tableName + '[' + col.name + ']';
+                        (colToMeasure[key] || []).forEach(m => measureRefs.add(m));
+                        (colToFieldParam[key] || []).forEach(fp => fieldParamRefs.add(fp));
                     }});
+                    count += measureRefs.size;
+                    count += fieldParamRefs.size;
+
+                    // Count visuals that reference this table
+                    if (this.reportData && this.reportData.pages) {{
+                        this.reportData.pages.forEach(page => {{
+                            (page.visuals || []).forEach(visual => {{
+                                const fields = visual.fields || {{}};
+                                const vMeasures = fields.measures || [];
+                                const vColumns = fields.columns || [];
+                                if (vMeasures.some(m => m.table === tableName) || vColumns.some(c => c.table === tableName)) {{
+                                    count++;
+                                }}
+                            }});
+                        }});
+                    }}
+
+                    // Count filter pane references
+                    if (this.reportData) {{
+                        (this.reportData.report?.filters || []).forEach(filter => {{
+                            const field = filter.field || {{}};
+                            if (field.type === 'Column' && field.table === tableName) count++;
+                        }});
+                        (this.reportData.pages || []).forEach(page => {{
+                            (page.filters || []).forEach(filter => {{
+                                const field = filter.field || {{}};
+                                if (field.type === 'Column' && field.table === tableName) count++;
+                            }});
+                        }});
+                    }}
+
                     return count;
                 }},
 

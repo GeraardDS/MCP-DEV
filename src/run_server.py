@@ -37,7 +37,7 @@ if not server_module_path.exists():
     print(f"ERROR: Server module not found: {server_module_path}", file=sys.stderr)
     sys.exit(1)
 
-spec = importlib.util.spec_from_file_location("pbixray_server_enhanced", str(server_module_path))
+spec = importlib.util.spec_from_file_location("__main__", str(server_module_path))
 module = importlib.util.module_from_spec(spec)
 sys.modules["pbixray_server_enhanced"] = module
 spec.loader.exec_module(module)
