@@ -281,30 +281,61 @@ class PbipDependencyEngine:
                     self._track_table_references(column_key, ref_tables)
 
     def _analyze_field_parameters(self) -> None:
-        """Analyze field parameter tables and track which columns they reference."""
+        """Analyze field parameter tables and track which columns they reference.
+
+        Checks both the parsed model data (partition source) and the original
+        TMDL files (when model_folder is available), since the TMDL parser may
+        truncate the calculated table expression that contains NAMEOF references.
+        """
+        import os
+
+        nameof_pattern = re.compile(r"NAMEOF\(['\"]?([^'\"\[]+)['\"]?\[([^\]]+)\]\)")
+        model_folder = self.model.get("model_folder", "")
+
         for table in self.model.get("tables", []):
             table_name = table.get("name", "")
-            partitions = table.get("partitions", [])
+            nameof_source = ""
 
-            for partition in partitions:
+            # First try: partition source from parsed model data
+            for partition in table.get("partitions", []):
                 source = partition.get("source", "")
-                # Field parameters use NAMEOF('Table'[Column]) in their calculated table expression
                 if source and "NAMEOF" in source:
-                    # Parse NAMEOF references: NAMEOF('Table'[Column]) or NAMEOF("Table"[Column])
-                    nameof_pattern = r"NAMEOF\(['\"]?([^'\"\[]+)['\"]?\[([^\]]+)\]\)"
-                    matches = re.findall(nameof_pattern, source)
+                    nameof_source = source
+                    break
 
-                    for table_ref, col_ref in matches:
-                        column_key = f"{table_ref}[{col_ref}]"
+            # Fallback: read the actual TMDL file if model_folder is available
+            # and no NAMEOF was found in parsed data (parser may truncate expressions)
+            if not nameof_source and model_folder:
+                # TMDL files are under definition/tables/ within the model folder
+                for tables_dir in [
+                    os.path.join(model_folder, "definition", "tables"),
+                    os.path.join(model_folder, "tables"),
+                ]:
+                    tmdl_path = os.path.join(tables_dir, f"{table_name}.tmdl")
+                    if os.path.isfile(tmdl_path):
+                        try:
+                            with open(tmdl_path, "r", encoding="utf-8") as f:
+                                content = f.read()
+                            if "NAMEOF" in content:
+                                nameof_source = content
+                        except Exception:
+                            pass
+                        break
 
-                        # Add to column_to_field_params mapping
-                        if column_key not in self.column_to_field_params:
-                            self.column_to_field_params[column_key] = []
-                        if table_name not in self.column_to_field_params[column_key]:
-                            self.column_to_field_params[column_key].append(table_name)
-                            self.logger.debug(
-                                f"Field parameter '{table_name}' references column '{column_key}'"
-                            )
+            if not nameof_source:
+                continue
+
+            matches = nameof_pattern.findall(nameof_source)
+            for table_ref, col_ref in matches:
+                column_key = f"{table_ref}[{col_ref}]"
+
+                if column_key not in self.column_to_field_params:
+                    self.column_to_field_params[column_key] = []
+                if table_name not in self.column_to_field_params[column_key]:
+                    self.column_to_field_params[column_key].append(table_name)
+                    self.logger.debug(
+                        f"Field parameter '{table_name}' references column '{column_key}'"
+                    )
 
     def _build_reverse_indices(self) -> None:
         """Build reverse indices for dependency lookups."""
@@ -324,23 +355,10 @@ class PbipDependencyEngine:
                 if measure_key not in self.column_to_measure[column_key]:
                     self.column_to_measure[column_key].append(measure_key)
 
-        # Build column_to_measure reverse index from table-level references
-        # When a measure references REMOVEFILTERS('d Period'), ALL columns of 'd Period'
-        # should appear in column_to_measure as being used by that measure
-        for measure_key, table_set in self.measure_to_table.items():
-            for table_name in table_set:
-                # Find all columns in this table
-                for table in self.model.get("tables", []):
-                    if table.get("name", "") == table_name:
-                        for column in table.get("columns", []):
-                            col_name = column.get("name", "")
-                            if col_name:
-                                column_key = f"{table_name}[{col_name}]"
-                                if column_key not in self.column_to_measure:
-                                    self.column_to_measure[column_key] = []
-                                if measure_key not in self.column_to_measure[column_key]:
-                                    self.column_to_measure[column_key].append(measure_key)
-                        break  # Found the table, no need to continue
+        # NOTE: Table-level DAX references (REMOVEFILTERS, ALL, ALLSELECTED, etc.)
+        # are NOT propagated to column_to_measure. These are filter-context manipulation
+        # functions and do not mean individual columns are consumed/displayed.
+        # Only explicit 'Table'[Column] references in DAX count as column usage.
 
     def _analyze_visual_dependencies(self) -> None:
         """Analyze visual-level field usage."""
@@ -468,6 +486,40 @@ class PbipDependencyEngine:
 
     def _find_unused_objects(self) -> Dict[str, List[str]]:
         """Find measures and columns not used anywhere."""
+        # Identify field parameter tables — these are always set up intentionally
+        # and should never be flagged as having unused columns.
+        # Detection: (1) NAMEOF in partition source, or (2) ParameterMetadata "kind": 2
+        # on any column (Power BI field parameter marker).
+        field_param_tables: Set[str] = set()
+        for table in self.model.get("tables", []):
+            table_name = table.get("name", "")
+            is_fp = False
+
+            # Check partition source for NAMEOF
+            for partition in table.get("partitions", []):
+                source = partition.get("source", "")
+                if source and "NAMEOF" in source:
+                    is_fp = True
+                    break
+
+            # Check columns for ParameterMetadata kind=2 (field parameter marker)
+            if not is_fp:
+                for column in table.get("columns", []):
+                    props = column.get("properties", {})
+                    # The TMDL parser stores extendedProperty ParameterMetadata as
+                    # properties with quoted keys like '"kind"': 2
+                    kind_val = props.get('"kind"') or props.get("kind")
+                    if kind_val is not None:
+                        try:
+                            if int(kind_val) == 2:
+                                is_fp = True
+                                break
+                        except (ValueError, TypeError):
+                            pass
+
+            if is_fp:
+                field_param_tables.add(table_name.lower())
+
         # Build set of used measures (normalized keys for comparison)
         used_measures_normalized = set()
 
@@ -482,6 +534,11 @@ class PbipDependencyEngine:
                 measure_key = f"{table_name}[{measure.get('name', '')}]"
                 normalized = self._normalize_key(measure_key)
                 all_measure_keys[normalized] = measure_key
+
+            # Skip field parameter tables — their columns are structural
+            # and should never appear in unused columns output
+            if table_name.lower() in field_param_tables:
+                continue
 
             for column in table.get("columns", []):
                 column_name = column.get("name", "")
@@ -574,24 +631,11 @@ class PbipDependencyEngine:
             for d in deps:
                 used_columns_normalized.add(self._normalize_key(d))
 
-        # Used via table-level references in DAX (e.g., REMOVEFILTERS('d Period'), ALL('Calendar'))
-        # When a measure references an entire table, ALL columns of that table are implicitly used
-        tables_referenced_by_dax: Set[str] = set()
-        for table_set in self.measure_to_table.values():
-            tables_referenced_by_dax.update(table_set)
-
-        if tables_referenced_by_dax:
-            # Build normalized table name lookup
-            tables_ref_lower = {t.lower() for t in tables_referenced_by_dax}
-            for table in self.model.get("tables", []):
-                table_name = table.get("name", "")
-                if table_name.lower() in tables_ref_lower:
-                    for column in table.get("columns", []):
-                        col_name = column.get("name", "")
-                        if col_name:
-                            used_columns_normalized.add(
-                                self._normalize_key(f"{table_name}[{col_name}]")
-                            )
+        # NOTE: Table-level DAX references (REMOVEFILTERS, ALL, ALLSELECTED, FILTER, etc.)
+        # do NOT mark all columns of the referenced table as used.
+        # These are filter-context manipulation functions — they don't mean individual
+        # columns are consumed by the model. Only explicit column references
+        # ('Table'[Column]) in DAX expressions count as column usage.
 
         # Used by other columns (calculated columns)
         for column_key in self.column_to_measure.keys():
@@ -658,34 +702,17 @@ class PbipDependencyEngine:
                 for c in page_deps.get("columns", []):
                     used_columns_normalized.add(self._normalize_key(c))
 
-        # Check field parameter tables
-        for table in self.model.get("tables", []):
-            table_name = table.get("name", "")
-            partitions = table.get("partitions", [])
-            for partition in partitions:
-                source = partition.get("source", "")
-                if source and "NAMEOF" in source:
-                    # 1) Columns referenced via NAMEOF('Table'[Column]) are used
-                    nameof_pattern = r"NAMEOF\(['\"]?([^'\"\[]+)['\"]?\[([^\]]+)\]\)"
-                    matches = re.findall(nameof_pattern, source)
-                    for table_ref, col_ref in matches:
-                        column_key = f"{table_ref}[{col_ref}]"
-                        used_columns_normalized.add(self._normalize_key(column_key))
-
-                    # 2) Measures referenced via NAMEOF are also used (e.g., PV2/PV3 field parameters)
-                    for table_ref, col_ref in matches:
-                        measure_norm = self._normalize_key(f"{table_ref}[{col_ref}]")
-                        if measure_norm in all_measure_keys:
-                            add_dependencies_recursively(measure_norm)
-
-                    # 3) All internal columns of the field parameter table itself are used
-                    #    (Fields, Order, display columns — structural to the field parameter)
-                    for column in table.get("columns", []):
-                        col_name = column.get("name", "")
-                        if col_name:
-                            used_columns_normalized.add(
-                                self._normalize_key(f"{table_name}[{col_name}]")
-                            )
+        # Check field parameter NAMEOF references — columns/measures referenced by
+        # field parameters in other tables are considered used.
+        # (Field parameter tables themselves are already excluded from all_column_keys above)
+        # Uses column_to_field_params built by _analyze_field_parameters (which reads
+        # TMDL files for full NAMEOF expressions when partition source is truncated)
+        for column_key in self.column_to_field_params:
+            used_columns_normalized.add(self._normalize_key(column_key))
+            # Also check if it's a measure reference
+            measure_norm = self._normalize_key(column_key)
+            if measure_norm in all_measure_keys:
+                add_dependencies_recursively(measure_norm)
 
         # Check SortByColumn targets — columns used as sort-by for other columns
         for table in self.model.get("tables", []):
@@ -718,19 +745,9 @@ class PbipDependencyEngine:
                                 self._normalize_key(f"{perm_table}[{ref_column}]")
                             )
 
-            # Mark all columns in RLS tables as functionally required
-            for perm in role.get("table_permissions", []):
-                perm_table = perm.get("table", "")
-                if perm.get("filter_expression") and perm_table:
-                    for table in self.model.get("tables", []):
-                        if table.get("name", "") == perm_table:
-                            for column in table.get("columns", []):
-                                col_name = column.get("name", "")
-                                if col_name:
-                                    used_columns_normalized.add(
-                                        self._normalize_key(f"{perm_table}[{col_name}]")
-                                    )
-                            break
+            # NOTE: Only the columns explicitly referenced in RLS filter expressions
+            # are marked as used (handled above). Having an RLS filter on a table does
+            # NOT mean all columns in that table are used.
 
         # Find unused by comparing normalized keys
         unused_measures = []
