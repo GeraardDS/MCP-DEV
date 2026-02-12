@@ -411,6 +411,10 @@ class PbirReportAnalyzer:
 
             visual["fields"] = self._extract_visual_fields(query)
 
+            # Also extract measure/column references from visual objects
+            # (conditional formatting, reference labels, dynamic titles, etc.)
+            self._extract_fields_from_objects(visual_data, visual["fields"])
+
             # Extract visual name (for Selection Pane)
             visual["visual_name"] = self._extract_visual_title(data)
 
@@ -587,6 +591,77 @@ class PbirReportAnalyzer:
 
         except Exception as e:
             self.logger.warning(f"Error extracting field from projection: {e}")
+
+    def _extract_fields_from_objects(
+        self,
+        visual_data: Dict,
+        fields: Dict[str, List]
+    ) -> None:
+        """
+        Extract measure/column references from visual objects section.
+
+        Visual objects contain conditional formatting, reference labels, dynamic
+        titles, and other property expressions that reference measures/columns
+        but are not in the query projections.
+
+        Args:
+            visual_data: The visual.visual section of the JSON
+            fields: The existing fields dict to append to
+        """
+        # Build sets for dedup against existing fields
+        existing_cols = {(c["table"], c["column"]) for c in fields.get("columns", [])}
+        existing_meas = {(m["table"], m["measure"]) for m in fields.get("measures", [])}
+
+        found_cols: Set[Tuple[str, str]] = set()
+        found_meas: Set[Tuple[str, str]] = set()
+
+        # Scan objects, visualContainerObjects, and vcObjects
+        for section_key in ("objects", "visualContainerObjects", "vcObjects"):
+            section = visual_data.get(section_key, {})
+            if section:
+                self._walk_for_field_refs(section, found_cols, found_meas)
+
+        # Append newly found references
+        for table, col in found_cols - existing_cols:
+            fields["columns"].append({"table": table, "column": col})
+        for table, meas in found_meas - existing_meas:
+            fields["measures"].append({"table": table, "measure": meas})
+
+    def _walk_for_field_refs(
+        self,
+        obj: Any,
+        columns: Set[Tuple[str, str]],
+        measures: Set[Tuple[str, str]]
+    ) -> None:
+        """
+        Recursively walk a JSON structure to find Measure/Column references.
+
+        Looks for the Power BI field reference pattern:
+            {"Measure": {"Expression": {"SourceRef": {"Entity": "T"}}, "Property": "P"}}
+            {"Column":  {"Expression": {"SourceRef": {"Entity": "T"}}, "Property": "P"}}
+        """
+        if isinstance(obj, dict):
+            # Check if this dict IS a Measure or Column reference
+            for ref_type in ("Measure", "Column"):
+                if ref_type in obj and isinstance(obj[ref_type], dict):
+                    ref = obj[ref_type]
+                    entity = (ref.get("Expression") or {}).get(
+                        "SourceRef", {}
+                    ).get("Entity", "")
+                    prop = ref.get("Property", "")
+                    if entity and prop:
+                        if ref_type == "Measure":
+                            measures.add((entity, prop))
+                        else:
+                            columns.add((entity, prop))
+
+            # Recurse into all dict values
+            for value in obj.values():
+                self._walk_for_field_refs(value, columns, measures)
+
+        elif isinstance(obj, list):
+            for item in obj:
+                self._walk_for_field_refs(item, columns, measures)
 
     def _extract_visual_title(self, visual_data: Dict) -> Optional[str]:
         """

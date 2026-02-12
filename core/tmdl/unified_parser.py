@@ -522,17 +522,7 @@ class UnifiedTmdlParser:
 
         part = TmdlPartition(name=m.group(1).strip(), type=m.group(2))
 
-        # Extract source expression
-        source, next_i = _extract_expression(lines, start, keyword="source")
-        if not source:
-            # Try from next line
-            if start + 1 < len(lines) and "=" in lines[start + 1]:
-                source, next_i = _extract_expression(lines, start + 1)
-            else:
-                next_i = start + 1
-        part.source = source
-
-        i = next_i
+        i = start + 1
         while i < len(lines):
             line = lines[i].strip()
 
@@ -542,6 +532,16 @@ class UnifiedTmdlParser:
 
             if _is_next_object(line):
                 break
+
+            # Detect "source =" or "source expression =" on a subsequent line
+            # Calculated table partitions have the source expression as a separate
+            # block after "mode: import", not on the partition header line.
+            if line.startswith("source") and "=" in line:
+                source, next_i = _extract_expression(lines, i, keyword="source")
+                if source:
+                    part.source = source
+                    i = next_i
+                    continue
 
             if ":" in line:
                 key, value = _parse_property(line)
@@ -1403,8 +1403,9 @@ def _extract_expression(
         expr_parts.append(stripped)
         i += 1
 
-        # Unindented property line
-        if not stripped.startswith((" ", "\t")) and ":" in stripped:
+        # Unindented property line (but not DAX/M comments which may contain colons)
+        if (not stripped.startswith((" ", "\t", "-", "/"))
+                and ":" in stripped):
             break
 
     if expr_parts:
