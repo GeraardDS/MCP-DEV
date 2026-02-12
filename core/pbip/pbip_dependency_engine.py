@@ -658,19 +658,79 @@ class PbipDependencyEngine:
                 for c in page_deps.get("columns", []):
                     used_columns_normalized.add(self._normalize_key(c))
 
-        # Check field parameter tables (they reference columns via NAMEOF in partition source)
+        # Check field parameter tables
         for table in self.model.get("tables", []):
+            table_name = table.get("name", "")
             partitions = table.get("partitions", [])
             for partition in partitions:
                 source = partition.get("source", "")
-                # Field parameters use NAMEOF('Table'[Column]) in their calculated table expression
                 if source and "NAMEOF" in source:
-                    # Parse NAMEOF references: NAMEOF('Table'[Column]) or NAMEOF("Table"[Column])
+                    # 1) Columns referenced via NAMEOF('Table'[Column]) are used
                     nameof_pattern = r"NAMEOF\(['\"]?([^'\"\[]+)['\"]?\[([^\]]+)\]\)"
                     matches = re.findall(nameof_pattern, source)
                     for table_ref, col_ref in matches:
                         column_key = f"{table_ref}[{col_ref}]"
                         used_columns_normalized.add(self._normalize_key(column_key))
+
+                    # 2) Measures referenced via NAMEOF are also used (e.g., PV2/PV3 field parameters)
+                    for table_ref, col_ref in matches:
+                        measure_norm = self._normalize_key(f"{table_ref}[{col_ref}]")
+                        if measure_norm in all_measure_keys:
+                            add_dependencies_recursively(measure_norm)
+
+                    # 3) All internal columns of the field parameter table itself are used
+                    #    (Fields, Order, display columns — structural to the field parameter)
+                    for column in table.get("columns", []):
+                        col_name = column.get("name", "")
+                        if col_name:
+                            used_columns_normalized.add(
+                                self._normalize_key(f"{table_name}[{col_name}]")
+                            )
+
+        # Check SortByColumn targets — columns used as sort-by for other columns
+        for table in self.model.get("tables", []):
+            table_name = table.get("name", "")
+            for column in table.get("columns", []):
+                sort_by = column.get("sort_by_column")
+                if sort_by:
+                    # sort_by_column is just the column name within the same table
+                    used_columns_normalized.add(
+                        self._normalize_key(f"{table_name}[{sort_by}]")
+                    )
+
+        # Check RLS role filter expressions — columns referenced in security filters
+        for role in self.model.get("roles", []):
+            for perm in role.get("table_permissions", []):
+                filter_expr = perm.get("filter_expression", "")
+                perm_table = perm.get("table", "")
+                if filter_expr and perm_table and DAX_PARSER_AVAILABLE:
+                    refs = parse_dax_references(filter_expr, self.reference_index)
+                    for ref_table, ref_column in refs.get("columns", []):
+                        if ref_table and ref_column:
+                            used_columns_normalized.add(
+                                self._normalize_key(f"{ref_table}[{ref_column}]")
+                            )
+                    # Also handle unqualified column refs in RLS (e.g., [Region] = ...)
+                    # These are implicitly on the permission's table
+                    for ref_table, ref_column in refs.get("columns", []):
+                        if not ref_table and ref_column:
+                            used_columns_normalized.add(
+                                self._normalize_key(f"{perm_table}[{ref_column}]")
+                            )
+
+            # Mark all columns in RLS tables as functionally required
+            for perm in role.get("table_permissions", []):
+                perm_table = perm.get("table", "")
+                if perm.get("filter_expression") and perm_table:
+                    for table in self.model.get("tables", []):
+                        if table.get("name", "") == perm_table:
+                            for column in table.get("columns", []):
+                                col_name = column.get("name", "")
+                                if col_name:
+                                    used_columns_normalized.add(
+                                        self._normalize_key(f"{perm_table}[{col_name}]")
+                                    )
+                            break
 
         # Find unused by comparing normalized keys
         unused_measures = []

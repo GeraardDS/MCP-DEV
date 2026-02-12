@@ -205,6 +205,9 @@ def _format_unused_columns_output(result: Dict[str, Any]) -> str:
     total = summary.get('total_columns_analyzed', 0)
     used_measures = summary.get('used_by_measures', 0)
     used_rels = summary.get('used_by_relationships_only', 0)
+    used_sort_by = summary.get('used_by_sort_by', 0)
+    used_fp = summary.get('used_by_field_params', 0)
+    used_rls = summary.get('used_by_rls', 0)
     unused = summary.get('unused', 0)
 
     lines.append("-" * 80)
@@ -213,7 +216,13 @@ def _format_unused_columns_output(result: Dict[str, Any]) -> str:
     lines.append(f"  Total columns analyzed: {total}")
     lines.append(f"  [+] Used by measures: {used_measures}")
     lines.append(f"  [+] Used by relationships only: {used_rels}")
-    lines.append(f"  [-] UNUSED (not in measures or relationships): {unused}")
+    if used_sort_by:
+        lines.append(f"  [+] Used as SortByColumn: {used_sort_by}")
+    if used_fp:
+        lines.append(f"  [+] Used by field parameters: {used_fp}")
+    if used_rls:
+        lines.append(f"  [+] Used by RLS (row-level security): {used_rls}")
+    lines.append(f"  [-] UNUSED: {unused}")
     lines.append("")
 
     # Show unused columns (the main result)
@@ -246,6 +255,51 @@ def _format_unused_columns_output(result: Dict[str, Any]) -> str:
 
         for table_name, columns in sorted(rel_by_table.items()):
             lines.append(f"  {table_name} ({len(columns)} relationship keys)")
+            for col in sorted(columns):
+                lines.append(f"    - [{col}]")
+            lines.append("")
+
+    # Show SortByColumn columns
+    sort_by_table = result.get('used_by_sort_by_by_table', {})
+    if sort_by_table:
+        lines.append("-" * 80)
+        lines.append("  [+] COLUMNS USED AS SORTBYCOLUMN")
+        lines.append("      (Used to sort other columns — do not remove)")
+        lines.append("-" * 80)
+        lines.append("")
+
+        for table_name, columns in sorted(sort_by_table.items()):
+            lines.append(f"  {table_name} ({len(columns)} sort columns)")
+            for col in sorted(columns):
+                lines.append(f"    - [{col}]")
+            lines.append("")
+
+    # Show field parameter columns
+    fp_by_table = result.get('used_by_field_params_by_table', {})
+    if fp_by_table:
+        lines.append("-" * 80)
+        lines.append("  [+] COLUMNS USED BY FIELD PARAMETERS")
+        lines.append("      (Referenced by NAMEOF or internal to field parameter tables)")
+        lines.append("-" * 80)
+        lines.append("")
+
+        for table_name, columns in sorted(fp_by_table.items()):
+            lines.append(f"  {table_name} ({len(columns)} field param columns)")
+            for col in sorted(columns):
+                lines.append(f"    - [{col}]")
+            lines.append("")
+
+    # Show RLS columns
+    rls_by_table = result.get('used_by_rls_by_table', {})
+    if rls_by_table:
+        lines.append("-" * 80)
+        lines.append("  [+] COLUMNS USED BY RLS (ROW-LEVEL SECURITY)")
+        lines.append("      (Referenced in security role filters — do not remove)")
+        lines.append("-" * 80)
+        lines.append("")
+
+        for table_name, columns in sorted(rls_by_table.items()):
+            lines.append(f"  {table_name} ({len(columns)} RLS columns)")
             for col in sorted(columns):
                 lines.append(f"    - [{col}]")
             lines.append("")

@@ -12,6 +12,7 @@ This enables answering questions like:
 """
 
 import logging
+import re
 from typing import Dict, List, Set, Tuple, Optional, Any
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -33,6 +34,18 @@ class ColumnUsageResult:
     # Columns used in relationships (key columns)
     relationship_columns: Set[str] = field(default_factory=set)
 
+    # Columns used as SortByColumn targets
+    sort_by_columns: Set[str] = field(default_factory=set)
+
+    # Columns in field parameter tables (internal columns like Fields, Order, display)
+    field_parameter_columns: Set[str] = field(default_factory=set)
+
+    # Columns referenced by field parameter NAMEOF expressions
+    field_parameter_ref_columns: Set[str] = field(default_factory=set)
+
+    # Columns referenced in RLS filter expressions
+    rls_columns: Set[str] = field(default_factory=set)
+
     # Statistics
     total_columns_analyzed: int = 0
     total_measures_analyzed: int = 0
@@ -46,6 +59,10 @@ class ColumnUsageResult:
             "column_to_measures": self.column_to_measures,
             "measure_to_columns": self.measure_to_columns,
             "relationship_columns": list(self.relationship_columns),
+            "sort_by_columns": list(self.sort_by_columns),
+            "field_parameter_columns": list(self.field_parameter_columns),
+            "field_parameter_ref_columns": list(self.field_parameter_ref_columns),
+            "rls_columns": list(self.rls_columns),
             "statistics": {
                 "total_columns_analyzed": self.total_columns_analyzed,
                 "total_measures_analyzed": self.total_measures_analyzed,
@@ -179,6 +196,83 @@ class ColumnUsageAnalyzer:
 
         result.columns_used_by_relationships = len(result.relationship_columns)
 
+        # Track SortByColumn targets — columns used as sort-by for other columns
+        # Build column ID -> (table, name) mapping for resolving SortByColumnID
+        column_id_to_info: Dict[Any, Tuple[str, str]] = {}
+        for col in all_columns:
+            col_id = col.get('ID') or col.get('[ID]')
+            col_table = col.get('Table', '') or col.get('[Table]', '')
+            col_name = col.get('Name', '') or col.get('[Name]', '')
+            if col_id is not None and col_table and col_name:
+                column_id_to_info[col_id] = (col_table, col_name)
+
+        for col in all_columns:
+            sort_by_id = col.get('SortByColumnID') or col.get('[SortByColumnID]')
+            if sort_by_id is not None and sort_by_id in column_id_to_info:
+                sort_table, sort_name = column_id_to_info[sort_by_id]
+                display_key = _make_display_key(sort_table, sort_name)
+                result.sort_by_columns.add(display_key)
+
+        # Track field parameter tables and their referenced columns via NAMEOF in partition sources
+        try:
+            partition_query = """
+            EVALUATE
+            SELECTCOLUMNS(
+                INFO.PARTITIONS(),
+                "Table", [TableName],
+                "Source", [QueryDefinition]
+            )
+            """
+            partition_result = self.query_executor.validate_and_execute_dax(partition_query, top_n=500)
+            if partition_result.get('success'):
+                nameof_pattern = re.compile(r"NAMEOF\(['\"]?([^'\"\[]+)['\"]?\[([^\]]+)\]\)")
+                for row in partition_result.get('rows', []):
+                    table_name = row.get('Table', '')
+                    source = row.get('Source', '')
+                    if source and table_name and 'NAMEOF' in source:
+                        # Mark all columns of this field parameter table as used
+                        for c in all_columns:
+                            ct = c.get('Table', '') or c.get('[Table]', '')
+                            cn = c.get('Name', '') or c.get('[Name]', '')
+                            if ct == table_name and cn:
+                                result.field_parameter_columns.add(_make_display_key(ct, cn))
+                        # Mark columns/measures referenced via NAMEOF as used
+                        matches = nameof_pattern.findall(source)
+                        for ref_table, ref_col in matches:
+                            result.field_parameter_ref_columns.add(
+                                _make_display_key(ref_table.strip(), ref_col.strip())
+                            )
+        except Exception as e:
+            logger.debug(f"Could not fetch partition data for field parameter detection: {e}")
+
+        # Track RLS filter expression columns
+        try:
+            from core.operations.rls_manager import RLSManager
+            rls_manager = RLSManager(self.query_executor)
+            roles_result = rls_manager.list_roles()
+            if roles_result.get('success'):
+                for role in roles_result.get('roles', []):
+                    for perm in role.get('table_permissions', []):
+                        filter_expr = perm.get('filter_expression', '')
+                        perm_table = perm.get('table', '')
+                        if filter_expr and perm_table:
+                            # Parse DAX to find column references
+                            refs = parse_dax_references(filter_expr, ref_index)
+                            for ref_table, ref_column in refs.get('columns', []):
+                                if ref_table and ref_column:
+                                    result.rls_columns.add(_make_display_key(ref_table, ref_column))
+                                elif not ref_table and ref_column:
+                                    # Unqualified ref — on the permission's table
+                                    result.rls_columns.add(_make_display_key(perm_table, ref_column))
+                            # Also mark all columns in tables with RLS as functionally required
+                            for c in all_columns:
+                                ct = c.get('Table', '') or c.get('[Table]', '')
+                                cn = c.get('Name', '') or c.get('[Name]', '')
+                                if ct == perm_table and cn:
+                                    result.rls_columns.add(_make_display_key(ct, cn))
+        except Exception as e:
+            logger.debug(f"Could not fetch RLS data: {e}")
+
         # Initialize column_to_measures with all columns (even unused ones)
         # Use normalized keys for matching, but store under display keys
         all_column_keys: Set[str] = set()
@@ -280,18 +374,36 @@ class ColumnUsageAnalyzer:
                     # Also add to normalized mapping for future lookups
                     normalized_to_display[norm_key] = display_key
 
-        # Calculate statistics - a column is "used" if referenced by measures OR in a relationship
-        # Use normalized keys for comparison
+        # Calculate statistics - a column is "used" if referenced by measures, relationships,
+        # sort-by, field parameters, or RLS
         used_by_measures_normalized = set()
         for k, v in result.column_to_measures.items():
             if v:  # Has measures
-                # Find the normalized key for this display key
                 for norm_k, disp_k in normalized_to_display.items():
                     if disp_k == k:
                         used_by_measures_normalized.add(norm_k)
                         break
-        all_used_normalized = used_by_measures_normalized | relationship_normalized
-        # Count how many display keys correspond to used normalized keys
+        # Build normalized sets for new categories
+        sort_by_norm = {
+            _normalize_column_key(k.split('[')[0], k.split('[')[1].rstrip(']'))
+            for k in result.sort_by_columns if '[' in k
+        }
+        fp_cols_norm = {
+            _normalize_column_key(k.split('[')[0], k.split('[')[1].rstrip(']'))
+            for k in result.field_parameter_columns if '[' in k
+        }
+        fp_refs_norm = {
+            _normalize_column_key(k.split('[')[0], k.split('[')[1].rstrip(']'))
+            for k in result.field_parameter_ref_columns if '[' in k
+        }
+        rls_norm = {
+            _normalize_column_key(k.split('[')[0], k.split('[')[1].rstrip(']'))
+            for k in result.rls_columns if '[' in k
+        }
+        all_used_normalized = (
+            used_by_measures_normalized | relationship_normalized
+            | sort_by_norm | fp_cols_norm | fp_refs_norm | rls_norm
+        )
         result.columns_with_usage = sum(
             1 for norm_k in normalized_to_display.keys()
             if norm_k in all_used_normalized
@@ -549,20 +661,35 @@ class ColumnUsageAnalyzer:
 
         tables_lower = {t.lower() for t in tables} if tables else None
 
-        # Build normalized set of relationship columns for case-insensitive matching
-        relationship_normalized = {
-            _normalize_column_key(
-                rel_key.split('[')[0],
-                rel_key.split('[')[1].rstrip(']')
-            )
-            for rel_key in mapping.relationship_columns
-            if '[' in rel_key
-        }
+        # Build normalized sets for case-insensitive matching
+        def _normalize_set(display_keys: Set[str]) -> Set[str]:
+            return {
+                _normalize_column_key(k.split('[')[0], k.split('[')[1].rstrip(']'))
+                for k in display_keys if '[' in k
+            }
+
+        relationship_normalized = _normalize_set(mapping.relationship_columns)
+        sort_by_normalized = _normalize_set(mapping.sort_by_columns)
+        field_param_cols_normalized = _normalize_set(mapping.field_parameter_columns)
+        field_param_refs_normalized = _normalize_set(mapping.field_parameter_ref_columns)
+        rls_normalized = _normalize_set(mapping.rls_columns)
+
+        # Combine all "structurally used" columns into one set for quick lookup
+        structurally_used = (
+            relationship_normalized
+            | sort_by_normalized
+            | field_param_cols_normalized
+            | field_param_refs_normalized
+            | rls_normalized
+        )
 
         # Track ALL columns in scope for complete picture
         all_columns_in_scope: List[Dict[str, str]] = []
         used_by_measures: List[Dict[str, str]] = []
         used_by_relationships_only: List[Dict[str, str]] = []
+        used_by_sort_by: List[Dict[str, str]] = []
+        used_by_field_params: List[Dict[str, str]] = []
+        used_by_rls: List[Dict[str, str]] = []
         unused_columns: List[Dict[str, str]] = []
 
         for col_key, measures in mapping.column_to_measures.items():
@@ -579,47 +706,60 @@ class ColumnUsageAnalyzer:
             col_info = {"table": col_table, "column": col_name}
             all_columns_in_scope.append(col_info)
 
-            # Use normalized key for relationship matching
+            # Use normalized key for matching
             norm_key = _normalize_column_key(col_table, col_name)
 
             if measures:
-                # Used by measures
+                # Used by measures (highest priority)
                 used_by_measures.append(col_info)
             elif norm_key in relationship_normalized:
-                # Used by relationship only (not in measures)
                 used_by_relationships_only.append(col_info)
+            elif norm_key in sort_by_normalized:
+                used_by_sort_by.append(col_info)
+            elif norm_key in field_param_cols_normalized or norm_key in field_param_refs_normalized:
+                used_by_field_params.append(col_info)
+            elif norm_key in rls_normalized:
+                used_by_rls.append(col_info)
             else:
                 # Truly unused
                 unused_columns.append(col_info)
 
-        # Group unused by table for readability
-        unused_by_table: Dict[str, List[str]] = defaultdict(list)
-        for col in unused_columns:
-            unused_by_table[col['table']].append(col['column'])
+        # Helper to group columns by table
+        def _group_by_table(cols: List[Dict[str, str]]) -> Dict[str, List[str]]:
+            grouped: Dict[str, List[str]] = defaultdict(list)
+            for col in cols:
+                grouped[col['table']].append(col['column'])
+            return dict(grouped)
 
-        # Group used by measures by table
-        used_by_measures_by_table: Dict[str, List[str]] = defaultdict(list)
-        for col in used_by_measures:
-            used_by_measures_by_table[col['table']].append(col['column'])
-
-        # Group relationship-only by table
-        rel_only_by_table: Dict[str, List[str]] = defaultdict(list)
-        for col in used_by_relationships_only:
-            rel_only_by_table[col['table']].append(col['column'])
+        unused_by_table = _group_by_table(unused_columns)
+        used_by_measures_by_table = _group_by_table(used_by_measures)
+        rel_only_by_table = _group_by_table(used_by_relationships_only)
+        sort_by_by_table = _group_by_table(used_by_sort_by)
+        field_params_by_table = _group_by_table(used_by_field_params)
+        rls_by_table = _group_by_table(used_by_rls)
 
         return {
             "success": True,
             "tables_filter": tables,
             "unused_columns": unused_columns,
-            "unused_by_table": dict(unused_by_table),
+            "unused_by_table": unused_by_table,
             "used_by_measures": used_by_measures,
-            "used_by_measures_by_table": dict(used_by_measures_by_table),
+            "used_by_measures_by_table": used_by_measures_by_table,
             "used_by_relationships_only": used_by_relationships_only,
-            "used_by_relationships_only_by_table": dict(rel_only_by_table),
+            "used_by_relationships_only_by_table": rel_only_by_table,
+            "used_by_sort_by": used_by_sort_by,
+            "used_by_sort_by_by_table": sort_by_by_table,
+            "used_by_field_params": used_by_field_params,
+            "used_by_field_params_by_table": field_params_by_table,
+            "used_by_rls": used_by_rls,
+            "used_by_rls_by_table": rls_by_table,
             "summary": {
                 "total_columns_analyzed": len(all_columns_in_scope),
                 "used_by_measures": len(used_by_measures),
                 "used_by_relationships_only": len(used_by_relationships_only),
+                "used_by_sort_by": len(used_by_sort_by),
+                "used_by_field_params": len(used_by_field_params),
+                "used_by_rls": len(used_by_rls),
                 "unused": len(unused_columns),
                 "tables_with_unused": len(unused_by_table)
             }
