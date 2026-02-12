@@ -247,29 +247,30 @@ class ColumnUsageAnalyzer:
 
         # Track RLS filter expression columns
         try:
-            from core.operations.rls_manager import RLSManager
-            rls_manager = RLSManager(self.query_executor)
-            roles_result = rls_manager.list_roles()
-            if roles_result.get('success'):
-                for role in roles_result.get('roles', []):
-                    for perm in role.get('table_permissions', []):
-                        filter_expr = perm.get('filter_expression', '')
-                        perm_table = perm.get('table', '')
-                        if filter_expr and perm_table:
-                            # Parse DAX to find column references
-                            refs = parse_dax_references(filter_expr, ref_index)
-                            for ref_table, ref_column in refs.get('columns', []):
-                                if ref_table and ref_column:
-                                    result.rls_columns.add(_make_display_key(ref_table, ref_column))
-                                elif not ref_table and ref_column:
-                                    # Unqualified ref — on the permission's table
-                                    result.rls_columns.add(_make_display_key(perm_table, ref_column))
-                            # Also mark all columns in tables with RLS as functionally required
-                            for c in all_columns:
-                                ct = c.get('Table', '') or c.get('[Table]', '')
-                                cn = c.get('Name', '') or c.get('[Name]', '')
-                                if ct == perm_table and cn:
-                                    result.rls_columns.add(_make_display_key(ct, cn))
+            from core.infrastructure.connection_state import connection_state
+            rls_manager = connection_state.rls_manager
+            if rls_manager:
+                roles_result = rls_manager.list_roles()
+                if roles_result.get('success'):
+                    for role in roles_result.get('roles', []):
+                        for perm in role.get('table_permissions', []):
+                            filter_expr = perm.get('filter_expression', '')
+                            perm_table = perm.get('table', '')
+                            if filter_expr and perm_table:
+                                # Parse DAX to find column references
+                                refs = parse_dax_references(filter_expr, ref_index)
+                                for ref_table, ref_column in refs.get('columns', []):
+                                    if ref_table and ref_column:
+                                        result.rls_columns.add(_make_display_key(ref_table, ref_column))
+                                    elif not ref_table and ref_column:
+                                        # Unqualified ref — on the permission's table
+                                        result.rls_columns.add(_make_display_key(perm_table, ref_column))
+                                # Also mark all columns in tables with RLS as functionally required
+                                for c in all_columns:
+                                    ct = c.get('Table', '') or c.get('[Table]', '')
+                                    cn = c.get('Name', '') or c.get('[Name]', '')
+                                    if ct == perm_table and cn:
+                                        result.rls_columns.add(_make_display_key(ct, cn))
         except Exception as e:
             logger.debug(f"Could not fetch RLS data: {e}")
 
