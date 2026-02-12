@@ -226,6 +226,9 @@ class ColumnUsageAnalyzer:
             partition_result = self.query_executor.validate_and_execute_dax(partition_query, top_n=500)
             if partition_result.get('success'):
                 nameof_pattern = re.compile(r"NAMEOF\(['\"]?([^'\"\[]+)['\"]?\[([^\]]+)\]\)")
+                # General pattern to catch any 'Table'[Column] reference in the expression
+                # (e.g. SELECTEDVALUE('l Placeholder Fields'[Place Holder One Verbose Name]))
+                general_col_pattern = re.compile(r"'([^']+)'\[([^\]]+)\]")
                 for row in partition_result.get('rows', []):
                     table_name = row.get('Table', '')
                     source = row.get('Source', '')
@@ -241,6 +244,18 @@ class ColumnUsageAnalyzer:
                         for ref_table, ref_col in matches:
                             result.field_parameter_ref_columns.add(
                                 _make_display_key(ref_table.strip(), ref_col.strip())
+                            )
+                        # Also mark any other column references in the expression
+                        # (e.g. SELECTEDVALUE, CALCULATE referencing lookup tables)
+                        general_matches = general_col_pattern.findall(source)
+                        for ref_table, ref_col in general_matches:
+                            ref_table_s = ref_table.strip()
+                            ref_col_s = ref_col.strip()
+                            # Skip self-references (columns of the field parameter table itself)
+                            if ref_table_s == table_name:
+                                continue
+                            result.field_parameter_ref_columns.add(
+                                _make_display_key(ref_table_s, ref_col_s)
                             )
         except Exception as e:
             logger.debug(f"Could not fetch partition data for field parameter detection: {e}")

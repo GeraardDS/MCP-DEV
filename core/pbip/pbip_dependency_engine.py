@@ -286,10 +286,15 @@ class PbipDependencyEngine:
         Checks both the parsed model data (partition source) and the original
         TMDL files (when model_folder is available), since the TMDL parser may
         truncate the calculated table expression that contains NAMEOF references.
+
+        Detects both NAMEOF() references and general 'Table'[Column] references
+        (e.g. SELECTEDVALUE, CALCULATE) used in the calculated table expression.
         """
         import os
 
         nameof_pattern = re.compile(r"NAMEOF\(['\"]?([^'\"\[]+)['\"]?\[([^\]]+)\]\)")
+        # General pattern to catch any 'Table'[Column] reference in the expression
+        general_col_pattern = re.compile(r"'([^']+)'\[([^\]]+)\]")
         model_folder = self.model.get("model_folder", "")
 
         for table in self.model.get("tables", []):
@@ -325,6 +330,7 @@ class PbipDependencyEngine:
             if not nameof_source:
                 continue
 
+            # Track NAMEOF references
             matches = nameof_pattern.findall(nameof_source)
             for table_ref, col_ref in matches:
                 column_key = f"{table_ref}[{col_ref}]"
@@ -335,6 +341,24 @@ class PbipDependencyEngine:
                     self.column_to_field_params[column_key].append(table_name)
                     self.logger.debug(
                         f"Field parameter '{table_name}' references column '{column_key}'"
+                    )
+
+            # Also track general 'Table'[Column] references (e.g. SELECTEDVALUE, CALCULATE)
+            general_matches = general_col_pattern.findall(nameof_source)
+            for table_ref, col_ref in general_matches:
+                table_ref_s = table_ref.strip()
+                col_ref_s = col_ref.strip()
+                # Skip self-references (columns of the field parameter table itself)
+                if table_ref_s == table_name:
+                    continue
+                column_key = f"{table_ref_s}[{col_ref_s}]"
+
+                if column_key not in self.column_to_field_params:
+                    self.column_to_field_params[column_key] = []
+                if table_name not in self.column_to_field_params[column_key]:
+                    self.column_to_field_params[column_key].append(table_name)
+                    self.logger.debug(
+                        f"Field parameter '{table_name}' references column '{column_key}' (non-NAMEOF)"
                     )
 
     def _build_reverse_indices(self) -> None:
