@@ -194,6 +194,17 @@ class ColumnUsageAnalyzer:
                 normalized_to_display[norm_key] = display_key
                 result.column_to_measures[display_key] = []
 
+        # Build a lookup of table name (lowercase) -> list of (norm_key, display_key) for all columns
+        # This is used when a DAX function references an entire table (e.g., REMOVEFILTERS('d Period'))
+        table_to_column_keys: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
+        for col in all_columns:
+            col_table = col.get('Table', '') or col.get('[Table]', '')
+            col_name = col.get('Name', '') or col.get('[Name]', '')
+            if col_table and col_name:
+                norm_key = _normalize_column_key(col_table, col_name)
+                display_key = _make_display_key(col_table, col_name)
+                table_to_column_keys[col_table.strip().lower()].append((norm_key, display_key))
+
         # Build measure_to_columns mapping
         # Also populate column_to_measures as we go
         for m in all_measures:
@@ -211,10 +222,33 @@ class ColumnUsageAnalyzer:
             refs = parse_dax_references(m_expression, ref_index)
             referenced_columns = refs.get('columns', [])
 
+            # Also get table-only references (e.g., REMOVEFILTERS('d Period'))
+            # and expand them to all columns of those tables
+            referenced_tables = refs.get('tables', [])
+            table_only_columns = []
+            for ref_table in referenced_tables:
+                ref_table_lower = ref_table.strip().lower()
+                if ref_table_lower in table_to_column_keys:
+                    for _, col_display_key in table_to_column_keys[ref_table_lower]:
+                        # Parse display_key back to table, column
+                        if '[' in col_display_key:
+                            ct = col_display_key.split('[')[0]
+                            cn = col_display_key.split('[')[1].rstrip(']')
+                            table_only_columns.append((ct, cn))
+
+            # Combine explicit column refs and table-level refs (deduplicate)
+            all_referenced = list(referenced_columns)
+            existing_norm = {_normalize_column_key(t, c) for t, c in referenced_columns}
+            for ct, cn in table_only_columns:
+                nk = _normalize_column_key(ct, cn)
+                if nk not in existing_norm:
+                    all_referenced.append((ct, cn))
+                    existing_norm.add(nk)
+
             # Store measure -> columns mapping
             result.measure_to_columns[measure_key] = [
                 {"table": col_table.strip(), "column": col_name.strip()}
-                for col_table, col_name in referenced_columns
+                for col_table, col_name in all_referenced
             ]
 
             # Update column -> measures mapping
@@ -228,7 +262,7 @@ class ColumnUsageAnalyzer:
             if include_dax and m_expression:
                 measure_info["dax"] = m_expression
 
-            for col_table, col_name in referenced_columns:
+            for col_table, col_name in all_referenced:
                 # Use normalized key for lookup, store under display key
                 norm_key = _normalize_column_key(col_table, col_name)
                 if norm_key in normalized_to_display:

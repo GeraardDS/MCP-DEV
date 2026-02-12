@@ -58,6 +58,43 @@ _CALCULATE_FILTER_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# Table-only reference patterns: functions that accept a bare table name
+# e.g., REMOVEFILTERS('d Period'), ALL('Calendar'), ALLSELECTED('Sales'),
+#        VALUES('Product'), DISTINCT('Orders'), KEEPFILTERS('Date'),
+#        CALCULATETABLE('Fact'), SUMMARIZE('Table', ...), ADDCOLUMNS('Table', ...),
+#        SELECTCOLUMNS('Table', ...), FILTER('Table', ...), GENERATE('T1', ...),
+#        GENERATEALL('T1', ...), TOPN(N, 'Table', ...), SAMPLE(N, 'Table', ...),
+#        NATURALINNERJOIN('T1', 'T2'), NATURALLEFTOUTERJOIN('T1', 'T2'),
+#        UNION('T1', ...), INTERSECT('T1', ...), EXCEPT('T1', ...),
+#        CROSSJOIN('T1', ...), DATATABLE('T', ...), COUNTROWS('T'),
+#        ISEMPTY('T'), CONTAINS('T', ...), HASONEVALUE('T'[Col]),
+#        ALLNOBLANKROW('T'), SUBSTITUTEWITHINDEX('T', ...)
+_TABLE_ONLY_FUNCTIONS = (
+    r"REMOVEFILTERS|ALL|ALLEXCEPT|ALLSELECTED|ALLNOBLANKROW|ALLCROSSFILTERED|"
+    r"VALUES|DISTINCT|KEEPFILTERS|"
+    r"CALCULATETABLE|SUMMARIZE|SUMMARIZECOLUMNS|ADDCOLUMNS|SELECTCOLUMNS|"
+    r"FILTER|GENERATE|GENERATEALL|TOPN|SAMPLE|"
+    r"NATURALINNERJOIN|NATURALLEFTOUTERJOIN|"
+    r"UNION|INTERSECT|EXCEPT|CROSSJOIN|"
+    r"COUNTROWS|ISEMPTY|CONTAINS|CONTAINSROW|"
+    r"DATATABLE|SUBSTITUTEWITHINDEX|GROUPBY|ROLLUP|ROLLUPADDISSUBTOTAL|"
+    r"TREATAS"
+)
+
+# Matches: FUNCTIONNAME ( 'Table Name' )  or  FUNCTIONNAME ( 'Table Name' ,
+# The table name is in single quotes, followed by ) or , (with optional whitespace)
+_TABLE_ONLY_PATTERN = re.compile(
+    rf"\b(?:{_TABLE_ONLY_FUNCTIONS})\s*\(\s*'([^']+)'\s*[,\)]",
+    re.IGNORECASE
+)
+
+# Also catch unquoted table references: FUNCTIONNAME( TableName ) or FUNCTIONNAME( TableName,
+# Only matches single-word table names (no spaces) to avoid false positives
+_TABLE_ONLY_UNQUOTED_PATTERN = re.compile(
+    rf"\b(?:{_TABLE_ONLY_FUNCTIONS})\s*\(\s*(?!')((?:[A-Za-z_][A-Za-z0-9_]*))(?:\s*[,\)])",
+    re.IGNORECASE
+)
+
 
 @dataclass
 class RelationshipReference:
@@ -310,6 +347,24 @@ def parse_dax_references(
             else:
                 # Unknown - assume measure with no table
                 measures.add(("", name))
+
+    # Parse table-only references: REMOVEFILTERS('d Period'), ALL('Calendar'), etc.
+    # These are functions that take a bare table name (no column specifier)
+    for match in _TABLE_ONLY_PATTERN.finditer(cleaned):
+        tbl = match.group(1).strip()
+        if tbl:
+            tables.add(tbl)
+
+    # Also catch unquoted table references: COUNTROWS(MyTable), etc.
+    for match in _TABLE_ONLY_UNQUOTED_PATTERN.finditer(cleaned):
+        tbl = match.group(1).strip()
+        if tbl and tbl.lower() not in {
+            'true', 'false', 'blank', 'null', 'error',
+            'var', 'return', 'if', 'switch', 'not', 'and', 'or',
+        }:
+            # Only add if it looks like a known table name
+            if _normalize_name(tbl) in {_normalize_name(t) for t in ref_idx.table_names}:
+                tables.add(tbl)
 
     # Enhanced parsing when requested
     if enhanced:

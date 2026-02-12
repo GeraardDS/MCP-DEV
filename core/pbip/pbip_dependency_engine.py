@@ -39,6 +39,7 @@ class PbipDependencyEngine:
         self.measure_to_measure: Dict[str, List[str]] = {}  # Forward: measure -> measures it depends on
         self.measure_to_measure_reverse: Dict[str, List[str]] = {}  # Reverse: measure -> measures that depend on it
         self.measure_to_column: Dict[str, List[str]] = {}
+        self.measure_to_table: Dict[str, Set[str]] = {}  # Measure -> tables referenced at table level (e.g., REMOVEFILTERS('d Period'))
         self.column_to_measure: Dict[str, List[str]] = {}
         self.column_to_field_params: Dict[str, List[str]] = {}  # Column -> field parameter tables that reference it
         self.visual_dependencies: Dict[str, Dict[str, List[str]]] = {}
@@ -104,6 +105,7 @@ class PbipDependencyEngine:
             "measure_to_measure": self.measure_to_measure,
             "measure_to_measure_reverse": self.measure_to_measure_reverse,
             "measure_to_column": self.measure_to_column,
+            "measure_to_table": {k: sorted(v) for k, v in self.measure_to_table.items()},
             "column_to_measure": self.column_to_measure,
             "column_to_field_params": self.column_to_field_params,
             "visual_dependencies": self.visual_dependencies,
@@ -202,8 +204,43 @@ class PbipDependencyEngine:
                         ref_key = f"{ref_table}[{ref_column}]"
                         column_deps.append(ref_key)
 
+                # Also track table-only references (e.g., REMOVEFILTERS('d Period'))
+                # These mean ALL columns of the referenced table are implicitly used
+                ref_tables = refs.get("tables", [])
+                self._track_table_references(measure_key, ref_tables)
+
                 if column_deps:
                     self.measure_to_column[measure_key] = column_deps
+
+    def _track_table_references(self, measure_key: str, ref_tables: List[str]) -> None:
+        """
+        Track table-level references from DAX expressions.
+
+        When a DAX function like REMOVEFILTERS('d Period') or ALL('Calendar')
+        references a table without a specific column, it means the entire table
+        is referenced. We track these so that all columns of the table are
+        considered "used" in dependency analysis.
+        """
+        if not ref_tables:
+            return
+
+        # Build a set of known table names for validation
+        known_tables = {
+            t.get("name", "").lower(): t.get("name", "")
+            for t in self.model.get("tables", [])
+            if t.get("name", "")
+        }
+
+        for tbl in ref_tables:
+            tbl_stripped = tbl.strip()
+            if not tbl_stripped:
+                continue
+            # Validate against known tables
+            canonical = known_tables.get(tbl_stripped.lower())
+            if canonical:
+                if measure_key not in self.measure_to_table:
+                    self.measure_to_table[measure_key] = set()
+                self.measure_to_table[measure_key].add(canonical)
 
     def _analyze_column_usage(self) -> None:
         """Analyze calculated column dependencies."""
@@ -236,6 +273,12 @@ class PbipDependencyEngine:
                                 self.column_to_measure[ref_key] = []
                             if column_key not in self.column_to_measure[ref_key]:
                                 self.column_to_measure[ref_key].append(column_key)
+
+                # Also track table-level references in calculated column expressions
+                ref_tables = refs.get("tables", [])
+                if ref_tables:
+                    # Use a pseudo-key for the calculated column as the "measure" reference
+                    self._track_table_references(column_key, ref_tables)
 
     def _analyze_field_parameters(self) -> None:
         """Analyze field parameter tables and track which columns they reference."""
@@ -273,13 +316,31 @@ class PbipDependencyEngine:
                 if measure_key not in self.measure_to_measure_reverse[dep_measure_key]:
                     self.measure_to_measure_reverse[dep_measure_key].append(measure_key)
 
-        # Build column_to_measure reverse index
+        # Build column_to_measure reverse index (from explicit column references)
         for measure_key, column_deps in self.measure_to_column.items():
             for column_key in column_deps:
                 if column_key not in self.column_to_measure:
                     self.column_to_measure[column_key] = []
                 if measure_key not in self.column_to_measure[column_key]:
                     self.column_to_measure[column_key].append(measure_key)
+
+        # Build column_to_measure reverse index from table-level references
+        # When a measure references REMOVEFILTERS('d Period'), ALL columns of 'd Period'
+        # should appear in column_to_measure as being used by that measure
+        for measure_key, table_set in self.measure_to_table.items():
+            for table_name in table_set:
+                # Find all columns in this table
+                for table in self.model.get("tables", []):
+                    if table.get("name", "") == table_name:
+                        for column in table.get("columns", []):
+                            col_name = column.get("name", "")
+                            if col_name:
+                                column_key = f"{table_name}[{col_name}]"
+                                if column_key not in self.column_to_measure:
+                                    self.column_to_measure[column_key] = []
+                                if measure_key not in self.column_to_measure[column_key]:
+                                    self.column_to_measure[column_key].append(measure_key)
+                        break  # Found the table, no need to continue
 
     def _analyze_visual_dependencies(self) -> None:
         """Analyze visual-level field usage."""
@@ -508,10 +569,29 @@ class PbipDependencyEngine:
         # Build set of used columns (normalized)
         used_columns_normalized = set()
 
-        # Used in measures (from DAX expressions)
+        # Used in measures (from DAX expressions - explicit column references)
         for deps in self.measure_to_column.values():
             for d in deps:
                 used_columns_normalized.add(self._normalize_key(d))
+
+        # Used via table-level references in DAX (e.g., REMOVEFILTERS('d Period'), ALL('Calendar'))
+        # When a measure references an entire table, ALL columns of that table are implicitly used
+        tables_referenced_by_dax: Set[str] = set()
+        for table_set in self.measure_to_table.values():
+            tables_referenced_by_dax.update(table_set)
+
+        if tables_referenced_by_dax:
+            # Build normalized table name lookup
+            tables_ref_lower = {t.lower() for t in tables_referenced_by_dax}
+            for table in self.model.get("tables", []):
+                table_name = table.get("name", "")
+                if table_name.lower() in tables_ref_lower:
+                    for column in table.get("columns", []):
+                        col_name = column.get("name", "")
+                        if col_name:
+                            used_columns_normalized.add(
+                                self._normalize_key(f"{table_name}[{col_name}]")
+                            )
 
         # Used by other columns (calculated columns)
         for column_key in self.column_to_measure.keys():
