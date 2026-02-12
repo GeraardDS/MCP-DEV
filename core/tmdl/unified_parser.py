@@ -691,12 +691,17 @@ class UnifiedTmdlParser:
 
                         if ":" in prop_line:
                             key, value = _parse_property(prop_line)
-                            if key == "fromColumn":
-                                rel.from_column = value
+                            if key in ("fromColumn", "toColumn"):
+                                # Column refs use 'Table'.'Col' format;
+                                # extract raw value to preserve inner quotes
+                                # that _parse_property would strip.
+                                raw = prop_line.split(":", 1)[1].strip()
+                                if key == "fromColumn":
+                                    rel.from_column = raw
+                                else:
+                                    rel.to_column = raw
                             elif key == "fromCardinality":
                                 rel.from_cardinality = value
-                            elif key == "toColumn":
-                                rel.to_column = value
                             elif key == "toCardinality":
                                 rel.to_cardinality = value
                             elif key == "crossFilteringBehavior":
