@@ -205,6 +205,9 @@ def _format_unused_columns_output(result: Dict[str, Any]) -> str:
     total = summary.get('total_columns_analyzed', 0)
     used_measures = summary.get('used_by_measures', 0)
     used_rels = summary.get('used_by_relationships_only', 0)
+    used_sort_by = summary.get('used_by_sort_by', 0)
+    used_fp = summary.get('used_by_field_params', 0)
+    used_rls = summary.get('used_by_rls', 0)
     unused = summary.get('unused', 0)
 
     lines.append("-" * 80)
@@ -213,7 +216,13 @@ def _format_unused_columns_output(result: Dict[str, Any]) -> str:
     lines.append(f"  Total columns analyzed: {total}")
     lines.append(f"  [+] Used by measures: {used_measures}")
     lines.append(f"  [+] Used by relationships only: {used_rels}")
-    lines.append(f"  [-] UNUSED (not in measures or relationships): {unused}")
+    if used_sort_by:
+        lines.append(f"  [+] Used as SortByColumn: {used_sort_by}")
+    if used_fp:
+        lines.append(f"  [+] Used by field parameters: {used_fp}")
+    if used_rls:
+        lines.append(f"  [+] Used by RLS (row-level security): {used_rls}")
+    lines.append(f"  [-] UNUSED: {unused}")
     lines.append("")
 
     # Show unused columns (the main result)
@@ -246,6 +255,51 @@ def _format_unused_columns_output(result: Dict[str, Any]) -> str:
 
         for table_name, columns in sorted(rel_by_table.items()):
             lines.append(f"  {table_name} ({len(columns)} relationship keys)")
+            for col in sorted(columns):
+                lines.append(f"    - [{col}]")
+            lines.append("")
+
+    # Show SortByColumn columns
+    sort_by_table = result.get('used_by_sort_by_by_table', {})
+    if sort_by_table:
+        lines.append("-" * 80)
+        lines.append("  [+] COLUMNS USED AS SORTBYCOLUMN")
+        lines.append("      (Used to sort other columns — do not remove)")
+        lines.append("-" * 80)
+        lines.append("")
+
+        for table_name, columns in sorted(sort_by_table.items()):
+            lines.append(f"  {table_name} ({len(columns)} sort columns)")
+            for col in sorted(columns):
+                lines.append(f"    - [{col}]")
+            lines.append("")
+
+    # Show field parameter columns
+    fp_by_table = result.get('used_by_field_params_by_table', {})
+    if fp_by_table:
+        lines.append("-" * 80)
+        lines.append("  [+] COLUMNS USED BY FIELD PARAMETERS")
+        lines.append("      (Referenced by NAMEOF or internal to field parameter tables)")
+        lines.append("-" * 80)
+        lines.append("")
+
+        for table_name, columns in sorted(fp_by_table.items()):
+            lines.append(f"  {table_name} ({len(columns)} field param columns)")
+            for col in sorted(columns):
+                lines.append(f"    - [{col}]")
+            lines.append("")
+
+    # Show RLS columns
+    rls_by_table = result.get('used_by_rls_by_table', {})
+    if rls_by_table:
+        lines.append("-" * 80)
+        lines.append("  [+] COLUMNS USED BY RLS (ROW-LEVEL SECURITY)")
+        lines.append("      (Referenced in security role filters — do not remove)")
+        lines.append("-" * 80)
+        lines.append("")
+
+        for table_name, columns in sorted(rls_by_table.items()):
+            lines.append(f"  {table_name} ({len(columns)} RLS columns)")
             for col in sorted(columns):
                 lines.append(f"    - [{col}]")
             lines.append("")
@@ -371,7 +425,15 @@ def handle_column_usage_mapping(args: Dict[str, Any]) -> Dict[str, Any]:
     - get_measures_for_column: Get all measures that use a specific column
     - get_full_mapping: Get complete bidirectional mapping
     - get_unused_columns: Get columns not referenced by any measure
+    - get_unused_columns_pbip: Find unused columns/measures from PBIP folder (multi-report)
     """
+    operation = args.get('operation', 'get_measures_for_tables')
+
+    # PBIP operation — no live connection required
+    if operation == 'get_unused_columns_pbip':
+        return _handle_get_unused_columns_pbip(args)
+
+    # All other operations require live connection
     if not connection_state.is_connected():
         return ErrorHandler.handle_not_connected()
 
@@ -379,7 +441,6 @@ def handle_column_usage_mapping(args: Dict[str, Any]) -> Dict[str, Any]:
     if not analyzer:
         return ErrorHandler.handle_manager_unavailable('column_usage_analyzer')
 
-    operation = args.get('operation', 'get_measures_for_tables')
     force_refresh = args.get('force_refresh', False)
     include_dax = args.get('include_dax', False)  # Default to False for size optimization
 
@@ -468,6 +529,252 @@ def handle_column_usage_mapping(args: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in column usage mapping: {e}", exc_info=True)
         return ErrorHandler.handle_unexpected_error('column_usage_mapping', e)
+
+
+def _analyze_pbip_multi_report(
+    pbip_path: str,
+    report_paths: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """
+    Analyze a PBIP project across multiple reports.
+
+    Runs PbipDependencyEngine per-report and computes the intersection
+    of unused columns/measures — an object is unused only if it's unused
+    in ALL report analyses.
+
+    Args:
+        pbip_path: Path to PBIP project directory or .pbip file
+        report_paths: Optional explicit list of .Report folder paths.
+                      If not provided, auto-discovers all reports.
+
+    Returns:
+        Dict with unused_columns, unused_measures, reports_analyzed, model stats
+    """
+    import os
+    from server.pbip_cache import normalize_pbip_path
+    from core.pbip.pbip_project_scanner import PbipProjectScanner
+    from core.pbip.pbip_model_analyzer import TmdlModelAnalyzer
+    from core.pbip.pbip_report_analyzer import PbirReportAnalyzer
+    from core.pbip.pbip_dependency_engine import PbipDependencyEngine
+
+    path = normalize_pbip_path(pbip_path)
+    scanner = PbipProjectScanner()
+    project_info = scanner.scan_repository(path)
+
+    if not project_info or not project_info.get("semantic_models"):
+        raise ValueError(f"No PBIP semantic models found in: {path}")
+
+    model_folder = project_info["semantic_models"][0].get("model_folder")
+    if not model_folder:
+        raise ValueError("Semantic model folder path not found")
+
+    # Parse model once
+    analyzer = TmdlModelAnalyzer()
+    typed_model = analyzer.analyze_model_typed(model_folder)
+    model_data = typed_model.to_dict()
+    model_data["model_folder"] = model_folder
+
+    # Determine report folders
+    if report_paths:
+        report_folders = report_paths
+    else:
+        report_folders = [
+            r.get("report_folder") for r in project_info.get("reports", [])
+            if r.get("report_folder")
+        ]
+
+    # Run dependency analysis per report
+    report_analyzer = PbirReportAnalyzer()
+    all_unused_columns: List[set] = []
+    all_unused_measures: List[set] = []
+    reports_analyzed = []
+    reports_failed = []
+
+    for report_folder in report_folders:
+        try:
+            report_data = report_analyzer.analyze_report(report_folder)
+            engine = PbipDependencyEngine(model_data, report_data)
+            deps = engine.analyze_all_dependencies()
+            all_unused_columns.append(set(deps.get("unused_columns", [])))
+            all_unused_measures.append(set(deps.get("unused_measures", [])))
+            reports_analyzed.append(os.path.basename(report_folder))
+        except Exception as e:
+            logger.warning(f"Failed to analyze report {report_folder}: {e}")
+            reports_failed.append(os.path.basename(str(report_folder)))
+
+    # Fallback: if no reports found/parsed, run model-only analysis
+    if not all_unused_columns:
+        engine = PbipDependencyEngine(model_data, None)
+        deps = engine.analyze_all_dependencies()
+        all_unused_columns.append(set(deps.get("unused_columns", [])))
+        all_unused_measures.append(set(deps.get("unused_measures", [])))
+
+    # Intersection: unused only if unused in ALL analyses
+    final_unused_columns = sorted(all_unused_columns[0].intersection(*all_unused_columns[1:]))
+    final_unused_measures = sorted(all_unused_measures[0].intersection(*all_unused_measures[1:]))
+
+    # Count total columns in model
+    total_columns = sum(
+        len(table.get("columns", []))
+        for table in model_data.get("tables", [])
+    )
+    total_measures = sum(
+        len(table.get("measures", []))
+        for table in model_data.get("tables", [])
+    )
+
+    result = {
+        "unused_columns": final_unused_columns,
+        "unused_measures": final_unused_measures,
+        "reports_analyzed": reports_analyzed,
+        "reports_failed": reports_failed,
+        "total_reports": len(report_folders),
+        "total_columns": total_columns,
+        "total_measures": total_measures,
+    }
+
+    return result
+
+
+def _handle_get_unused_columns_pbip(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Find unused columns/measures from PBIP folder across multiple reports."""
+    pbip_path = args.get('pbip_path')
+    if not pbip_path:
+        return {
+            'success': False,
+            'error': 'pbip_path is required for PBIP analysis'
+        }
+
+    report_paths = args.get('report_paths')
+    tables_filter = args.get('tables')
+
+    try:
+        result = _analyze_pbip_multi_report(pbip_path, report_paths)
+
+        unused_columns = result['unused_columns']
+        unused_measures = result['unused_measures']
+
+        # Apply table filter if specified
+        if tables_filter:
+            tables_lower = {t.lower() for t in tables_filter}
+            unused_columns = [
+                c for c in unused_columns
+                if '[' in c and c[:c.index('[')].strip("'\"").lower() in tables_lower
+            ]
+
+        # Group unused columns by table
+        unused_by_table: Dict[str, List[str]] = {}
+        for col_key in unused_columns:
+            if '[' in col_key:
+                bracket_idx = col_key.index('[')
+                table = col_key[:bracket_idx].strip("'\"")
+                column = col_key[bracket_idx + 1:].rstrip(']')
+                if table not in unused_by_table:
+                    unused_by_table[table] = []
+                unused_by_table[table].append(column)
+
+        output = {
+            'success': True,
+            'unused_columns': unused_columns,
+            'unused_columns_count': len(unused_columns),
+            'unused_by_table': unused_by_table,
+            'unused_measures': unused_measures,
+            'unused_measures_count': len(unused_measures),
+            'reports_analyzed': result['reports_analyzed'],
+            'reports_failed': result.get('reports_failed', []),
+            'total_reports': result['total_reports'],
+            'total_columns': result['total_columns'],
+            'total_measures': result['total_measures'],
+            'tables_filter': tables_filter,
+        }
+        output['formatted_output'] = _format_unused_columns_pbip_output(output)
+        return output
+
+    except Exception as e:
+        logger.error(f"Error in PBIP column usage analysis: {e}", exc_info=True)
+        return ErrorHandler.handle_unexpected_error('column_usage_pbip', e)
+
+
+def _format_unused_columns_pbip_output(result: Dict[str, Any]) -> str:
+    """Format unused columns output for PBIP multi-report analysis."""
+    lines = []
+
+    lines.append("=" * 80)
+    lines.append("  COLUMN USAGE ANALYSIS - PBIP MULTI-REPORT")
+    lines.append("=" * 80)
+    lines.append("")
+
+    # Reports analyzed
+    reports = result.get('reports_analyzed', [])
+    lines.append(f"  Reports analyzed: {len(reports)}")
+    for r in reports:
+        lines.append(f"    - {r}")
+
+    reports_failed = result.get('reports_failed', [])
+    if reports_failed:
+        lines.append(f"  Reports failed: {len(reports_failed)}")
+        for r in reports_failed:
+            lines.append(f"    - {r} (FAILED)")
+    lines.append("")
+
+    # Table filter info
+    tables_filter = result.get('tables_filter')
+    if tables_filter:
+        lines.append(f"  Tables filtered: {', '.join(tables_filter)}")
+    else:
+        lines.append("  Tables analyzed: ALL TABLES")
+    lines.append("")
+
+    # Summary
+    total_cols = result.get('total_columns', 0)
+    total_measures = result.get('total_measures', 0)
+    unused_count = result.get('unused_columns_count', 0)
+    unused_measures_count = result.get('unused_measures_count', 0)
+
+    lines.append("-" * 80)
+    lines.append("  SUMMARY")
+    lines.append("-" * 80)
+    lines.append(f"  Total columns in model: {total_cols}")
+    lines.append(f"  Total measures in model: {total_measures}")
+    lines.append(f"  [-] UNUSED columns (not in ANY report): {unused_count}")
+    lines.append(f"  [-] UNUSED measures (not in ANY report): {unused_measures_count}")
+    lines.append("")
+
+    # Unused columns grouped by table
+    unused_by_table = result.get('unused_by_table', {})
+    if unused_by_table:
+        num_reports = len(reports)
+        lines.append("-" * 80)
+        lines.append("  [-] UNUSED COLUMNS")
+        lines.append(f"      (not used in visuals, measures, filters, or field parameters")
+        lines.append(f"       across ANY of the {num_reports} analyzed report(s))")
+        lines.append("-" * 80)
+        lines.append("")
+
+        for table_name, columns in sorted(unused_by_table.items()):
+            lines.append(f"  {table_name} ({len(columns)} unused)")
+            for col in sorted(columns):
+                lines.append(f"    - [{col}]")
+            lines.append("")
+    else:
+        lines.append("-" * 80)
+        lines.append("  [+] No unused columns found across all reports!")
+        lines.append("-" * 80)
+        lines.append("")
+
+    # Unused measures
+    unused_measures = result.get('unused_measures', [])
+    if unused_measures:
+        lines.append("-" * 80)
+        lines.append(f"  [-] UNUSED MEASURES ({len(unused_measures)})")
+        lines.append("-" * 80)
+        lines.append("")
+        for m in sorted(unused_measures):
+            lines.append(f"    - {m}")
+        lines.append("")
+
+    lines.append("=" * 80)
+    return "\n".join(lines)
 
 
 def handle_export_dax_measures(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -577,14 +884,18 @@ def register_column_usage_handler(registry):
         "description": """Analyze column usage in the Power BI model.
 
 PRIMARY USE CASES:
-1. **get_unused_columns**: Find columns not used by measures OR relationships (single call!)
-2. get_measures_for_tables: Which measures use columns from these tables?
-3. get_columns_for_measure: What columns does a measure reference?
-4. get_measures_for_column: What measures reference a specific column?
-5. export_to_csv: Export mappings to CSV for Excel analysis
+1. **get_unused_columns**: Find columns not used by measures OR relationships (live connection)
+2. **get_unused_columns_pbip**: Find unused columns/measures from PBIP folder (no connection needed!)
+   - Checks visuals, measures, filters, field parameters, relationships
+   - Supports multi-report analysis (3+ reports sharing one semantic model)
+3. get_measures_for_tables: Which measures use columns from these tables?
+4. get_columns_for_measure: What columns does a measure reference?
+5. get_measures_for_column: What measures reference a specific column?
+6. export_to_csv: Export mappings to CSV for Excel analysis
 
 Operations:
-- get_unused_columns: Find unused columns (checks measures AND relationships)
+- get_unused_columns: Find unused columns (live connection - checks measures AND relationships)
+- get_unused_columns_pbip: Find unused columns from PBIP folder (offline - checks ALL sources across multiple reports)
 - get_measures_for_tables: Which measures use columns from these tables?
 - get_columns_for_measure: What columns does this measure use?
 - get_measures_for_column: What measures use this column?
@@ -593,9 +904,10 @@ Operations:
         "properties": {
             "operation": {
                 "type": "string",
-                "description": "Operation to perform. Use 'get_unused_columns' to find columns not used by measures or relationships.",
+                "description": "Operation to perform. Use 'get_unused_columns_pbip' for offline PBIP analysis across multiple reports.",
                 "enum": [
                     "get_unused_columns",
+                    "get_unused_columns_pbip",
                     "get_measures_for_tables",
                     "get_columns_for_measure",
                     "get_measures_for_column",
@@ -603,6 +915,15 @@ Operations:
                     "export_to_csv"
                 ],
                 "default": "get_unused_columns"
+            },
+            "pbip_path": {
+                "type": "string",
+                "description": "Path to PBIP project directory or .pbip file (for get_unused_columns_pbip)"
+            },
+            "report_paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Explicit list of .Report folder paths to analyze (optional - auto-discovers all reports if not provided)"
             },
             "tables": {
                 "type": "array",
@@ -645,11 +966,26 @@ Operations:
         "required": ["operation"],
         "examples": [
             {
-                "_description": "Find ALL unused columns in the model (not used by measures or relationships)",
+                "_description": "Find unused columns across ALL PBIP reports (no live connection needed)",
+                "operation": "get_unused_columns_pbip",
+                "pbip_path": "C:/repos/my-pbip-project"
+            },
+            {
+                "_description": "Find unused columns in specific PBIP reports only",
+                "operation": "get_unused_columns_pbip",
+                "pbip_path": "C:/repos/my-pbip-project",
+                "report_paths": [
+                    "C:/repos/my-pbip-project/R0101-Dashboard.Report",
+                    "C:/repos/my-pbip-project/R0102-Booklet.Report"
+                ],
+                "tables": ["f Valtrans"]
+            },
+            {
+                "_description": "Find ALL unused columns in the model (live connection)",
                 "operation": "get_unused_columns"
             },
             {
-                "_description": "Find unused columns in specific tables",
+                "_description": "Find unused columns in specific tables (live connection)",
                 "operation": "get_unused_columns",
                 "tables": ["f Valtrans", "f Sales"]
             },
@@ -683,8 +1019,9 @@ Operations:
         description="""Analyze column usage - find unused columns, check measure dependencies.
 
 SIMPLE USAGE:
-- Find unused columns: operation: get_unused_columns (checks measures AND relationships!)
-- Find unused in specific tables: operation: get_unused_columns, tables: ["f Valtrans"]
+- Find unused columns (PBIP, multi-report): operation: get_unused_columns_pbip, pbip_path: "..."
+  Checks visuals, measures, filters, field parameters across ALL reports. No connection needed.
+- Find unused columns (live): operation: get_unused_columns (checks measures AND relationships)
 
 OTHER USE CASES:
 - Which measures use a table's columns: get_measures_for_tables
