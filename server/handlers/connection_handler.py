@@ -100,12 +100,7 @@ def register_connection_handlers(registry):
             input_schema={
                 "type": "object",
                 "properties": {},
-                "required": [],
-                "examples": [
-                    {
-                        "_description": "Detect all running Power BI Desktop instances"
-                    }
-                ]
+                "required": []
             },
             category="core",
             sort_order=10
@@ -119,16 +114,7 @@ def register_connection_handlers(registry):
                 "properties": {
                     "model_index": {"type": "integer", "description": "Index of the model to connect to (default: 0)"}
                 },
-                "required": [],
-                "examples": [
-                    {
-                        "_description": "Connect to first detected instance (default)"
-                    },
-                    {
-                        "_description": "Connect to specific instance by index",
-                        "model_index": 1
-                    }
-                ]
+                "required": []
             },
             category="core",
             sort_order=11

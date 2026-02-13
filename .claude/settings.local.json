@@ -158,7 +158,8 @@
       "Bash(winget install:*)",
       "WebFetch(domain:code.visualstudio.com)",
       "Bash(claude mcp add:*)",
-      "Bash(claude mcp:*)"
+      "Bash(claude mcp:*)",
+      "mcp__MCP-PowerBi-Finvision__01_Detect_PBI_Instances"
     ],
     "deny": [],
     "ask": []

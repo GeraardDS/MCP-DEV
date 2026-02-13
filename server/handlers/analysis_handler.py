@@ -853,30 +853,55 @@ def handle_full_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
 
     return result
 
+def handle_analysis_operations(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch analysis operations: simple, full, compare"""
+    operation = args.get('operation', 'simple')
+
+    if operation == 'simple':
+        return handle_simple_analysis(args)
+    elif operation == 'full':
+        return handle_full_analysis(args)
+    elif operation == 'compare':
+        from server.handlers.comparison_handler import handle_compare_pbi_models
+        return handle_compare_pbi_models(args)
+    else:
+        return {
+            'success': False,
+            'error': f'Unknown operation: {operation}. Valid: simple, full, compare'
+        }
+
+
 def register_analysis_handlers(registry):
-    """Register all analysis handlers"""
+    """Register consolidated analysis handler"""
     from server.tool_schemas import TOOL_SCHEMAS
 
-    tools = [
-        ToolDefinition(
-            name="06_Simple_Analysis",
-            description="Quick model analysis: 8 core operations + expert insights and recommendations (2-5s)",
-            handler=handle_simple_analysis,
-            input_schema=TOOL_SCHEMAS.get('simple_analysis', {}),
-            category="analysis",
-            sort_order=60  # 06 = Analysis
-        ),
-        ToolDefinition(
-            name="06_Full_Analysis",
-            description="Comprehensive analysis: Best practices (BPA), performance, and integrity validation (10-180s)",
-            handler=handle_full_analysis,
-            input_schema=TOOL_SCHEMAS.get('full_analysis', {}),
-            category="analysis",
-            sort_order=61  # 06 = Analysis
-        ),
-    ]
+    tool = ToolDefinition(
+        name="06_Analysis_Operations",
+        description="Model analysis: simple (8 ops + insights, 2-5s), full (BPA + performance, 10-180s), compare (two open models)",
+        handler=handle_analysis_operations,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["simple", "full", "compare"], "description": "simple|full|compare", "default": "simple"},
+                "mode": {"type": "string", "enum": ["all", "tables", "stats", "measures", "measure", "columns", "relationships", "roles", "database", "calculation_groups"], "description": "Simple analysis mode", "default": "all"},
+                "table": {"type": "string", "description": "Table filter (simple: measures/columns/measure modes)"},
+                "measure_name": {"type": "string", "description": "Required for mode=measure"},
+                "max_results": {"type": "integer"},
+                "active_only": {"type": "boolean", "default": False},
+                "scope": {"type": "string", "enum": ["all", "best_practices", "performance", "integrity"], "description": "Full analysis scope", "default": "all"},
+                "depth": {"type": "string", "enum": ["fast", "balanced", "deep"], "default": "balanced"},
+                "include_bpa": {"type": "boolean", "default": True},
+                "include_performance": {"type": "boolean", "default": True},
+                "include_integrity": {"type": "boolean", "default": True},
+                "max_seconds": {"type": "integer", "minimum": 5, "maximum": 300},
+                "old_port": {"type": "integer", "description": "Port of OLD model (compare)"},
+                "new_port": {"type": "integer", "description": "Port of NEW model (compare)"}
+            },
+            "required": []
+        },
+        category="analysis",
+        sort_order=60
+    )
 
-    for tool in tools:
-        registry.register(tool)
-
-    logger.info(f"Registered {len(tools)} analysis handlers")
+    registry.register(tool)
+    logger.info("Registered analysis_operations handler")

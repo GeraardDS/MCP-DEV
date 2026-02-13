@@ -68,8 +68,28 @@ def handle_get_m_expressions(args: Dict[str, Any]) -> Dict[str, Any]:
 
     return result
 
+def handle_query_operations(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch query operations: data_sources, m_expressions, search_objects"""
+    operation = args.get('operation', 'data_sources')
+
+    if operation == 'data_sources':
+        return handle_get_data_sources(args)
+    elif operation == 'm_expressions':
+        return handle_get_m_expressions(args)
+    elif operation == 'search_objects':
+        from server.handlers.metadata_handler import handle_search_objects
+        return handle_search_objects(args)
+    else:
+        return {
+            'success': False,
+            'error': f'Unknown operation: {operation}. Valid: data_sources, m_expressions, search_objects'
+        }
+
+
 def register_query_handlers(registry):
-    """Register all query execution handlers"""
+    """Register query handlers"""
+    from server.handlers.metadata_handler import handle_search_string
+
     tools = [
         ToolDefinition(
             name="04_Run_DAX",
@@ -78,55 +98,51 @@ def register_query_handlers(registry):
             input_schema={
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "DAX query to execute (EVALUATE statement)"
-                    },
-                    "top_n": {
-                        "type": "integer",
-                        "description": "Limit number of rows returned (default: 100)",
-                        "default": 100
-                    },
-                    "mode": {
-                        "type": "string",
-                        "description": "Execution mode: 'auto' (smart choice), 'analyze' or 'profile' (with timing analysis), 'simple' (preview only)",
-                        "enum": ["auto", "analyze", "profile", "simple"],
-                        "default": "auto"
-                    }
+                    "query": {"type": "string", "description": "DAX query (EVALUATE statement)"},
+                    "top_n": {"type": "integer", "description": "Max rows (default: 100)", "default": 100},
+                    "mode": {"type": "string", "enum": ["auto", "analyze", "profile", "simple"], "default": "auto"}
                 },
                 "required": ["query"]
             },
             category="query",
-            sort_order=40  # 04 = Query & Search
+            sort_order=40
         ),
         ToolDefinition(
-            name="04_Get_Data_Sources",
-            description="List data sources with fallback to TOM",
-            handler=handle_get_data_sources,
-            input_schema={
-                "type": "object",
-                "properties": {},
-                "required": []
-            },
-            category="query",
-            sort_order=41  # 04 = Query & Search
-        ),
-        ToolDefinition(
-            name="04_Get_M_Expressions",
-            description="List M/Power Query expressions",
-            handler=handle_get_m_expressions,
+            name="04_Query_Operations",
+            description="Query model metadata: data_sources, m_expressions, search_objects",
+            handler=handle_query_operations,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max expressions to return"
-                    }
+                    "operation": {"type": "string", "enum": ["data_sources", "m_expressions", "search_objects"]},
+                    "pattern": {"type": "string", "description": "Search pattern (search_objects)"},
+                    "types": {"type": "array", "items": {"type": "string", "enum": ["tables", "columns", "measures"]}, "description": "Object types (search_objects)"},
+                    "limit": {"type": "integer", "description": "Max results (m_expressions)"},
+                    "page_size": {"type": "integer"},
+                    "next_token": {"type": "string"}
                 },
-                "required": []
+                "required": ["operation"]
             },
             category="query",
-            sort_order=42  # 04 = Query & Search
+            sort_order=41
+        ),
+        ToolDefinition(
+            name="04_Search_String",
+            description="Search inside DAX expressions and measure names",
+            handler=handle_search_string,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "search_text": {"type": "string"},
+                    "search_in_expression": {"type": "boolean"},
+                    "search_in_name": {"type": "boolean"},
+                    "page_size": {"type": "integer"},
+                    "next_token": {"type": "string"}
+                },
+                "required": ["search_text"]
+            },
+            category="query",
+            sort_order=42
         ),
     ]
 

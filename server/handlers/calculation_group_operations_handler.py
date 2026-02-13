@@ -75,57 +75,7 @@ def register_calculation_group_operations_handler(registry):
                     "items": {"type": "string"}
                 }
             },
-            "required": ["operation"],
-            "examples": [
-                {
-                    "_description": "List all calculation groups",
-                    "operation": "list"
-                },
-                {
-                    "_description": "List items in a calculation group",
-                    "operation": "list_items",
-                    "group_name": "Time Intelligence"
-                },
-                {
-                    "_description": "Create Time Intelligence calculation group",
-                    "operation": "create",
-                    "group_name": "Time Intelligence",
-                    "items": [
-                        {"name": "Current", "expression": "SELECTEDMEASURE()", "ordinal": 0},
-                        {"name": "YTD", "expression": "CALCULATE(SELECTEDMEASURE(), DATESYTD('Date'[Date]))", "ordinal": 1},
-                        {"name": "PY", "expression": "CALCULATE(SELECTEDMEASURE(), SAMEPERIODLASTYEAR('Date'[Date]))", "ordinal": 2},
-                        {"name": "YoY %", "expression": "VAR _Current = SELECTEDMEASURE() VAR _PY = CALCULATE(SELECTEDMEASURE(), SAMEPERIODLASTYEAR('Date'[Date])) RETURN DIVIDE(_Current - _PY, _PY)", "ordinal": 3}
-                    ],
-                    "description": "Standard time intelligence calculations",
-                    "precedence": 10
-                },
-                {
-                    "_description": "Create Currency conversion calculation group",
-                    "operation": "create",
-                    "group_name": "Currency",
-                    "items": [
-                        {"name": "Local", "expression": "SELECTEDMEASURE()", "ordinal": 0},
-                        {"name": "USD", "expression": "SELECTEDMEASURE() * MAX('Exchange Rates'[ToUSD])", "ordinal": 1},
-                        {"name": "EUR", "expression": "SELECTEDMEASURE() * MAX('Exchange Rates'[ToEUR])", "ordinal": 2}
-                    ],
-                    "precedence": 20
-                },
-                {
-                    "_description": "Create simple Moving Average calculation group",
-                    "operation": "create",
-                    "group_name": "Moving Average",
-                    "items": [
-                        {"name": "Actual", "expression": "SELECTEDMEASURE()", "ordinal": 0},
-                        {"name": "3M Avg", "expression": "AVERAGEX(DATESINPERIOD('Date'[Date], MAX('Date'[Date]), -3, MONTH), SELECTEDMEASURE())", "ordinal": 1},
-                        {"name": "12M Avg", "expression": "AVERAGEX(DATESINPERIOD('Date'[Date], MAX('Date'[Date]), -12, MONTH), SELECTEDMEASURE())", "ordinal": 2}
-                    ]
-                },
-                {
-                    "_description": "Delete obsolete calculation group",
-                    "operation": "delete",
-                    "group_name": "Old Time Intelligence"
-                }
-            ]
+            "required": ["operation"]
         },
         category="model",
         sort_order=24  # 02 = Model Operations

@@ -1456,353 +1456,149 @@ def handle_advanced_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
         return ErrorHandler.handle_unexpected_error('advanced_analysis', e)
 
 
+def handle_debug_operations(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch debug operations: visual, compare, drill, analyze"""
+    operation = args.get('operation', 'visual')
+
+    if operation == 'visual':
+        return handle_debug_visual(args)
+    elif operation == 'compare':
+        return handle_compare_measures(args)
+    elif operation == 'drill':
+        return handle_drill_to_detail(args)
+    elif operation == 'analyze':
+        return handle_analyze_measure(args)
+    else:
+        return {
+            'success': False,
+            'error': f'Unknown operation: {operation}. Valid: visual, compare, drill, analyze'
+        }
+
+
+def handle_debug_config(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch debug config operations: set_path, status"""
+    operation = args.get('operation', 'status')
+
+    if operation == 'set_path':
+        return handle_set_pbip_path(args)
+    elif operation == 'status':
+        return handle_get_debug_status(args)
+    else:
+        return {
+            'success': False,
+            'error': f'Unknown operation: {operation}. Valid: set_path, status'
+        }
+
+
 def register_debug_handlers(registry):
     """Register debug handlers with the tool registry."""
     tools = [
         ToolDefinition(
-            name="09_Debug_Visual",
-            description="[09_Debug] Visual debugger - discovers pages/visuals, shows complete filter context, executes queries. Use execute_query=false to get filters only without execution.",
-            handler=handle_debug_visual,
+            name="09_Debug_Operations",
+            description="[09_Debug] Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze).",
+            handler=handle_debug_operations,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "page_name": {
-                        "type": "string",
-                        "description": "Display name of the page. Omit to list all available pages."
-                    },
-                    "visual_id": {
-                        "type": "string",
-                        "description": "ID of the visual. Omit to list all visuals on the page."
-                    },
-                    "visual_name": {
-                        "type": "string",
-                        "description": "Name of the visual (alternative to visual_id)"
-                    },
-                    "measure_name": {
-                        "type": "string",
-                        "description": "Specific measure to query (default: first measure in visual)"
-                    },
-                    "include_slicers": {
-                        "type": "boolean",
-                        "description": "Include slicer selections in filter context (default: true)"
-                    },
-                    "execute_query": {
-                        "type": "boolean",
-                        "description": "Execute the generated query against live model (default: true). Set false to get filter context only."
-                    },
-                    "filters": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Manual DAX filter expressions to apply when PBIP saved state is stale or missing. Example: [\"'Product'[Category] = \\\"Bikes\\\"\", \"'Date'[Year] = 2024\"]"
-                    },
-                    "skip_auto_filters": {
-                        "type": "boolean",
-                        "description": "Skip auto-detected filters and use only manually provided filters (default: false)"
-                    },
-                    "compact": {
-                        "type": "boolean",
-                        "description": "Compact output for reduced token usage (default: true). Set false for verbose details."
-                    }
+                    "operation": {"type": "string", "enum": ["visual", "compare", "drill", "analyze"], "default": "visual"},
+                    "page_name": {"type": "string"},
+                    "visual_id": {"type": "string"},
+                    "visual_name": {"type": "string"},
+                    "measure_name": {"type": "string"},
+                    "table_name": {"type": "string", "description": "Table for analyze"},
+                    "include_slicers": {"type": "boolean"},
+                    "execute_query": {"type": "boolean", "description": "Execute query (visual, default: true)"},
+                    "execute_measure": {"type": "boolean", "description": "Execute measure (analyze, default: true)"},
+                    "filters": {"type": "array", "items": {"type": "string"}, "description": "Manual DAX filters"},
+                    "skip_auto_filters": {"type": "boolean"},
+                    "compact": {"type": "boolean"},
+                    "original_measure": {"type": "string", "description": "Original measure (compare)"},
+                    "optimized_expression": {"type": "string", "description": "Optimized DAX (compare)"},
+                    "fact_table": {"type": "string", "description": "Fact table (drill)"},
+                    "limit": {"type": "integer", "description": "Max rows (drill, default: 100)"}
                 },
                 "required": []
             },
             category="debug",
-            sort_order=90  # 09 = Debug
+            sort_order=90
         ),
         ToolDefinition(
-            name="09_Compare_Measures",
-            description="[09_Debug] Compare original measure vs optimized version with the same filter context. Useful for validating DAX optimizations.",
-            handler=handle_compare_measures,
+            name="09_Debug_Config",
+            description="[09_Debug] Config: set_path (set PBIP path), status (debug capabilities).",
+            handler=handle_debug_config,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "original_measure": {
-                        "type": "string",
-                        "description": "Original measure name (e.g., '[Total Sales]')"
-                    },
-                    "optimized_expression": {
-                        "type": "string",
-                        "description": "Optimized DAX expression to compare"
-                    },
-                    "page_name": {
-                        "type": "string",
-                        "description": "Page name to get filter context from (optional)"
-                    },
-                    "visual_id": {
-                        "type": "string",
-                        "description": "Visual ID to get filter context from (optional)"
-                    },
-                    "visual_name": {
-                        "type": "string",
-                        "description": "Visual name to get filter context from (optional)"
-                    },
-                    "filters": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Manual DAX filter expressions to apply"
-                    },
-                    "include_slicers": {
-                        "type": "boolean",
-                        "description": "Include slicer selections (default: true)"
-                    }
-                },
-                "required": ["original_measure", "optimized_expression"]
-            },
-            category="debug",
-            sort_order=91  # 09 = Debug
-        ),
-        ToolDefinition(
-            name="09_Drill_To_Detail",
-            description="[09_Debug] Show the underlying rows that make up an aggregated value using the visual's filter context.",
-            handler=handle_drill_to_detail,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "page_name": {
-                        "type": "string",
-                        "description": "Page name for filter context"
-                    },
-                    "visual_id": {
-                        "type": "string",
-                        "description": "Visual ID for filter context"
-                    },
-                    "visual_name": {
-                        "type": "string",
-                        "description": "Visual name for filter context"
-                    },
-                    "fact_table": {
-                        "type": "string",
-                        "description": "Fact table to query (required if visual not specified)"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum rows to return (default: 100)"
-                    },
-                    "include_slicers": {
-                        "type": "boolean",
-                        "description": "Include slicer selections (default: true)"
-                    }
+                    "operation": {"type": "string", "enum": ["set_path", "status"], "default": "status"},
+                    "pbip_path": {"type": "string", "description": "PBIP folder path (set_path)"},
+                    "compact": {"type": "boolean"}
                 },
                 "required": []
             },
             category="debug",
-            sort_order=94  # 09 = Debug
-        ),
-        ToolDefinition(
-            name="09_Set_PBIP_Path",
-            description="[09_Debug] Manually set the PBIP folder path for visual debugging. Use if auto-detection didn't work.",
-            handler=handle_set_pbip_path,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "pbip_path": {
-                        "type": "string",
-                        "description": "Full path to the PBIP project folder (e.g., C:\\Projects\\MyReport.Report)"
-                    }
-                },
-                "required": ["pbip_path"]
-            },
-            category="debug",
-            sort_order=95  # 09 = Debug
-        ),
-        ToolDefinition(
-            name="09_Get_Debug_Status",
-            description="[09_Debug] Get the current debug capabilities status - shows whether PBIP and model connection are available.",
-            handler=handle_get_debug_status,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "compact": {
-                        "type": "boolean",
-                        "description": "Compact output for reduced token usage (default: true)"
-                    }
-                },
-                "required": []
-            },
-            category="debug",
-            sort_order=96  # 09 = Debug
-        ),
-        ToolDefinition(
-            name="09_Analyze_Measure",
-            description="[09_Debug] Analyze measure DAX for anti-patterns, get fix suggestions. Use before 09_Compare_Measures.",
-            handler=handle_analyze_measure,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "measure_name": {
-                        "type": "string",
-                        "description": "Name of the measure to analyze (e.g., 'Total Sales' or '[Total Sales]')"
-                    },
-                    "table_name": {
-                        "type": "string",
-                        "description": "Table containing the measure (optional - will search all tables if not specified)"
-                    },
-                    "page_name": {
-                        "type": "string",
-                        "description": "Page name to get filter context from (optional)"
-                    },
-                    "visual_id": {
-                        "type": "string",
-                        "description": "Visual ID to get filter context from (optional)"
-                    },
-                    "visual_name": {
-                        "type": "string",
-                        "description": "Visual name to get filter context from (optional)"
-                    },
-                    "include_slicers": {
-                        "type": "boolean",
-                        "description": "Include slicer selections in filter context (default: true)"
-                    },
-                    "execute_measure": {
-                        "type": "boolean",
-                        "description": "Execute the measure to see current value (default: true)"
-                    },
-                    "compact": {
-                        "type": "boolean",
-                        "description": "Compact output for reduced token usage (default: true)"
-                    }
-                },
-                "required": ["measure_name"]
-            },
-            category="debug",
-            sort_order=97  # 09 = Debug
+            sort_order=91
         ),
         ToolDefinition(
             name="09_Validate",
-            description="[09_Debug] Validation: cross_visual, expected_value, filter_permutation tests.",
+            description="[09_Debug] Validation: cross_visual, expected_value, filter_permutation.",
             handler=handle_validate,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["cross_visual", "expected_value", "filter_permutation"],
-                        "description": "Validation operation: cross_visual, expected_value, filter_permutation"
-                    },
-                    "measure_name": {
-                        "type": "string",
-                        "description": "Measure to validate (required for cross_visual)"
-                    },
-                    "page_name": {
-                        "type": "string",
-                        "description": "Page name (required for expected_value and filter_permutation)"
-                    },
-                    "page_names": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Pages to check for cross_visual (optional, all pages if not specified)"
-                    },
-                    "visual_id": {
-                        "type": "string",
-                        "description": "Visual ID"
-                    },
-                    "visual_name": {
-                        "type": "string",
-                        "description": "Visual name"
-                    },
-                    "expected_value": {
-                        "type": ["number", "string"],
-                        "description": "Expected value for expected_value test"
-                    },
-                    "filters": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Additional DAX filters"
-                    },
-                    "tolerance": {
-                        "type": "number",
-                        "description": "Numeric tolerance for comparison (default: 0.001)"
-                    },
-                    "max_permutations": {
-                        "type": "integer",
-                        "description": "Max filter combinations for filter_permutation (default: 20)"
-                    }
+                    "operation": {"type": "string", "enum": ["cross_visual", "expected_value", "filter_permutation"]},
+                    "measure_name": {"type": "string"},
+                    "page_name": {"type": "string"},
+                    "page_names": {"type": "array", "items": {"type": "string"}},
+                    "visual_id": {"type": "string"},
+                    "visual_name": {"type": "string"},
+                    "expected_value": {"type": ["number", "string"]},
+                    "filters": {"type": "array", "items": {"type": "string"}},
+                    "tolerance": {"type": "number"},
+                    "max_permutations": {"type": "integer"}
                 },
                 "required": ["operation"]
             },
             category="debug",
-            sort_order=98  # 09 = Debug
+            sort_order=92
         ),
         ToolDefinition(
             name="09_Profile",
-            description="[09_Debug] Performance profiling: page (rank visuals by time), filter_matrix (test filter combinations).",
+            description="[09_Debug] Profiling: page (rank visuals by time), filter_matrix (test filter combos).",
             handler=handle_profile,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["page", "filter_matrix"],
-                        "description": "Profile operation: page (default), filter_matrix"
-                    },
-                    "page_name": {
-                        "type": "string",
-                        "description": "Page to profile (required)"
-                    },
-                    "visual_id": {
-                        "type": "string",
-                        "description": "Visual ID (for filter_matrix)"
-                    },
-                    "visual_name": {
-                        "type": "string",
-                        "description": "Visual name (for filter_matrix)"
-                    },
-                    "iterations": {
-                        "type": "integer",
-                        "description": "Iterations per visual for averaging (default: 3)"
-                    },
-                    "include_slicers": {
-                        "type": "boolean",
-                        "description": "Include slicer filters (default: true)"
-                    },
-                    "filter_columns": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Columns to vary for filter_matrix (auto-detect if not specified)"
-                    },
-                    "max_combinations": {
-                        "type": "integer",
-                        "description": "Max filter combinations for filter_matrix (default: 15)"
-                    }
+                    "operation": {"type": "string", "enum": ["page", "filter_matrix"]},
+                    "page_name": {"type": "string"},
+                    "visual_id": {"type": "string"},
+                    "visual_name": {"type": "string"},
+                    "iterations": {"type": "integer"},
+                    "include_slicers": {"type": "boolean"},
+                    "filter_columns": {"type": "array", "items": {"type": "string"}},
+                    "max_combinations": {"type": "integer"}
                 },
                 "required": ["page_name"]
             },
             category="debug",
-            sort_order=99  # 09 = Debug
+            sort_order=93
         ),
         ToolDefinition(
             name="09_Document",
-            description="[09_Debug] Documentation: page, report, measure_lineage, filter_lineage. Shows DATA VISUALS only by default (excludes shapes, buttons, visual groups). Fast by default.",
+            description="[09_Debug] Documentation: page, report, measure_lineage, filter_lineage. Data visuals only by default.",
             handler=handle_document,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["page", "report", "measure_lineage", "filter_lineage"],
-                        "description": "Documentation operation: page (default), report, measure_lineage, filter_lineage"
-                    },
-                    "page_name": {
-                        "type": "string",
-                        "description": "Page name (required for page operation)"
-                    },
-                    "measure_name": {
-                        "type": "string",
-                        "description": "Specific measure to trace lineage (optional for measure_lineage)"
-                    },
-                    "lightweight": {
-                        "type": "boolean",
-                        "description": "Fast mode (default: true). Skips expensive DMV queries and filter context building. Set false for full detailed documentation."
-                    },
-                    "include_ui_elements": {
-                        "type": "boolean",
-                        "description": "Include UI elements (shapes, buttons, visual groups). Default: false - shows only data visuals (charts, tables, cards)."
-                    }
+                    "operation": {"type": "string", "enum": ["page", "report", "measure_lineage", "filter_lineage"]},
+                    "page_name": {"type": "string"},
+                    "measure_name": {"type": "string"},
+                    "lightweight": {"type": "boolean"},
+                    "include_ui_elements": {"type": "boolean"}
                 },
                 "required": ["operation"]
             },
             category="debug",
-            sort_order=100  # 09 = Debug
+            sort_order=94
         ),
         ToolDefinition(
             name="09_Advanced_Analysis",
@@ -1811,65 +1607,23 @@ def register_debug_handlers(registry):
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["decompose", "contribution", "trend", "root_cause", "export"],
-                        "description": "Analysis operation: decompose, contribution, trend, root_cause, export"
-                    },
-                    "page_name": {
-                        "type": "string",
-                        "description": "Page name (required for decompose/contribution/trend/root_cause)"
-                    },
-                    "visual_id": {
-                        "type": "string",
-                        "description": "Visual ID"
-                    },
-                    "visual_name": {
-                        "type": "string",
-                        "description": "Visual name"
-                    },
-                    "dimension": {
-                        "type": "string",
-                        "description": "Dimension column for decompose/contribution (e.g., \"'Product'[Category]\")"
-                    },
-                    "date_column": {
-                        "type": "string",
-                        "description": "Date column for trend analysis (e.g., \"'Date'[Date]\")"
-                    },
-                    "granularity": {
-                        "type": "string",
-                        "enum": ["day", "week", "month", "quarter", "year"],
-                        "description": "Time granularity for trend (default: month)"
-                    },
-                    "baseline_filters": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Baseline DAX filters for root_cause (e.g., previous period)"
-                    },
-                    "comparison_filters": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Comparison DAX filters for root_cause (e.g., current period)"
-                    },
-                    "dimensions": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Dimensions to analyze for root_cause"
-                    },
-                    "top_n": {
-                        "type": "integer",
-                        "description": "Number of top items to show (default: 10 for decompose, 5 for root_cause)"
-                    },
-                    "format": {
-                        "type": "string",
-                        "enum": ["markdown", "json"],
-                        "description": "Export format (default: markdown)"
-                    }
+                    "operation": {"type": "string", "enum": ["decompose", "contribution", "trend", "root_cause", "export"]},
+                    "page_name": {"type": "string"},
+                    "visual_id": {"type": "string"},
+                    "visual_name": {"type": "string"},
+                    "dimension": {"type": "string"},
+                    "date_column": {"type": "string"},
+                    "granularity": {"type": "string", "enum": ["day", "week", "month", "quarter", "year"]},
+                    "baseline_filters": {"type": "array", "items": {"type": "string"}},
+                    "comparison_filters": {"type": "array", "items": {"type": "string"}},
+                    "dimensions": {"type": "array", "items": {"type": "string"}},
+                    "top_n": {"type": "integer"},
+                    "format": {"type": "string", "enum": ["markdown", "json"]}
                 },
                 "required": ["operation"]
             },
             category="debug",
-            sort_order=101  # 09 = Debug
+            sort_order=95
         )
     ]
 

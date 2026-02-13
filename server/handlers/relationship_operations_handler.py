@@ -109,78 +109,7 @@ def register_relationship_operations_handler(registry):
                     "description": "Pagination token for list operation"
                 }
             },
-            "required": ["operation"],
-            "examples": [
-                {
-                    "_description": "List all relationships",
-                    "operation": "list"
-                },
-                {
-                    "_description": "List only active relationships",
-                    "operation": "list",
-                    "active_only": True
-                },
-                {
-                    "_description": "Get relationship details",
-                    "operation": "get",
-                    "relationship_name": "Sales-Customer"
-                },
-                {
-                    "_description": "Find all relationships for Sales table",
-                    "operation": "find",
-                    "table_name": "Sales"
-                },
-                {
-                    "_description": "Create many-to-one relationship",
-                    "operation": "create",
-                    "from_table": "Sales",
-                    "from_column": "CustomerID",
-                    "to_table": "Customer",
-                    "to_column": "CustomerID",
-                    "from_cardinality": "Many",
-                    "to_cardinality": "One"
-                },
-                {
-                    "_description": "Create bidirectional relationship",
-                    "operation": "create",
-                    "from_table": "ProductCategory",
-                    "from_column": "CategoryID",
-                    "to_table": "Product",
-                    "to_column": "CategoryID",
-                    "cross_filtering_behavior": "BothDirections"
-                },
-                {
-                    "_description": "Create inactive relationship (for role-playing dimensions)",
-                    "operation": "create",
-                    "from_table": "Sales",
-                    "from_column": "ShipDate",
-                    "to_table": "Date",
-                    "to_column": "Date",
-                    "is_active": False,
-                    "name": "Sales-Date-ShipDate"
-                },
-                {
-                    "_description": "Update relationship to bidirectional",
-                    "operation": "update",
-                    "relationship_name": "Sales-Product",
-                    "cross_filtering_behavior": "BothDirections"
-                },
-                {
-                    "_description": "Deactivate relationship",
-                    "operation": "deactivate",
-                    "relationship_name": "Sales-Date-OrderDate"
-                },
-                {
-                    "_description": "Activate inactive relationship",
-                    "operation": "activate",
-                    "relationship_name": "Sales-Date-ShipDate"
-                },
-                {
-                    "_description": "Delete obsolete relationship",
-                    "operation": "delete",
-                    "relationship_name": "OldRelationship"
-                }
-            ]
+            "required": ["operation"]
         },
         category="model",
         sort_order=23  # 02 = Model Operations

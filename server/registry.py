@@ -48,22 +48,16 @@ CATEGORY_TOOLS = {
     ],
     ToolCategory.QUERY: [
         "04_Run_DAX",
-        "04_Get_Data_Sources",
-        "04_Get_M_Expressions",
-        "04_Search_Objects",
+        "04_Query_Operations",
         "04_Search_String",
     ],
     ToolCategory.DAX: [
         "05_DAX_Intelligence",
-        "05_Analyze_Dependencies",
-        "05_Get_Measure_Impact",
-        "05_Export_DAX_Measures",
+        "05_DAX_Operations",
         "05_Column_Usage_Mapping",
     ],
     ToolCategory.ANALYSIS: [
-        "06_Simple_Analysis",
-        "06_Full_Analysis",
-        "06_Compare_PBI_Models",
+        "06_Analysis_Operations",
     ],
     ToolCategory.PBIP: [
         "07_PBIP_Operations",
@@ -80,12 +74,8 @@ CATEGORY_TOOLS = {
         "08_Documentation_Word",
     ],
     ToolCategory.DEBUG: [
-        "09_Debug_Visual",
-        "09_Compare_Measures",
-        "09_Drill_To_Detail",
-        "09_Set_PBIP_Path",
-        "09_Get_Debug_Status",
-        "09_Analyze_Measure",
+        "09_Debug_Operations",
+        "09_Debug_Config",
         "09_Validate",
         "09_Profile",
         "09_Document",
@@ -103,15 +93,15 @@ _TOOL_TO_CATEGORY = {
 
 # Category descriptions for discovery
 CATEGORY_INFO = {
-    ToolCategory.CORE: {"name": "Connection & Help", "description": "Connect to Power BI, get help", "tool_count": 4},
+    ToolCategory.CORE: {"name": "Connection & Help", "description": "Connect to Power BI, get help", "tool_count": 3},
     ToolCategory.MODEL: {"name": "Model Operations", "description": "Table/column/measure/relationship CRUD", "tool_count": 7},
     ToolCategory.BATCH: {"name": "Batch & Transactions", "description": "Batch operations with ACID transactions", "tool_count": 2},
-    ToolCategory.QUERY: {"name": "Query & Search", "description": "DAX queries, search objects", "tool_count": 5},
-    ToolCategory.DAX: {"name": "DAX Intelligence", "description": "DAX analysis, dependencies, optimization", "tool_count": 5},
-    ToolCategory.ANALYSIS: {"name": "Analysis", "description": "Model analysis, BPA, comparison", "tool_count": 3},
+    ToolCategory.QUERY: {"name": "Query & Search", "description": "DAX queries, search objects", "tool_count": 3},
+    ToolCategory.DAX: {"name": "DAX Intelligence", "description": "DAX analysis, dependencies, optimization", "tool_count": 3},
+    ToolCategory.ANALYSIS: {"name": "Analysis", "description": "Model analysis, BPA, comparison", "tool_count": 1},
     ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis, SVG visuals", "tool_count": 9},
     ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs", "tool_count": 1},
-    ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation", "tool_count": 10},
+    ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation", "tool_count": 6},
 }
 
 
