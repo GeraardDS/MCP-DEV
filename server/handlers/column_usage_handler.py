@@ -881,30 +881,9 @@ def register_column_usage_handler(registry):
 
     input_schema = {
         "type": "object",
-        "description": """Analyze column usage in the Power BI model.
-
-PRIMARY USE CASES:
-1. **get_unused_columns**: Find columns not used by measures OR relationships (live connection)
-2. **get_unused_columns_pbip**: Find unused columns/measures from PBIP folder (no connection needed!)
-   - Checks visuals, measures, filters, field parameters, relationships
-   - Supports multi-report analysis (3+ reports sharing one semantic model)
-3. get_measures_for_tables: Which measures use columns from these tables?
-4. get_columns_for_measure: What columns does a measure reference?
-5. get_measures_for_column: What measures reference a specific column?
-6. export_to_csv: Export mappings to CSV for Excel analysis
-
-Operations:
-- get_unused_columns: Find unused columns (live connection - checks measures AND relationships)
-- get_unused_columns_pbip: Find unused columns from PBIP folder (offline - checks ALL sources across multiple reports)
-- get_measures_for_tables: Which measures use columns from these tables?
-- get_columns_for_measure: What columns does this measure use?
-- get_measures_for_column: What measures use this column?
-- get_full_mapping: Complete bidirectional mapping
-- export_to_csv: Export to CSV files for Excel""",
         "properties": {
             "operation": {
                 "type": "string",
-                "description": "Operation to perform. Use 'get_unused_columns_pbip' for offline PBIP analysis across multiple reports.",
                 "enum": [
                     "get_unused_columns",
                     "get_unused_columns_pbip",
@@ -916,119 +895,23 @@ Operations:
                 ],
                 "default": "get_unused_columns"
             },
-            "pbip_path": {
-                "type": "string",
-                "description": "Path to PBIP project directory or .pbip file (for get_unused_columns_pbip)"
-            },
-            "report_paths": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Explicit list of .Report folder paths to analyze (optional - auto-discovers all reports if not provided)"
-            },
-            "tables": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of table names to filter (optional - if not provided, includes all tables)"
-            },
-            "table": {
-                "type": "string",
-                "description": "Table name (for get_columns_for_measure, get_measures_for_column)"
-            },
-            "measure": {
-                "type": "string",
-                "description": "Measure name (for get_columns_for_measure)"
-            },
-            "column": {
-                "type": "string",
-                "description": "Column name (for get_measures_for_column)"
-            },
-            "group_by": {
-                "type": "string",
-                "description": "How to group results for get_measures_for_tables: 'table' (by table then column), 'column' (by column key), 'measure' (by measure), 'flat' (unique measure list)",
-                "enum": ["table", "column", "measure", "flat"],
-                "default": "flat"
-            },
-            "output_path": {
-                "type": "string",
-                "description": "Directory path for CSV export (default: exports/)"
-            },
-            "include_dax": {
-                "type": "boolean",
-                "description": "Include DAX expressions (default: false - smaller output)",
-                "default": False
-            },
-            "force_refresh": {
-                "type": "boolean",
-                "description": "Force refresh of cached mapping (default: false)",
-                "default": False
-            }
+            "pbip_path": {"type": "string", "description": "PBIP path (for get_unused_columns_pbip)"},
+            "report_paths": {"type": "array", "items": {"type": "string"}, "description": "Report folder paths (optional)"},
+            "tables": {"type": "array", "items": {"type": "string"}, "description": "Table name filter"},
+            "table": {"type": "string"},
+            "measure": {"type": "string"},
+            "column": {"type": "string"},
+            "group_by": {"type": "string", "enum": ["table", "column", "measure", "flat"], "default": "flat"},
+            "output_path": {"type": "string"},
+            "include_dax": {"type": "boolean", "default": False},
+            "force_refresh": {"type": "boolean", "default": False}
         },
-        "required": ["operation"],
-        "examples": [
-            {
-                "_description": "Find unused columns across ALL PBIP reports (no live connection needed)",
-                "operation": "get_unused_columns_pbip",
-                "pbip_path": "C:/repos/my-pbip-project"
-            },
-            {
-                "_description": "Find unused columns in specific PBIP reports only",
-                "operation": "get_unused_columns_pbip",
-                "pbip_path": "C:/repos/my-pbip-project",
-                "report_paths": [
-                    "C:/repos/my-pbip-project/R0101-Dashboard.Report",
-                    "C:/repos/my-pbip-project/R0102-Booklet.Report"
-                ],
-                "tables": ["f Valtrans"]
-            },
-            {
-                "_description": "Find ALL unused columns in the model (live connection)",
-                "operation": "get_unused_columns"
-            },
-            {
-                "_description": "Find unused columns in specific tables (live connection)",
-                "operation": "get_unused_columns",
-                "tables": ["f Valtrans", "f Sales"]
-            },
-            {
-                "_description": "Find measures using specific tables",
-                "operation": "get_measures_for_tables",
-                "tables": ["f Valtrans"],
-                "group_by": "flat"
-            },
-            {
-                "_description": "Find what columns a measure uses",
-                "operation": "get_columns_for_measure",
-                "table": "Measures",
-                "measure": "Total Sales"
-            },
-            {
-                "_description": "Find what measures use a specific column",
-                "operation": "get_measures_for_column",
-                "table": "f Sales",
-                "column": "Amount"
-            },
-            {
-                "_description": "Export to CSV for Excel analysis",
-                "operation": "export_to_csv"
-            }
-        ]
+        "required": ["operation"]
     }
 
     tool = ToolDefinition(
         name="05_Column_Usage_Mapping",
-        description="""Analyze column usage - find unused columns, check measure dependencies.
-
-SIMPLE USAGE:
-- Find unused columns (PBIP, multi-report): operation: get_unused_columns_pbip, pbip_path: "..."
-  Checks visuals, measures, filters, field parameters across ALL reports. No connection needed.
-- Find unused columns (live): operation: get_unused_columns (checks measures AND relationships)
-
-OTHER USE CASES:
-- Which measures use a table's columns: get_measures_for_tables
-- What columns does a measure use: get_columns_for_measure
-- Export to CSV for Excel: export_to_csv
-
-Returns CSV file paths or compact JSON results.""",
+        description="Column usage: get_unused_columns (live), get_unused_columns_pbip (offline multi-report), get_measures_for_tables, get_columns_for_measure, export_to_csv",
         handler=handle_column_usage_mapping,
         input_schema=input_schema,
         category="dax",

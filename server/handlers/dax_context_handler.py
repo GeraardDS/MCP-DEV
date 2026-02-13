@@ -1342,22 +1342,7 @@ def register_dax_handlers(registry):
     tools = [
         ToolDefinition(
             name="05_DAX_Intelligence",
-            description=(
-                "[05-DAX Intelligence] Comprehensive DAX analysis with optimization recommendations.\n\n"
-                "Provides complete analysis including:\n"
-                "• Context Transition Analysis: Complexity scores, nesting levels, transition details\n"
-                "• Anti-Pattern Detection: SQLBI research articles, pattern matches, recommendations\n"
-                "• Code Improvements: Before/after examples with specific transformations\n"
-                "• VertiPaq Analysis: Column cardinality, size metrics, performance impact\n"
-                "• Call Tree Hierarchy: Function call visualization with iteration estimates\n"
-                "• Optimized Code: Production-ready DAX with all improvements applied\n\n"
-                "Features:\n"
-                "- Smart measure finder with fuzzy matching\n"
-                "- Online research integration for best practices\n"
-                "- Automatic syntax validation\n"
-                "- Single comprehensive output with all analysis results\n\n"
-                "Default mode: Runs complete analysis (all sections). Use analysis_mode parameter for specific modes."
-            ),
+            description="DAX analysis: context transitions, anti-patterns, VertiPaq, call tree, optimized code. Smart measure finder. Modes: all|analyze|debug|report",
             handler=handle_dax_intelligence,
             input_schema=TOOL_SCHEMAS.get('dax_intelligence', {}),
             category="dax",

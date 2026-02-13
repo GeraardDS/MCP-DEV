@@ -738,15 +738,20 @@ class PbipDependencyEngine:
             if measure_norm in all_measure_keys:
                 add_dependencies_recursively(measure_norm)
 
-        # Check SortByColumn targets — columns used as sort-by for other columns
+        # Check SortByColumn pairs — if column A is sorted by column B,
+        # both A and B are implicitly in use (A is the display column, B is its sort key)
         for table in self.model.get("tables", []):
             table_name = table.get("name", "")
             for column in table.get("columns", []):
                 sort_by = column.get("sort_by_column")
                 if sort_by:
-                    # sort_by_column is just the column name within the same table
+                    column_name = column.get("name", "")
+                    # Mark both the display column and its sort-by column as used
                     used_columns_normalized.add(
                         self._normalize_key(f"{table_name}[{sort_by}]")
+                    )
+                    used_columns_normalized.add(
+                        self._normalize_key(f"{table_name}[{column_name}]")
                     )
 
         # Check RLS role filter expressions — columns referenced in security filters

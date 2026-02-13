@@ -521,30 +521,45 @@ def handle_get_measure_impact(args: Dict[str, Any]) -> Dict[str, Any]:
 
     return dependency_analyzer.get_measure_impact(table, measure)
 
+def handle_dax_operations(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch DAX operations: dependencies, impact, export"""
+    operation = args.get('operation', 'dependencies')
+
+    if operation == 'dependencies':
+        return handle_analyze_measure_dependencies(args)
+    elif operation == 'impact':
+        return handle_get_measure_impact(args)
+    elif operation == 'export':
+        from server.handlers.column_usage_handler import handle_export_dax_measures
+        return handle_export_dax_measures(args)
+    else:
+        return {
+            'success': False,
+            'error': f'Unknown operation: {operation}. Valid: dependencies, impact, export'
+        }
+
+
 def register_dependencies_handlers(registry):
-    """Register all dependency analysis handlers"""
-    from server.tool_schemas import TOOL_SCHEMAS
+    """Register consolidated DAX operations handler"""
 
-    tools = [
-        ToolDefinition(
-            name="05_Analyze_Dependencies",
-            description="Analyze measure dependencies with text output and interactive diagram",
-            handler=handle_analyze_measure_dependencies,
-            input_schema=TOOL_SCHEMAS.get('analyze_measure_dependencies', {}),
-            category="dax",
-            sort_order=51  # 05 = DAX Intelligence
-        ),
-        ToolDefinition(
-            name="05_Get_Measure_Impact",
-            description="Get measure usage impact - shows what depends on this measure",
-            handler=handle_get_measure_impact,
-            input_schema=TOOL_SCHEMAS.get('get_measure_impact', {}),
-            category="dax",
-            sort_order=52  # 05 = DAX Intelligence
-        ),
-    ]
+    tool = ToolDefinition(
+        name="05_DAX_Operations",
+        description="DAX operations: dependencies (with diagram), impact analysis, export measures to CSV",
+        handler=handle_dax_operations,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["dependencies", "impact", "export"]},
+                "table": {"type": "string", "description": "Table name (dependencies/impact)"},
+                "measure": {"type": "string", "description": "Measure name (dependencies/impact)"},
+                "include_diagram": {"type": "boolean", "description": "Include Mermaid diagram", "default": True},
+                "output_path": {"type": "string", "description": "CSV output path (export)"}
+            },
+            "required": ["operation"]
+        },
+        category="dax",
+        sort_order=51
+    )
 
-    for tool in tools:
-        registry.register(tool)
-
-    logger.info(f"Registered {len(tools)} dependency handlers")
+    registry.register(tool)
+    logger.info("Registered dax_operations handler")

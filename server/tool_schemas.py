@@ -7,63 +7,6 @@ Use the 10_Get_Tool_Examples tool or get_tool_examples() to retrieve examples on
 """
 
 TOOL_SCHEMAS = {
-    # Analysis (2 tools)
-    'simple_analysis': {
-        "type": "object",
-        "properties": {
-            "mode": {"type": "string", "enum": ["all", "tables", "stats", "measures", "measure", "columns", "relationships", "roles", "database", "calculation_groups"], "description": "all (recommended)|tables|stats|measures|columns|relationships|roles|database|calculation_groups", "default": "all"},
-            "table": {"type": "string", "description": "Table filter (for measures/columns/measure modes)"},
-            "measure_name": {"type": "string", "description": "Required for mode=measure"},
-            "max_results": {"type": "integer", "description": "Max results (measures/columns)"},
-            "active_only": {"type": "boolean", "description": "Active relationships only", "default": False}
-        },
-        "required": []
-    },
-
-    'full_analysis': {
-        "type": "object",
-        "properties": {
-            "scope": {"type": "string", "enum": ["all", "best_practices", "performance", "integrity"], "description": "all|best_practices|performance|integrity", "default": "all"},
-            "depth": {"type": "string", "enum": ["fast", "balanced", "deep"], "description": "fast|balanced|deep", "default": "balanced"},
-            "include_bpa": {"type": "boolean", "description": "Include BPA rules", "default": True},
-            "include_performance": {"type": "boolean", "description": "Include performance analysis", "default": True},
-            "include_integrity": {"type": "boolean", "description": "Include integrity validation", "default": True},
-            "max_seconds": {"type": "integer", "description": "Max execution time", "minimum": 5, "maximum": 300}
-        },
-        "required": []
-    },
-
-    # Dependencies (2 tools)
-    'analyze_measure_dependencies': {
-        "type": "object",
-        "description": "Returns formatted_output (text) and mermaid_diagram_output (diagram). Display both.",
-        "properties": {
-            "table": {"type": "string", "description": "Table name"},
-            "measure": {"type": "string", "description": "Measure name"},
-            "include_diagram": {"type": "boolean", "description": "Include Mermaid diagram", "default": True}
-        },
-        "required": ["table", "measure"]
-    },
-
-    'get_measure_impact': {
-        "type": "object",
-        "properties": {
-            "table": {"type": "string", "description": "Table name"},
-            "measure": {"type": "string", "description": "Measure name"}
-        },
-        "required": ["table", "measure"]
-    },
-
-    # Comparison (1 tool)
-    'compare_pbi_models': {
-        "type": "object",
-        "properties": {
-            "old_port": {"type": "integer", "description": "Port of OLD model"},
-            "new_port": {"type": "integer", "description": "Port of NEW model"}
-        },
-        "required": []
-    },
-
     # DAX Intelligence (1 unified tool)
     'dax_intelligence': {
         "type": "object",
