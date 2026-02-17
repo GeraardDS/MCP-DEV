@@ -20,6 +20,141 @@ from core.utilities.json_utils import load_json
 logger = logging.getLogger(__name__)
 
 
+def _walk_for_measure_refs(obj, measures: set) -> None:
+    """Recursively walk JSON to find Measure references (e.g. in objects, conditional formatting)."""
+    if isinstance(obj, dict):
+        if 'Measure' in obj and isinstance(obj['Measure'], dict):
+            ref = obj['Measure']
+            entity = (ref.get('Expression') or {}).get('SourceRef', {}).get('Entity', '')
+            prop = ref.get('Property', '')
+            if entity and prop:
+                measures.add((entity, prop))
+        for value in obj.values():
+            _walk_for_measure_refs(value, measures)
+    elif isinstance(obj, list):
+        for item in obj:
+            _walk_for_measure_refs(item, measures)
+
+
+def _extract_measures_from_visual(visual_data: Dict) -> List[Dict]:
+    """Extract ALL measure references from a visual: queryState, objects, and visual-level filters.
+
+    Returns a list of dicts with keys: entity, measure, context (bucket name / 'objects' / 'filter').
+    """
+    results = []
+    seen = set()  # (entity, measure, context) dedup
+
+    visual = visual_data.get('visual', {})
+
+    # 1. Query state projections (the main data fields)
+    query = visual.get('query', {})
+    query_state = query.get('queryState', {})
+    for bucket_name, bucket_data in query_state.items():
+        for proj in bucket_data.get('projections', []):
+            field = proj.get('field', {})
+            if 'Measure' in field:
+                m = field['Measure']
+                entity = m.get('Expression', {}).get('SourceRef', {}).get('Entity', '')
+                prop = m.get('Property', '')
+                if entity and prop:
+                    key = (entity, prop, bucket_name)
+                    if key not in seen:
+                        seen.add(key)
+                        results.append({'entity': entity, 'measure': prop, 'context': bucket_name})
+
+    # 2. Visual objects (conditional formatting, data labels, reference lines, dynamic titles, etc.)
+    obj_measures: set = set()
+    for section_key in ('objects', 'visualContainerObjects', 'vcObjects'):
+        section = visual.get(section_key, {})
+        if section:
+            _walk_for_measure_refs(section, obj_measures)
+    for entity, prop in obj_measures:
+        key = (entity, prop, 'objects')
+        if key not in seen:
+            seen.add(key)
+            results.append({'entity': entity, 'measure': prop, 'context': 'objects'})
+
+    # 3. Visual-level filters
+    for filt in visual.get('filters', []):
+        field = filt.get('field', {})
+        if 'Measure' in field:
+            m = field['Measure']
+            entity = m.get('Expression', {}).get('SourceRef', {}).get('Entity', '')
+            prop = m.get('Property', '')
+            if entity and prop:
+                key = (entity, prop, 'filter')
+                if key not in seen:
+                    seen.add(key)
+                    results.append({'entity': entity, 'measure': prop, 'context': 'filter'})
+
+    return results
+
+
+def _extract_measures_from_filter_config(filter_config: Dict) -> List[Dict]:
+    """Extract measure references from a filterConfig (report.json or page.json)."""
+    results = []
+    for flt in filter_config.get('filters', []):
+        field = flt.get('field', {})
+        if 'Measure' in field:
+            m = field['Measure']
+            entity = m.get('Expression', {}).get('SourceRef', {}).get('Entity', '')
+            prop = m.get('Property', '')
+            if entity and prop:
+                results.append({'entity': entity, 'measure': prop})
+    return results
+
+
+def _find_all_report_definitions(pbip_path: str) -> List[Dict]:
+    """Find all report definition folders under a PBIP path.
+
+    Returns a list of dicts: [{'name': 'ReportName', 'definition_path': Path}, ...]
+    """
+    path = Path(_normalize_path(pbip_path))
+    if not path.exists():
+        return []
+
+    results = []
+
+    # If it's a .pbip file, look for .Report folder
+    if path.is_file() and path.suffix == '.pbip':
+        report_folder = path.parent / f"{path.stem}.Report"
+        if report_folder.exists():
+            definition = report_folder / "definition"
+            if definition.exists():
+                results.append({'name': path.stem, 'definition_path': definition})
+        return results
+
+    # If it's a .Report folder
+    if path.is_dir() and path.name.endswith('.Report'):
+        definition = path / "definition"
+        if definition.exists():
+            report_name = path.name.replace('.Report', '')
+            results.append({'name': report_name, 'definition_path': definition})
+        return results
+
+    # If it's a definition folder
+    if path.is_dir() and path.name == "definition":
+        parent_name = path.parent.name.replace('.Report', '')
+        results.append({'name': parent_name, 'definition_path': path})
+        return results
+
+    # If it's a directory, search for ALL .Report folders
+    if path.is_dir():
+        for item in path.iterdir():
+            if item.is_dir() and item.name.endswith('.Report'):
+                definition = item / "definition"
+                if definition.exists():
+                    report_name = item.name.replace('.Report', '')
+                    results.append({'name': report_name, 'definition_path': definition})
+        # Also check if definition exists directly
+        if not results:
+            definition = path / "definition"
+            if definition.exists():
+                results.append({'name': path.name, 'definition_path': definition})
+
+    return results
+
+
 def _normalize_path(path: str) -> str:
     """Normalize path to handle Unix-style paths on Windows"""
     normalized_path = path
@@ -412,8 +547,144 @@ def _get_page_info(page_folder: Path, summary_only: bool = False) -> Dict:
     return page_info
 
 
+def handle_report_measure_usage(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Find all measures used across report folders, grouped by page.
+
+    Scans queryState projections, visual objects (data labels, conditional formatting,
+    reference lines, dynamic titles), visual-level filters, page-level filters, and
+    report-level filters.
+    """
+    pbip_path = args.get('pbip_path')
+    measure_filter = args.get('measure_filter', None)
+    page_filter = args.get('page_name', None)
+
+    if not pbip_path:
+        return {
+            'success': False,
+            'error': 'pbip_path parameter is required'
+        }
+
+    report_defs = _find_all_report_definitions(pbip_path)
+    if not report_defs:
+        return {
+            'success': False,
+            'error': f'Could not find any report definition folders in: {pbip_path}'
+        }
+
+    # page_key -> set of measure keys ("Table[Measure]")
+    page_measures: Dict[str, set] = {}
+    # report-level measures (apply to all pages)
+    report_filter_measures: Dict[str, set] = {}  # report_name -> set of measure keys
+
+    for report_def in report_defs:
+        report_name = report_def['name']
+        definition_path = report_def['definition_path']
+        prefix = f"[{report_name}] " if len(report_defs) > 1 else ""
+
+        # 1. Report-level filters
+        report_json_path = definition_path / "report.json"
+        if report_json_path.exists():
+            report_data = _load_json_file(report_json_path)
+            if report_data:
+                filter_config = report_data.get('filterConfig', {})
+                for m_ref in _extract_measures_from_filter_config(filter_config):
+                    m_key = f"{m_ref['entity']}[{m_ref['measure']}]"
+                    report_filter_measures.setdefault(report_name, set()).add(m_key)
+
+        # 2. Pages
+        pages_path = definition_path / "pages"
+        if not pages_path.exists():
+            continue
+
+        for page_folder in pages_path.iterdir():
+            if not page_folder.is_dir():
+                continue
+
+            page_json_path = page_folder / "page.json"
+            if not page_json_path.exists():
+                continue
+
+            page_data = _load_json_file(page_json_path)
+            if not page_data:
+                continue
+
+            page_display_name = page_data.get('displayName', page_folder.name)
+
+            if page_filter and page_filter.lower() not in page_display_name.lower():
+                continue
+
+            full_page_name = f"{prefix}{page_display_name}"
+            measures_on_page = page_measures.setdefault(full_page_name, set())
+
+            # 2a. Page-level filters
+            page_filter_config = page_data.get('filterConfig', {})
+            for m_ref in _extract_measures_from_filter_config(page_filter_config):
+                measures_on_page.add(f"{m_ref['entity']}[{m_ref['measure']}]")
+
+            # 2b. Visuals
+            visuals_path = page_folder / "visuals"
+            if not visuals_path.exists():
+                continue
+
+            for visual_folder in visuals_path.iterdir():
+                if not visual_folder.is_dir():
+                    continue
+
+                visual_json_path = visual_folder / "visual.json"
+                if not visual_json_path.exists():
+                    continue
+
+                visual_data = _load_json_file(visual_json_path)
+                if not visual_data:
+                    continue
+
+                for m_ref in _extract_measures_from_visual(visual_data):
+                    measures_on_page.add(f"{m_ref['entity']}[{m_ref['measure']}]")
+
+    # Build page output
+    all_measures: set = set()
+    pages_output = []
+    for page_name in sorted(page_measures.keys()):
+        measures = sorted(page_measures[page_name])
+        if measure_filter:
+            measures = [m for m in measures if measure_filter.lower() in m.lower()]
+        if measures:
+            all_measures.update(measures)
+            pages_output.append({
+                'page': page_name,
+                'measures': measures,
+            })
+
+    # Report-level filter measures (shared across all pages)
+    report_filters_output = {}
+    for rname, rms in report_filter_measures.items():
+        filtered = sorted(rms)
+        if measure_filter:
+            filtered = [m for m in filtered if measure_filter.lower() in m.lower()]
+        if filtered:
+            all_measures.update(filtered)
+            report_filters_output[rname] = filtered
+
+    result: Dict[str, Any] = {
+        'success': True,
+        'total_unique_measures': len(all_measures),
+        'reports_scanned': [r['name'] for r in report_defs],
+        'pages': pages_output,
+    }
+    if report_filters_output:
+        result['report_level_filter_measures'] = report_filters_output
+
+    return result
+
+
 def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle report info request"""
+    """Handle report info request - dispatches by operation."""
+    operation = args.get('operation', 'info')
+
+    if operation == 'measure_usage':
+        return handle_report_measure_usage(args)
+
+    # Default: 'info' operation (original behavior)
     pbip_path = args.get('pbip_path')
     include_visuals = args.get('include_visuals', True)
     include_filters = args.get('include_filters', True)
@@ -529,7 +800,7 @@ def register_report_info_handler(registry):
 
     tool = ToolDefinition(
         name="07_Report_Info",
-        description="[PBIP] Get report structure info - all pages, filters on all pages, filter pane filters per page, and visual items per page",
+        description="[PBIP] Report analysis: info (pages/visuals/filters), measure_usage (all measures used across report folders - which page, visual, and context)",
         handler=handle_report_info,
         input_schema=TOOL_SCHEMAS.get('report_info', {}),
         category="pbip",
