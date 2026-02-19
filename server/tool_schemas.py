@@ -101,12 +101,23 @@ TOOL_SCHEMAS = {
     'report_info': {
         "type": "object",
         "properties": {
-            "pbip_path": {"type": "string", "description": "Path to PBIP/Report folder"},
-            "include_visuals": {"type": "boolean", "description": "Include visual info", "default": True},
-            "include_filters": {"type": "boolean", "description": "Include filter info", "default": True},
+            "operation": {
+                "type": "string",
+                "enum": ["info", "measure_usage"],
+                "description": (
+                    "Operation:\n"
+                    "• 'info' - Report structure (pages, visuals, filters) [default]\n"
+                    "• 'measure_usage' - All measures used across report(s): which page, visual, and context (bucket/filter/objects). Supports multiple .Report folders."
+                ),
+                "default": "info"
+            },
+            "pbip_path": {"type": "string", "description": "Path to PBIP project, .Report folder, or definition folder"},
+            "include_visuals": {"type": "boolean", "description": "[info] Include visual info", "default": True},
+            "include_filters": {"type": "boolean", "description": "[info] Include filter info", "default": True},
             "page_name": {"type": "string", "description": "Filter by page name (substring match)"},
-            "summary_only": {"type": "boolean", "description": "Compact output - visual types/titles/field refs only, no positions/nested objects.", "default": True},
-            "max_visuals_per_page": {"type": "integer", "description": "Max visuals returned per page (0=unlimited)", "default": 50}
+            "summary_only": {"type": "boolean", "description": "[info] Compact output - visual types/titles/field refs only, no positions/nested objects.", "default": True},
+            "max_visuals_per_page": {"type": "integer", "description": "[info] Max visuals returned per page (0=unlimited)", "default": 50},
+            "measure_filter": {"type": "string", "description": "[measure_usage] Filter by measure name (substring match)"}
         },
         "required": ["pbip_path"]
     },
