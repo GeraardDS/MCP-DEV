@@ -293,14 +293,18 @@ Offline PBIP analysis with 9 operations.
   - **git_diff**: Semantic analysis of git changes in TMDL files
 
 ### 07_Report_Info
-Get report structure - pages, filters, visuals.
+Get report structure - pages, filters, visuals. measure_usage lists all measures per page.
 - **Parameters**:
+  - `operation` (str): 'info' (default) or 'measure_usage'
   - `pbip_path` (str, required): Path to PBIP/Report folder
-  - `include_visuals` (bool, default true): Include visual info
-  - `include_filters` (bool, default true): Include filter info
+  - `include_visuals` (bool, default true): [info] Include visual info
+  - `include_filters` (bool, default true): [info] Include filter info
   - `page_name` (str): Filter by page name (substring match)
-  - `summary_only` (bool, default true): Compact output
-  - `max_visuals_per_page` (int, default 50): Limit visuals per page
+  - `summary_only` (bool, default true): [info] Compact output
+  - `max_visuals_per_page` (int, default 50): [info] Limit visuals per page
+  - `measure_filter` (str): [measure_usage] Filter by measure name
+  - `output_format` (str): [measure_usage] 'text' (default) or 'json'
+  - `export_path` (str): [measure_usage] Export to CSV at this directory path
 
 ### 07_PBIP_Dependency_Analysis
 Generate interactive HTML dependency browser.

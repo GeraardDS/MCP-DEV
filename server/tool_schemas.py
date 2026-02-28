@@ -1,9 +1,6 @@
 """
 Tool Input Schemas for Bridged Tools
 Defines proper input schemas with required parameters.
-
-NOTE: Examples have been moved to tool_documentation.py for token optimization.
-Use the 10_Get_Tool_Examples tool or get_tool_examples() to retrieve examples on-demand.
 """
 
 TOOL_SCHEMAS = {
@@ -117,7 +114,14 @@ TOOL_SCHEMAS = {
             "page_name": {"type": "string", "description": "Filter by page name (substring match)"},
             "summary_only": {"type": "boolean", "description": "[info] Compact output - visual types/titles/field refs only, no positions/nested objects.", "default": True},
             "max_visuals_per_page": {"type": "integer", "description": "[info] Max visuals returned per page (0=unlimited)", "default": 50},
-            "measure_filter": {"type": "string", "description": "[measure_usage] Filter by measure name (substring match)"}
+            "measure_filter": {"type": "string", "description": "[measure_usage] Filter by measure name (substring match)"},
+            "output_format": {
+                "type": "string",
+                "enum": ["text", "json"],
+                "description": "[measure_usage] Output format: 'text' (simple readable list, default) or 'json' (structured data)",
+                "default": "text"
+            },
+            "export_path": {"type": "string", "description": "[measure_usage] Export to CSV file at this directory path. Returns file path instead of inline data."}
         },
         "required": ["pbip_path"]
     },

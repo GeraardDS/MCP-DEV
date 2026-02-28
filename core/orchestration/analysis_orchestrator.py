@@ -664,19 +664,6 @@ class AnalysisOrchestrator(BaseOrchestrator):
             include_integrity=False
         )
 
-    def full_analysis_legacy(self, connection_state, summary_only: bool = False) -> Dict[str, Any]:
-        """
-        Legacy full_analysis - now delegates to comprehensive_analysis.
-        """
-        return self.comprehensive_analysis(
-            connection_state,
-            scope="all",
-            depth="balanced" if not summary_only else "fast",
-            include_bpa=True,
-            include_performance=True,
-            include_integrity=True
-        )
-
     def validate_model_integrity(self, connection_state) -> Dict[str, Any]:
         """
         Validate model integrity - now delegates to comprehensive_analysis.

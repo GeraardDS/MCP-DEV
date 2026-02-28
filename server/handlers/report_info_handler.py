@@ -547,6 +547,111 @@ def _get_page_info(page_folder: Path, summary_only: bool = False) -> Dict:
     return page_info
 
 
+def _export_measure_usage_csv(pages_output, report_filters_output, all_measures, reports_scanned, export_path):
+    """Export measure usage data to CSV file.
+
+    Creates a CSV with columns: Report, Page, Measure.
+    One row per measure per page.
+    """
+    import csv
+    from datetime import datetime
+
+    export_dir = Path(export_path) if export_path else Path(__file__).parent.parent.parent / 'exports'
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_path = export_dir / f"measure_usage_{timestamp}.csv"
+
+    row_count = 0
+    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Report', 'Page', 'Measure'])
+
+        # Report-level filter measures
+        for rname, measures in sorted(report_filters_output.items()):
+            for m in measures:
+                writer.writerow([rname, '[Report-level filters]', m])
+                row_count += 1
+
+        # Page measures
+        for page_entry in pages_output:
+            page_name = page_entry['page']
+            # Extract report name from prefix if present: "[ReportName] PageName"
+            report = ''
+            pname = page_name
+            if page_name.startswith('['):
+                bracket_end = page_name.find('] ')
+                if bracket_end > 0:
+                    report = page_name[1:bracket_end]
+                    pname = page_name[bracket_end + 2:]
+            for m in page_entry['measures']:
+                writer.writerow([report, pname, m])
+                row_count += 1
+
+    return {
+        'success': True,
+        'file_path': str(csv_path),
+        'rows_exported': row_count,
+        'total_unique_measures': len(all_measures),
+        'reports_scanned': reports_scanned,
+        'message': f"Exported {row_count} rows ({len(all_measures)} unique measures) to:\n  {csv_path}"
+    }
+
+
+def _format_measure_usage_text(pages_output, report_filters_output, all_measures, reports_scanned):
+    """Format measure usage as a simple readable text list.
+
+    Output format:
+      == Report Name ==
+      Page Name (N measures)
+        - Table[Measure1]
+        - Table[Measure2]
+    """
+    lines = []
+    lines.append(f"Measure Usage: {len(all_measures)} unique measures across {len(reports_scanned)} report(s)")
+    lines.append(f"Reports: {', '.join(reports_scanned)}")
+    lines.append("")
+
+    # Report-level filter measures
+    for rname, measures in sorted(report_filters_output.items()):
+        lines.append(f"== {rname} - Report-level filters ({len(measures)} measures) ==")
+        for m in measures:
+            lines.append(f"  - {m}")
+        lines.append("")
+
+    # Group pages by report prefix
+    current_report = None
+    for page_entry in pages_output:
+        page_name = page_entry['page']
+        measures = page_entry['measures']
+
+        # Extract report name from prefix
+        report = ''
+        pname = page_name
+        if page_name.startswith('['):
+            bracket_end = page_name.find('] ')
+            if bracket_end > 0:
+                report = page_name[1:bracket_end]
+                pname = page_name[bracket_end + 2:]
+
+        if report != current_report:
+            if current_report is not None:
+                lines.append("")
+            lines.append(f"== {report or reports_scanned[0]} ==")
+            current_report = report
+
+        lines.append(f"{pname} ({len(measures)} measures)")
+        for m in measures:
+            lines.append(f"  - {m}")
+
+    return {
+        'success': True,
+        'total_unique_measures': len(all_measures),
+        'reports_scanned': reports_scanned,
+        'text': '\n'.join(lines)
+    }
+
+
 def handle_report_measure_usage(args: Dict[str, Any]) -> Dict[str, Any]:
     """Find all measures used across report folders, grouped by page.
 
@@ -557,6 +662,8 @@ def handle_report_measure_usage(args: Dict[str, Any]) -> Dict[str, Any]:
     pbip_path = args.get('pbip_path')
     measure_filter = args.get('measure_filter', None)
     page_filter = args.get('page_name', None)
+    output_format = args.get('output_format', 'text')
+    export_path = args.get('export_path', None)
 
     if not pbip_path:
         return {
@@ -665,10 +772,25 @@ def handle_report_measure_usage(args: Dict[str, Any]) -> Dict[str, Any]:
             all_measures.update(filtered)
             report_filters_output[rname] = filtered
 
+    reports_scanned = [r['name'] for r in report_defs]
+
+    # Export to CSV file if export_path provided
+    if export_path is not None:
+        return _export_measure_usage_csv(
+            pages_output, report_filters_output, all_measures, reports_scanned, export_path
+        )
+
+    # Text format: simple readable list (default)
+    if output_format == 'text':
+        return _format_measure_usage_text(
+            pages_output, report_filters_output, all_measures, reports_scanned
+        )
+
+    # JSON format: structured data (original behavior)
     result: Dict[str, Any] = {
         'success': True,
         'total_unique_measures': len(all_measures),
-        'reports_scanned': [r['name'] for r in report_defs],
+        'reports_scanned': reports_scanned,
         'pages': pages_output,
     }
     if report_filters_output:
@@ -800,7 +922,7 @@ def register_report_info_handler(registry):
 
     tool = ToolDefinition(
         name="07_Report_Info",
-        description="[PBIP] Report analysis: info (pages/visuals/filters), measure_usage (all measures used across report folders - which page, visual, and context)",
+        description="[PBIP] Report analysis: info (pages/visuals/filters), measure_usage (measures per page - text/json/csv export). Supports export_path for CSV file export.",
         handler=handle_report_info,
         input_schema=TOOL_SCHEMAS.get('report_info', {}),
         category="pbip",
