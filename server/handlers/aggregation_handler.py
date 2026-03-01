@@ -182,7 +182,7 @@ def register_aggregation_handler(registry) -> None:
 
     tool = ToolDefinition(
         name="07_Analyze_Aggregation",
-        description="[PBIP] Analyze aggregation table usage, optimization opportunities, and estimated row savings across visuals",
+        description="Analyze aggregation table usage, optimization opportunities, and row savings.",
         handler=handle_aggregation_analysis,
         input_schema=get_aggregation_schema(),
         category="pbip",
@@ -198,25 +198,23 @@ def get_aggregation_schema() -> Dict[str, Any]:
         "properties": {
             "pbip_path": {
                 "type": "string",
-                "description": "Path to PBIP project folder, .SemanticModel folder, or parent directory containing the model"
+                "description": "Path to PBIP project or .SemanticModel folder"
             },
             "output_format": {
                 "type": "string",
                 "enum": ["summary", "detailed", "html", "json"],
-                "description": "Output format: 'summary' (quick overview), 'detailed' (full text report), 'html' (interactive report), 'json' (structured data). HTML report is always generated.",
                 "default": "summary"
             },
             "output_path": {
                 "type": "string",
-                "description": "Optional output path for HTML/JSON reports. If not specified, exports to default location."
+                "description": "Output path for reports"
             },
             "page_filter": {
                 "type": "string",
-                "description": "Analyze only pages matching this name (case-insensitive partial match)"
+                "description": "Filter pages by name"
             },
             "include_visual_details": {
                 "type": "boolean",
-                "description": "Include detailed per-visual analysis in output (default: true)",
                 "default": True
             }
         },

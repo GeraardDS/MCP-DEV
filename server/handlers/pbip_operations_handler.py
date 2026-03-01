@@ -644,12 +644,7 @@ def register_pbip_operations_handler(registry):
 
     tool = ToolDefinition(
         name="07_PBIP_Operations",
-        description=(
-            "Offline PBIP analysis operations: analyze (HTML report), "
-            "query_dependencies, query_measures, query_relationships, "
-            "query_unused, validate_model, compare_models, generate_documentation. "
-            "No live Power BI connection required."
-        ),
+        description="Offline PBIP analysis (no live connection needed): analyze, query_dependencies, query_measures, query_relationships, query_unused, validate_model, compare_models, generate_documentation, git_diff.",
         handler=handle_pbip_operations,
         input_schema={
             "type": "object",
@@ -661,59 +656,46 @@ def register_pbip_operations_handler(registry):
                         "query_relationships", "query_unused", "validate_model",
                         "compare_models", "generate_documentation", "git_diff",
                     ],
-                    "description": (
-                        "Operation:\n"
-                        "• 'analyze' - Full analysis with HTML report\n"
-                        "• 'query_dependencies' - Dependency graph for object\n"
-                        "• 'query_measures' - Search/list measures (by name, folder, or DAX expression)\n"
-                        "• 'query_relationships' - Relationships with quality analysis\n"
-                        "• 'query_unused' - Find unused measures/columns\n"
-                        "• 'validate_model' - TMDL validation and linting\n"
-                        "• 'compare_models' - Compare two PBIP projects\n"
-                        "• 'generate_documentation' - Markdown docs from metadata\n"
-                        "• 'git_diff' - Semantic analysis of git changes"
-                    ),
                 },
                 "pbip_path": {
                     "type": "string",
-                    "description": "Path to .pbip file, project directory, or .SemanticModel folder (not .Report folder)",
+                    "description": "Path to .pbip file, project directory, or .SemanticModel folder",
                 },
                 "object_name": {
                     "type": "string",
-                    "description": "Object name for query_dependencies (e.g., '[Total Sales]')",
+                    "description": "Object name (query_dependencies, e.g. '[Total Sales]')",
                 },
                 "direction": {
                     "type": "string",
                     "enum": ["forward", "reverse", "both"],
-                    "description": "Dependency direction (default: both)",
                 },
                 "table": {
                     "type": "string",
-                    "description": "Table filter for query_measures",
+                    "description": "Table filter (query_measures)",
                 },
                 "display_folder": {
                     "type": "string",
-                    "description": "Display folder filter for query_measures",
+                    "description": "Display folder filter (query_measures)",
                 },
                 "pattern": {
                     "type": "string",
-                    "description": "Name pattern (regex) for query_measures",
+                    "description": "Name pattern regex (query_measures)",
                 },
                 "expression_search": {
                     "type": "string",
-                    "description": "Search DAX expressions (regex) for query_measures - find measures containing specific functions or references",
+                    "description": "DAX expression regex search (query_measures)",
                 },
                 "source_path": {
                     "type": "string",
-                    "description": "Source PBIP path for compare_models",
+                    "description": "Source PBIP path (compare_models)",
                 },
                 "target_path": {
                     "type": "string",
-                    "description": "Target PBIP path for compare_models",
+                    "description": "Target PBIP path (compare_models)",
                 },
                 "output_path": {
                     "type": "string",
-                    "description": "Output file path (for analyze or generate_documentation)",
+                    "description": "Output path (analyze, generate_documentation)",
                 },
             },
             "required": ["operation"],

@@ -106,7 +106,7 @@ def register_hybrid_analysis_handlers(registry):
 
     registry.register(ToolDefinition(
         name='07_PBIP_Dependency_Analysis',
-        description='[PBIP Analysis] Generate interactive HTML dependency analysis for PBIP project. Features a sidebar with ALL measures, columns, and field parameters - click any item to view its upstream and downstream dependencies in clean tables. Shows model overview with statistics. Auto-opens in browser.',
+        description='Interactive HTML dependency analysis for PBIP project. Sidebar with measures/columns/field parameters, upstream/downstream tables. Auto-opens in browser.',
         handler=handle_generate_pbip_dependency_diagram,
         input_schema=TOOL_SCHEMAS.get('pbip_dependency_analysis', {}),
         category='pbip',

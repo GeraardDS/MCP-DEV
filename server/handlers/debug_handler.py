@@ -1495,7 +1495,7 @@ def register_debug_handlers(registry):
     tools = [
         ToolDefinition(
             name="09_Debug_Operations",
-            description="[09_Debug] Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze).",
+            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze).",
             handler=handle_debug_operations,
             input_schema={
                 "type": "object",
@@ -1505,10 +1505,10 @@ def register_debug_handlers(registry):
                     "visual_id": {"type": "string"},
                     "visual_name": {"type": "string"},
                     "measure_name": {"type": "string"},
-                    "table_name": {"type": "string", "description": "Table for analyze"},
+                    "table_name": {"type": "string", "description": "Table (analyze)"},
                     "include_slicers": {"type": "boolean"},
-                    "execute_query": {"type": "boolean", "description": "Execute query (visual, default: true)"},
-                    "execute_measure": {"type": "boolean", "description": "Execute measure (analyze, default: true)"},
+                    "execute_query": {"type": "boolean", "description": "Execute query (visual)"},
+                    "execute_measure": {"type": "boolean", "description": "Execute measure (analyze)"},
                     "filters": {"type": "array", "items": {"type": "string"}, "description": "Manual DAX filters"},
                     "skip_auto_filters": {"type": "boolean"},
                     "compact": {"type": "boolean"},
@@ -1524,7 +1524,7 @@ def register_debug_handlers(registry):
         ),
         ToolDefinition(
             name="09_Debug_Config",
-            description="[09_Debug] Config: set_path (set PBIP path), status (debug capabilities).",
+            description="Config: set_path (set PBIP path), status (debug capabilities).",
             handler=handle_debug_config,
             input_schema={
                 "type": "object",
@@ -1540,7 +1540,7 @@ def register_debug_handlers(registry):
         ),
         ToolDefinition(
             name="09_Validate",
-            description="[09_Debug] Validation: cross_visual, expected_value, filter_permutation.",
+            description="Validation: cross_visual, expected_value, filter_permutation.",
             handler=handle_validate,
             input_schema={
                 "type": "object",
@@ -1563,7 +1563,7 @@ def register_debug_handlers(registry):
         ),
         ToolDefinition(
             name="09_Profile",
-            description="[09_Debug] Profiling: page (rank visuals by time), filter_matrix (test filter combos).",
+            description="Profiling: page (rank visuals by time), filter_matrix (test filter combos).",
             handler=handle_profile,
             input_schema={
                 "type": "object",
@@ -1584,7 +1584,7 @@ def register_debug_handlers(registry):
         ),
         ToolDefinition(
             name="09_Document",
-            description="[09_Debug] Documentation: page, report, measure_lineage, filter_lineage. Data visuals only by default.",
+            description="Documentation: page, report, measure_lineage, filter_lineage. Data visuals only by default.",
             handler=handle_document,
             input_schema={
                 "type": "object",
@@ -1602,7 +1602,7 @@ def register_debug_handlers(registry):
         ),
         ToolDefinition(
             name="09_Advanced_Analysis",
-            description="[09_Debug] Advanced: decompose, contribution, trend, root_cause, export.",
+            description="Advanced: decompose, contribution, trend, root_cause, export.",
             handler=handle_advanced_analysis,
             input_schema={
                 "type": "object",

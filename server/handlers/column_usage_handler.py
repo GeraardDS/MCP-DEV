@@ -861,11 +861,7 @@ def register_export_dax_measures_handler(registry):
 
     tool = ToolDefinition(
         name="05_Export_DAX_Measures",
-        description="""Export all DAX measures to CSV file.
-
-Creates a CSV with columns: Table, Measure_Name, Display_Folder, DAX_Expression
-
-Use this to get a complete list of all measures in the model with their DAX definitions.""",
+        description="Export all DAX measures to CSV (Table, Measure_Name, Display_Folder, DAX_Expression).",
         handler=handle_export_dax_measures,
         input_schema=input_schema,
         category="dax",

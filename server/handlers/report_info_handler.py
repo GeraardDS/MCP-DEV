@@ -922,7 +922,7 @@ def register_report_info_handler(registry):
 
     tool = ToolDefinition(
         name="07_Report_Info",
-        description="[PBIP] Report analysis: info (pages/visuals/filters), measure_usage (measures per page - text/json/csv export). Supports export_path for CSV file export.",
+        description="Report analysis: info (pages/visuals/filters), measure_usage (measures per page, CSV export).",
         handler=handle_report_info,
         input_schema=TOOL_SCHEMAS.get('report_info', {}),
         category="pbip",

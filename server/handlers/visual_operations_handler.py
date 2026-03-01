@@ -1653,7 +1653,7 @@ def register_visual_operations_handler(registry):
 
     tool = ToolDefinition(
         name="08_Visual_Operations",
-        description="[PBIP] Edit Power BI visual properties - list visuals, resize/reposition visuals, replace measures, sync visuals across pages, sync column widths between matrices",
+        description="Edit visual properties: list, resize/reposition, replace measures, sync visuals, sync column widths.",
         handler=handle_visual_operations,
         input_schema=TOOL_SCHEMAS.get('visual_operations', {}),
         category="pbip",
