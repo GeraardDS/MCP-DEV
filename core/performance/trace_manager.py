@@ -28,13 +28,28 @@ TRACE_EVENT_DIRECT_QUERY_END = 99
 TRACE_EVENT_EXECUTION_METRICS = 136
 TRACE_EVENT_AGGREGATE_TABLE_REWRITE = 131
 
-# Default event types to capture for SE/FE profiling
+# Default event types to capture for SE/FE profiling.
+# QueryBegin (9) excluded: begin events don't support Duration/CpuTime.
+# DirectQueryEnd (99) excluded: rejects EventSubclass (col Id=1) at
+# trace.Update() time on the AS engine used by Power BI Desktop.
+# DQ events are also irrelevant for VertiPaq/import models.
 DEFAULT_EVENT_IDS = [
-    TRACE_EVENT_QUERY_BEGIN,
     TRACE_EVENT_QUERY_END,
     TRACE_EVENT_VERTIPAQ_SE_QUERY_END,
     TRACE_EVENT_VERTIPAQ_SE_QUERY_CACHE_MATCH,
-    TRACE_EVENT_DIRECT_QUERY_END,
+    TRACE_EVENT_EXECUTION_METRICS,
+]
+
+# Events that use minimal columns (no Duration/CpuTime/StartTime/EndTime).
+# Cache-match events have no computation, so timing columns are unsupported.
+# ExecutionMetrics (136) carries its payload in TextData (JSON) — Duration
+# and CpuTime are always 0, so we request only the minimal column set.
+# The AS engine rejects the entire trace.Update() call if any event gets
+# an unsupported column — so these must be exact.
+# All other events in DEFAULT_EVENT_IDS use full timing columns.
+_MINIMAL_COLUMNS_IDS = [
+    TRACE_EVENT_VERTIPAQ_SE_QUERY_CACHE_MATCH,
+    TRACE_EVENT_EXECUTION_METRICS,
 ]
 
 # AMO availability (lazy-loaded)
@@ -132,7 +147,7 @@ class TraceManager:
             True if the trace was started successfully.
         """
         if not _check_amo():
-            logger.debug("Cannot start trace: AMO not available")
+            logger.warning("Cannot start trace: AMO not available")
             return False
 
         with self._lock:
@@ -174,7 +189,12 @@ class TraceManager:
 
                 # Configure event types
                 ids = event_types or DEFAULT_EVENT_IDS
-                desired_columns = [
+
+                # Full columns for end-events (they have Duration/CpuTime).
+                # Minimal columns for cache-match / begin events — the AS
+                # engine rejects the whole trace.Update() if any event is
+                # given an unsupported column.
+                full_columns = [
                     TraceColumn.EventClass,
                     TraceColumn.EventSubclass,
                     TraceColumn.Duration,
@@ -186,23 +206,71 @@ class TraceManager:
                     TraceColumn.ActivityID,
                     TraceColumn.DatabaseName,
                 ]
+                minimal_columns = [
+                    TraceColumn.EventClass,
+                    # EventSubclass excluded: ExecutionMetrics (136) and
+                    # CacheMatch (85) don't support it — the AS engine rejects
+                    # the entire trace.Update() if it's included.
+                    # ActivityID (col 39) also excluded for the same reason.
+                    TraceColumn.TextData,
+                    TraceColumn.SessionID,
+                ]
 
-                trace.Events.Clear()
+                # Access trace.Events via .NET reflection to bypass a
+                # pythonnet name-collision: accessing trace.Events directly
+                # returns EventHandlerList (the OnEvent delegate store) rather
+                # than the TraceEventCollection property.
+                # New trace is empty, so no Clear() needed.
+                events_collection = None
+                try:
+                    _prop = trace.GetType().GetProperty("Events")
+                    if _prop is not None:
+                        events_collection = _prop.GetValue(trace)
+                except Exception as e:
+                    logger.warning(
+                        f"Reflection access to trace.Events failed: {e}"
+                    )
+
+                if events_collection is None:
+                    logger.warning(
+                        "trace.Events (TraceEventCollection) not accessible; "
+                        "cannot configure trace events"
+                    )
+                    self._cleanup_trace()
+                    return False
+
+                events_added = 0
                 for event_id in ids:
                     try:
                         evt_class = TraceEventClass(event_id)
                         te = AMOTraceEvent(evt_class)
-                        for col in desired_columns:
+                        # Use minimal columns for events that don't
+                        # support Duration/CpuTime (e.g. cache match).
+                        cols = (
+                            minimal_columns
+                            if event_id in _MINIMAL_COLUMNS_IDS
+                            else full_columns
+                        )
+                        for col in cols:
                             try:
                                 te.Columns.Add(col)
                             except Exception:
-                                # Column not supported for this event
                                 pass
-                        trace.Events.Add(te)
+                        events_collection.Add(te)
+                        events_added += 1
                     except Exception as e:
-                        logger.debug(
+                        logger.warning(
                             f"Skipping trace event {event_id}: {e}"
                         )
+
+                if events_added == 0:
+                    logger.warning(
+                        "No trace events could be registered "
+                        f"(tried {len(ids)} IDs); "
+                        "trace unusable, aborting"
+                    )
+                    self._cleanup_trace()
+                    return False
 
                 # Apply session filter if available
                 if self._session_id:
@@ -211,16 +279,18 @@ class TraceManager:
                             trace, self._session_id, TraceColumn
                         )
                     except Exception as e:
-                        logger.debug(
+                        logger.warning(
                             f"Could not apply session filter: {e}"
                         )
 
                 # Auto-stop after 1 hour as safety net
-                import datetime
-                trace.StopTime = (
-                    datetime.datetime.utcnow()
-                    + datetime.timedelta(hours=1)
-                )
+                # Must use System.DateTime — pythonnet cannot auto-convert
+                # Python datetime.datetime to .NET System.DateTime
+                try:
+                    import System  # type: ignore
+                    trace.StopTime = System.DateTime.UtcNow.AddHours(1)
+                except Exception:
+                    pass  # Non-critical safety net; proceed without it
 
                 # Subscribe to OnEvent callback
                 trace.OnEvent += self._on_trace_event
@@ -235,9 +305,9 @@ class TraceManager:
 
                 self._trace = trace
                 self._trace_active = True
-                logger.debug(
+                logger.warning(
                     f"Trace started: {trace_name} "
-                    f"({len(ids)} event types)"
+                    f"({events_added}/{len(ids)} event types registered)"
                 )
                 return True
 
@@ -304,7 +374,7 @@ class TraceManager:
             if amo_server is None:
                 amo_server = self._create_amo_server(connection)
                 if amo_server is None:
-                    logger.debug(
+                    logger.warning(
                         "Cannot create AMO server; "
                         "returning empty trace"
                     )
@@ -318,7 +388,7 @@ class TraceManager:
                 amo_server, connection, event_types
             )
             if not started:
-                logger.debug(
+                logger.warning(
                     "Trace start failed; executing without trace"
                 )
                 rows = self._execute_query(connection, query)
@@ -484,28 +554,36 @@ class TraceManager:
         """
         Create and connect an AMO Server from an ADOMD connection.
 
+        Tries Microsoft.AnalysisServices.Server (has Traces collection)
+        first, then falls back to Tabular.Server for connect-only.
+
         Returns:
             Connected AMO Server or None if unavailable.
         """
         if not _check_amo():
+            logger.warning("_create_amo_server: AMO not available")
             return None
 
+        conn_str = getattr(connection, "ConnectionString", None)
+        if not conn_str:
+            logger.warning("_create_amo_server: connection has no ConnectionString")
+            return None
+
+        # Try non-Tabular Server first — it has the Traces collection
         try:
-            from Microsoft.AnalysisServices.Tabular import (  # type: ignore
+            from Microsoft.AnalysisServices import (  # type: ignore
                 Server as AMOServer,
             )
-
-            conn_str = getattr(connection, "ConnectionString", None)
-            if not conn_str:
-                return None
-
             srv = AMOServer()
             srv.Connect(conn_str)
+            logger.debug("AMO Server connected (Microsoft.AnalysisServices)")
             return srv
-
         except Exception as e:
-            logger.debug(f"Failed to create AMO server: {e}")
-            return None
+            logger.warning(
+                f"_create_amo_server: Microsoft.AnalysisServices.Server.Connect failed: {e}"
+            )
+
+        return None
 
     def _execute_query(
         self, connection: Any, query: str

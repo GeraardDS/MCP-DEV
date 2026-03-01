@@ -57,8 +57,8 @@ try:
         _fh = logging.FileHandler(LOG_PATH, encoding="utf-8")
         _fh.setLevel(logging.WARNING)
         _fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        # Buffer 100 records before flushing to disk
-        _mh = MemoryHandler(capacity=100, flushLevel=logging.ERROR, target=_fh)
+        # Flush on every WARNING (not just ERROR) so trace diagnostics appear immediately
+        _mh = MemoryHandler(capacity=10, flushLevel=logging.WARNING, target=_fh)
         root_logger.addHandler(_mh)
         logger.warning("File logging enabled with buffering: %s", LOG_PATH)
 except Exception as e:
