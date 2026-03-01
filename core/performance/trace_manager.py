@@ -33,23 +33,21 @@ TRACE_EVENT_AGGREGATE_TABLE_REWRITE = 131
 # DirectQueryEnd (99) excluded: rejects EventSubclass (col Id=1) at
 # trace.Update() time on the AS engine used by Power BI Desktop.
 # DQ events are also irrelevant for VertiPaq/import models.
+# ExecutionMetrics (136) excluded: rejects SessionID (col 39) and
+# EventSubclass (col 1) — breaks the entire trace.Update() call.
 DEFAULT_EVENT_IDS = [
     TRACE_EVENT_QUERY_END,
     TRACE_EVENT_VERTIPAQ_SE_QUERY_END,
     TRACE_EVENT_VERTIPAQ_SE_QUERY_CACHE_MATCH,
-    TRACE_EVENT_EXECUTION_METRICS,
 ]
 
 # Events that use minimal columns (no Duration/CpuTime/StartTime/EndTime).
 # Cache-match events have no computation, so timing columns are unsupported.
-# ExecutionMetrics (136) carries its payload in TextData (JSON) — Duration
-# and CpuTime are always 0, so we request only the minimal column set.
 # The AS engine rejects the entire trace.Update() call if any event gets
 # an unsupported column — so these must be exact.
 # All other events in DEFAULT_EVENT_IDS use full timing columns.
 _MINIMAL_COLUMNS_IDS = [
     TRACE_EVENT_VERTIPAQ_SE_QUERY_CACHE_MATCH,
-    TRACE_EVENT_EXECUTION_METRICS,
 ]
 
 # AMO availability (lazy-loaded)
@@ -208,10 +206,8 @@ class TraceManager:
                 ]
                 minimal_columns = [
                     TraceColumn.EventClass,
-                    # EventSubclass excluded: ExecutionMetrics (136) and
-                    # CacheMatch (85) don't support it — the AS engine rejects
-                    # the entire trace.Update() if it's included.
-                    # ActivityID (col 39) also excluded for the same reason.
+                    # EventSubclass excluded: CacheMatch (85) doesn't support
+                    # it — the AS engine rejects the entire trace.Update().
                     TraceColumn.TextData,
                     TraceColumn.SessionID,
                 ]
@@ -379,8 +375,10 @@ class TraceManager:
                         "returning empty trace"
                     )
                     # Fall through: execute without trace
+                    t0 = time.monotonic()
                     rows = self._execute_query(connection, query)
-                    return rows, []
+                    ms = (time.monotonic() - t0) * 1000
+                    return rows, [], ms
                 own_server = True
 
             # Start trace
@@ -391,8 +389,10 @@ class TraceManager:
                 logger.warning(
                     "Trace start failed; executing without trace"
                 )
+                t0 = time.monotonic()
                 rows = self._execute_query(connection, query)
-                return rows, []
+                ms = (time.monotonic() - t0) * 1000
+                return rows, [], ms
 
             # Execute the query
             start_time = time.monotonic()
@@ -405,7 +405,7 @@ class TraceManager:
 
             # Stop and collect events
             events = self.stop_trace()
-            return rows, events
+            return rows, events, execution_ms
 
         except Exception as e:
             logger.error(f"execute_with_trace failed: {e}")
@@ -414,7 +414,7 @@ class TraceManager:
                 self.stop_trace()
             except Exception:
                 pass
-            return [], []
+            return [], [], 0.0
 
         finally:
             if own_server and amo_server is not None:
@@ -471,14 +471,20 @@ class TraceManager:
             duration = 0.0
             try:
                 duration = float(event_args.Duration)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    f"Duration extraction failed for {event_class_str}: {e}"
+                )
 
             cpu_time = 0.0
             try:
-                cpu_time = float(event_args.CpuTime)
-            except Exception:
-                pass
+                raw_cpu = event_args.CpuTime
+                cpu_time = float(raw_cpu)
+            except Exception as e:
+                logger.debug(
+                    f"CpuTime extraction failed for {event_class_str}: "
+                    f"{type(e).__name__}: {e}"
+                )
 
             start_epoch = None
             try:

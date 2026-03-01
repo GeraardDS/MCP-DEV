@@ -12,15 +12,10 @@ The profiler automatically falls through layers when a method
 is unavailable or fails, ensuring a result is always returned.
 """
 
-import json
 import logging
-import re
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
-
-if TYPE_CHECKING:
-    from core.performance.se_fe_analyzer import SEFEAnalysis
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +28,6 @@ class SEQuery:
     duration_ms: float
     cpu_ms: float
     cache_hit: bool
-    dc_kind: str = ""           # "AUTO", "DENSE", etc. from xmSQL header
 
 
 @dataclass
@@ -57,14 +51,10 @@ class SEFEResult:
     se_ms: float = 0.0
     fe_ms: float = 0.0
     se_cpu_ms: float = 0.0
-    fe_cpu_ms: float = 0.0          # FE CPU from ExecutionMetrics
-    peak_memory_kb: int = 0         # Peak memory from ExecutionMetrics
-    result_rows: int = 0            # Query result row count
-    execution_delay_ms: float = 0.0 # Queue wait before execution started
-    se_start_offset_ms: float = 0.0 # How long FE ran before first SE scan
     se_queries: List[SEQuery] = field(default_factory=list)
     se_cache_hits: int = 0
     profiling_method: str = "basic"
+    _debug: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def se_query_count(self) -> int:
@@ -78,17 +68,9 @@ class SEFEResult:
             return round(self.se_cpu_ms / self.se_ms, 1)
         return 0.0
 
-    def analyze(self) -> "SEFEAnalysis":
-        """Return structured optimization analysis for this result."""
-        from core.performance.se_fe_analyzer import (
-            SEFEAnalysis,
-            analyze_se_fe,
-        )
-        return analyze_se_fe(self)
-
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        d: Dict[str, Any] = {
+        d = {
             "total_ms": round(self.total_ms, 1),
             "se_ms": round(self.se_ms, 1),
             "fe_ms": round(self.fe_ms, 1),
@@ -99,29 +81,16 @@ class SEFEResult:
             "profiling_method": self.profiling_method,
             "se_queries": [
                 {
-                    "xmsql": q.xmsql[:500],  # Truncate long xmSQL
+                    "xmsql": q.xmsql[:500],
                     "duration_ms": round(q.duration_ms, 1),
                     "cpu_ms": round(q.cpu_ms, 1),
                     "cache_hit": q.cache_hit,
-                    **({"dc_kind": q.dc_kind} if q.dc_kind else {}),
                 }
                 for q in self.se_queries
             ],
         }
-        # Include ExecutionMetrics extras only when available (non-zero)
-        if self.fe_cpu_ms:
-            d["fe_cpu_ms"] = round(self.fe_cpu_ms, 1)
-        if self.peak_memory_kb:
-            d["peak_memory_kb"] = self.peak_memory_kb
-        if self.result_rows:
-            d["result_rows"] = self.result_rows
-        if self.execution_delay_ms:
-            d["execution_delay_ms"] = round(self.execution_delay_ms, 1)
-        if self.se_start_offset_ms:
-            d["se_start_offset_ms"] = round(self.se_start_offset_ms, 1)
-        # Always include analysis when we have trace-level data
-        if self.profiling_method == "trace":
-            d["analysis"] = self.analyze().to_dict()
+        if self._debug:
+            d["_debug"] = self._debug
         return d
 
 
@@ -219,8 +188,10 @@ class SEFEProfiler:
         from core.performance.trace_manager import TraceEvent
 
         try:
-            rows, events = self._trace_manager.execute_with_trace(
-                connection, query, server=server
+            rows, events, execution_ms = (
+                self._trace_manager.execute_with_trace(
+                    connection, query, server=server
+                )
             )
         except Exception as e:
             logger.debug(f"Trace execution failed: {e}")
@@ -230,22 +201,21 @@ class SEFEProfiler:
             logger.warning("No trace events captured")
             return None
 
-        return self._parse_trace_events(events)
+        return self._parse_trace_events(events, execution_ms)
 
     def _parse_trace_events(
-        self, events: List[Any]
+        self, events: List[Any], execution_ms: float = 0.0
     ) -> Optional[SEFEResult]:
         """
         Parse trace events into an SEFEResult.
 
-        Extracts QueryEnd for total time, VertiPaqSEQueryEnd for
-        individual SE queries, ExecutionMetrics for FE CPU / peak
-        memory / result rows, and cache match events.
+        Uses wall-clock execution_ms as total time (matches DAX Studio
+        behavior). Falls back to QueryEnd duration if execution_ms is
+        not available. SE times come from VertiPaqSEQueryEnd events.
         """
         query_end_event = None
         se_events = []
         cache_hits = 0
-        exec_metrics: Dict[str, Any] = {}
 
         for evt in events:
             ec = evt.event_class
@@ -260,19 +230,33 @@ class SEFEProfiler:
                 cache_hits += 1
             elif ec in ("DirectQueryEnd", "99"):
                 se_events.append(evt)
-            elif ec in ("ExecutionMetrics", "136"):
-                try:
-                    exec_metrics = json.loads(evt.text or "{}")
-                except Exception:
-                    pass
 
         if query_end_event is None:
             logger.warning("No QueryEnd event found in trace")
             return None
 
-        # Total duration from QueryEnd
+        # Diagnostic: log raw trace values for debugging
+        logger.warning(
+            f"QueryEnd raw: duration_ms={query_end_event.duration_ms}, "
+            f"cpu_time_ms={query_end_event.cpu_time_ms}, "
+            f"start_time={query_end_event.start_time}, "
+            f"end_time={query_end_event.end_time}"
+        )
+        for i, se_evt in enumerate(se_events):
+            logger.warning(
+                f"SE[{i}] raw: duration_ms={se_evt.duration_ms}, "
+                f"cpu_time_ms={se_evt.cpu_time_ms}, "
+                f"start_time={se_evt.start_time}, "
+                f"end_time={se_evt.end_time}"
+            )
+
+        # Total duration: prefer QueryEnd.Duration from the AS engine
+        # (matches DAX Studio). Wall-clock execution_ms includes Python/
+        # pythonnet overhead of reading result rows through .NET interop,
+        # which can be 10x slower than the actual AS engine execution.
         total_ms = query_end_event.duration_ms
         if total_ms <= 0:
+            # Fallback: try StartTime/EndTime from QueryEnd event
             if (
                 query_end_event.start_time is not None
                 and query_end_event.end_time is not None
@@ -282,6 +266,13 @@ class SEFEProfiler:
                      - query_end_event.start_time)
                     * 1000.0
                 )
+        if total_ms <= 0 and execution_ms > 0:
+            # Last resort: wall-clock time (includes pythonnet overhead)
+            total_ms = execution_ms
+            logger.debug(
+                "QueryEnd.Duration=0; falling back to wall-clock "
+                f"execution_ms={execution_ms:.1f}"
+            )
 
         # Parse individual SE queries
         se_query_list: List[SEQuery] = []
@@ -292,7 +283,6 @@ class SEFEProfiler:
             dur = se_evt.duration_ms
             cpu = se_evt.cpu_time_ms
             xmsql = se_evt.text or ""
-            dc_kind = self._extract_dc_kind(xmsql)
 
             se_query_list.append(
                 SEQuery(
@@ -300,7 +290,6 @@ class SEFEProfiler:
                     duration_ms=dur,
                     cpu_ms=cpu,
                     cache_hit=False,
-                    dc_kind=dc_kind,
                 )
             )
             se_total_ms += dur
@@ -314,66 +303,32 @@ class SEFEProfiler:
         # FE = total - SE (clamped to 0)
         fe_ms = max(0.0, total_ms - net_se_ms)
 
-        # SE start offset: how long FE ran alone before first SE scan
-        se_start_offset_ms = self._calculate_se_start_offset(
-            query_end_event, se_events
-        )
-
-        # ExecutionMetrics extras
-        fe_cpu_ms = float(
-            exec_metrics.get("queryProcessingCpuTimeMs", 0)
-        )
-        peak_memory_kb = int(
-            exec_metrics.get("approximatePeakMemConsumptionKB", 0)
-        )
-        result_rows = int(
-            exec_metrics.get("queryResultRows", 0)
-        )
-        execution_delay_ms = float(
-            exec_metrics.get("executionDelayMs", 0)
-        )
+        # Temporary debug: expose raw trace values in output
+        debug_info = {
+            "wall_clock_ms": round(execution_ms, 1),
+            "query_end_duration_ms": round(query_end_event.duration_ms, 1),
+            "query_end_cpu_ms": round(query_end_event.cpu_time_ms, 1),
+            "se_raw": [
+                {
+                    "dur": round(e.duration_ms, 1),
+                    "cpu": round(e.cpu_time_ms, 1),
+                    "start": e.start_time,
+                    "end": e.end_time,
+                }
+                for e in se_events
+            ],
+        }
 
         return SEFEResult(
             total_ms=total_ms,
             se_ms=net_se_ms,
             fe_ms=fe_ms,
             se_cpu_ms=se_cpu_total,
-            fe_cpu_ms=fe_cpu_ms,
-            peak_memory_kb=peak_memory_kb,
-            result_rows=result_rows,
-            execution_delay_ms=execution_delay_ms,
-            se_start_offset_ms=se_start_offset_ms,
             se_queries=se_query_list,
             se_cache_hits=cache_hits,
             profiling_method="trace",
+            _debug=debug_info,
         )
-
-    @staticmethod
-    def _extract_dc_kind(xmsql: str) -> str:
-        """Extract DC_KIND value from an xmSQL string."""
-        m = re.search(r'DC_KIND="([^"]+)"', xmsql)
-        return m.group(1) if m else ""
-
-    @staticmethod
-    def _calculate_se_start_offset(
-        query_end_event: Any, se_events: List[Any]
-    ) -> float:
-        """
-        Calculate how many ms the FE ran before the first SE scan.
-
-        Returns 0.0 if timestamps are unavailable.
-        """
-        if not se_events:
-            return 0.0
-        query_start = query_end_event.start_time
-        if query_start is None:
-            return 0.0
-        se_starts = [
-            e.start_time for e in se_events if e.start_time is not None
-        ]
-        if not se_starts:
-            return 0.0
-        return max(0.0, (min(se_starts) - query_start) * 1000.0)
 
     def _calculate_net_parallel_duration(
         self, se_events: List[Any]

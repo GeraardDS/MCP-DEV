@@ -113,7 +113,7 @@ class EnhancedAMOTraceAnalyzer:
             conn = AdomdConnection(self.connection_string)
             conn.Open()
 
-            rows, events = self._trace_manager.execute_with_trace(conn, query)
+            rows, events, _exec_ms = self._trace_manager.execute_with_trace(conn, query)
 
             if not events:
                 logger.debug("Trace returned no events")
