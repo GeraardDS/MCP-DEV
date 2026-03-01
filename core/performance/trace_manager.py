@@ -10,10 +10,11 @@ collected into a shared list protected by threading.RLock().
 """
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,24 @@ DEFAULT_EVENT_IDS = [
 _MINIMAL_COLUMNS_IDS = [
     TRACE_EVENT_VERTIPAQ_SE_QUERY_CACHE_MATCH,
 ]
+
+# Reverse lookup for readable log messages.
+# Values are TraceColumn enum integers used by the AS trace protocol.
+_COLUMN_ID_NAMES = {
+    0: "EventClass", 1: "EventSubclass", 3: "Duration",
+    4: "CpuTime", 5: "StartTime", 6: "EndTime",
+    39: "SessionID", 42: "TextData", 43: "DatabaseName",
+}
+
+_EVENT_ID_NAMES = {
+    9: "QueryBegin", 10: "QueryEnd",
+    82: "VertiPaqSEQueryBegin", 83: "VertiPaqSEQueryEnd",
+    85: "VertiPaqSEQueryCacheMatch", 99: "DirectQueryEnd",
+    131: "AggregateTableRewriteQuery", 136: "ExecutionMetrics",
+}
+
+# Max retry attempts when trace.Update() rejects an event/column combo.
+_MAX_TRACE_RETRIES = 4
 
 # AMO availability (lazy-loaded)
 _amo_checked = False
@@ -133,6 +152,11 @@ class TraceManager:
         """
         Start collecting trace events on an AMO server.
 
+        Includes automatic retry logic: if trace.Update() fails because
+        the AS engine rejects a specific event/column combination, the
+        offending column is excluded and the trace is rebuilt and retried
+        (up to _MAX_TRACE_RETRIES attempts).
+
         Args:
             server: AMO Tabular.Server instance (already connected).
             connection: Optional ADOMD connection for session ID
@@ -153,21 +177,21 @@ class TraceManager:
                 logger.warning("Trace already active; stop it first")
                 return False
 
+            self._events.clear()
+            self._server = server
+
+            # Determine session ID for filtering
+            self._session_id = None
+            if connection is not None:
+                try:
+                    self._session_id = getattr(
+                        connection, "SessionID", None
+                    )
+                except Exception:
+                    pass
+
+            # Import .NET trace types
             try:
-                self._events.clear()
-                self._server = server
-
-                # Determine session ID for filtering
-                self._session_id = None
-                if connection is not None:
-                    try:
-                        self._session_id = getattr(
-                            connection, "SessionID", None
-                        )
-                    except Exception:
-                        pass
-
-                # Import .NET trace types
                 from Microsoft.AnalysisServices import (  # type: ignore
                     Trace,
                     TraceColumn,
@@ -176,141 +200,277 @@ class TraceManager:
                     UpdateMode,
                     UpdateOptions,
                 )
+            except ImportError as e:
+                logger.warning(f"Cannot import AMO trace types: {e}")
+                return False
 
-                # Create a unique trace name
-                import uuid
-                trace_name = (
-                    f"PBIXRay_SE_FE_{uuid.uuid4().hex[:8]}"
-                )
+            ids = event_types or DEFAULT_EVENT_IDS
 
-                trace = server.Traces.Add(trace_name)
+            # Track columns excluded by the AS engine across retries.
+            # Key: event_id, Value: set of column_ids to skip.
+            excluded_columns: Dict[int, Set[int]] = {}
 
-                # Configure event types
-                ids = event_types or DEFAULT_EVENT_IDS
-
-                # Full columns for end-events (they have Duration/CpuTime).
-                # Minimal columns for cache-match / begin events — the AS
-                # engine rejects the whole trace.Update() if any event is
-                # given an unsupported column.
-                full_columns = [
-                    TraceColumn.EventClass,
-                    TraceColumn.EventSubclass,
-                    TraceColumn.Duration,
-                    TraceColumn.CpuTime,
-                    TraceColumn.TextData,
-                    TraceColumn.StartTime,
-                    TraceColumn.EndTime,
-                    TraceColumn.SessionID,
-                    TraceColumn.ActivityID,
-                    TraceColumn.DatabaseName,
-                ]
-                minimal_columns = [
-                    TraceColumn.EventClass,
-                    # EventSubclass excluded: CacheMatch (85) doesn't support
-                    # it — the AS engine rejects the entire trace.Update().
-                    TraceColumn.TextData,
-                    TraceColumn.SessionID,
-                ]
-
-                # Access trace.Events via .NET reflection to bypass a
-                # pythonnet name-collision: accessing trace.Events directly
-                # returns EventHandlerList (the OnEvent delegate store) rather
-                # than the TraceEventCollection property.
-                # New trace is empty, so no Clear() needed.
-                events_collection = None
+            for attempt in range(_MAX_TRACE_RETRIES):
+                trace = None
                 try:
-                    _prop = trace.GetType().GetProperty("Events")
-                    if _prop is not None:
-                        events_collection = _prop.GetValue(trace)
-                except Exception as e:
-                    logger.warning(
-                        f"Reflection access to trace.Events failed: {e}"
+                    import uuid
+                    trace_name = (
+                        f"PBIXRay_SE_FE_{uuid.uuid4().hex[:8]}"
                     )
+                    trace = server.Traces.Add(trace_name)
 
-                if events_collection is None:
-                    logger.warning(
-                        "trace.Events (TraceEventCollection) not accessible; "
-                        "cannot configure trace events"
-                    )
-                    self._cleanup_trace()
-                    return False
-
-                events_added = 0
-                for event_id in ids:
+                    # Access trace.Events via .NET reflection to bypass a
+                    # pythonnet name-collision: accessing trace.Events
+                    # directly returns EventHandlerList (the OnEvent
+                    # delegate store) rather than TraceEventCollection.
+                    events_collection = None
                     try:
-                        evt_class = TraceEventClass(event_id)
-                        te = AMOTraceEvent(evt_class)
-                        # Use minimal columns for events that don't
-                        # support Duration/CpuTime (e.g. cache match).
-                        cols = (
-                            minimal_columns
-                            if event_id in _MINIMAL_COLUMNS_IDS
-                            else full_columns
+                        _prop = trace.GetType().GetProperty("Events")
+                        if _prop is not None:
+                            events_collection = _prop.GetValue(trace)
+                    except Exception as e:
+                        logger.warning(
+                            f"Reflection access to trace.Events failed: {e}"
                         )
-                        for col in cols:
+
+                    if events_collection is None:
+                        logger.warning(
+                            "trace.Events (TraceEventCollection) not "
+                            "accessible; cannot configure trace events"
+                        )
+                        self._cleanup_trace()
+                        return False
+
+                    # Add events with column exclusions applied
+                    events_added = self._add_trace_events(
+                        events_collection, ids, excluded_columns,
+                        TraceEventClass, AMOTraceEvent, TraceColumn,
+                    )
+
+                    if events_added == 0:
+                        logger.warning(
+                            "No trace events registered "
+                            f"(tried {len(ids)} IDs); aborting"
+                        )
+                        try:
+                            trace.Drop()
+                        except Exception:
+                            pass
+                        self._cleanup_trace()
+                        return False
+
+                    # Apply session filter if available
+                    if self._session_id:
+                        try:
+                            self._apply_session_filter(
+                                trace, self._session_id, TraceColumn
+                            )
+                        except Exception as e:
+                            logger.debug(
+                                f"Could not apply session filter: {e}"
+                            )
+
+                    # Auto-stop after 1 hour as safety net.
+                    # Must use System.DateTime — pythonnet cannot
+                    # auto-convert Python datetime to .NET DateTime.
+                    try:
+                        import System  # type: ignore
+                        trace.StopTime = (
+                            System.DateTime.UtcNow.AddHours(1)
+                        )
+                    except Exception:
+                        pass
+
+                    # Subscribe to OnEvent callback
+                    trace.OnEvent += self._on_trace_event
+                    self._event_handler = self._on_trace_event
+
+                    # Commit trace definition and start
+                    trace.Update(
+                        UpdateOptions.Default,
+                        UpdateMode.CreateOrReplace,
+                    )
+                    trace.Start()
+
+                    self._trace = trace
+                    self._trace_active = True
+
+                    retry_note = (
+                        f" (after {attempt} retries, "
+                        f"excluded: {self._format_exclusions(excluded_columns)})"
+                        if attempt > 0 else ""
+                    )
+                    logger.info(
+                        f"Trace started: {trace_name} "
+                        f"({events_added}/{len(ids)} events)"
+                        f"{retry_note}"
+                    )
+                    return True
+
+                except Exception as e:
+                    error_msg = str(e)
+
+                    # Parse "event Id=X does not contain column Id=Y"
+                    match = re.search(
+                        r"event Id=(\d+).*?column Id=(\d+)",
+                        error_msg,
+                    )
+                    if match and attempt < _MAX_TRACE_RETRIES - 1:
+                        bad_event = int(match.group(1))
+                        bad_col = int(match.group(2))
+                        excluded_columns.setdefault(
+                            bad_event, set()
+                        ).add(bad_col)
+
+                        evt_name = _EVENT_ID_NAMES.get(
+                            bad_event, str(bad_event)
+                        )
+                        col_name = _COLUMN_ID_NAMES.get(
+                            bad_col, str(bad_col)
+                        )
+                        logger.warning(
+                            f"Trace retry {attempt + 1}/"
+                            f"{_MAX_TRACE_RETRIES}: "
+                            f"{evt_name} (id={bad_event}) rejected "
+                            f"column {col_name} (id={bad_col}); "
+                            f"rebuilding without it"
+                        )
+
+                        # Drop the failed trace before retry
+                        if trace is not None:
                             try:
-                                te.Columns.Add(col)
+                                trace.OnEvent -= self._on_trace_event
                             except Exception:
                                 pass
-                        events_collection.Add(te)
-                        events_added += 1
-                    except Exception as e:
-                        logger.warning(
-                            f"Skipping trace event {event_id}: {e}"
-                        )
+                            try:
+                                trace.Drop()
+                            except Exception:
+                                pass
+                        continue
 
-                if events_added == 0:
-                    logger.warning(
-                        "No trace events could be registered "
-                        f"(tried {len(ids)} IDs); "
-                        "trace unusable, aborting"
-                    )
+                    # Non-retryable error or retries exhausted
+                    logger.warning(f"Failed to start trace: {error_msg}")
+                    if trace is not None:
+                        try:
+                            trace.Drop()
+                        except Exception:
+                            pass
                     self._cleanup_trace()
                     return False
 
-                # Apply session filter if available
-                if self._session_id:
+            # Exhausted all retries
+            logger.warning(
+                f"Trace failed after {_MAX_TRACE_RETRIES} attempts; "
+                f"excluded: {self._format_exclusions(excluded_columns)}"
+            )
+            self._cleanup_trace()
+            return False
+
+    def _add_trace_events(
+        self,
+        events_collection: Any,
+        event_ids: List[int],
+        excluded_columns: Dict[int, Set[int]],
+        TraceEventClass: Any,
+        AMOTraceEvent: Any,
+        TraceColumn: Any,
+    ) -> int:
+        """
+        Add trace events to the collection, respecting column exclusions.
+
+        Returns the number of events successfully added.
+        """
+        # Full columns for end-events (they have Duration/CpuTime).
+        # Minimal columns for cache-match / begin events — the AS
+        # engine rejects the whole trace.Update() if any event is
+        # given an unsupported column.
+        full_columns = [
+            TraceColumn.EventClass,
+            TraceColumn.EventSubclass,
+            TraceColumn.Duration,
+            TraceColumn.CpuTime,
+            TraceColumn.TextData,
+            TraceColumn.StartTime,
+            TraceColumn.EndTime,
+            TraceColumn.SessionID,
+            TraceColumn.ActivityID,
+            TraceColumn.DatabaseName,
+        ]
+        minimal_columns = [
+            TraceColumn.EventClass,
+            TraceColumn.TextData,
+            TraceColumn.SessionID,
+        ]
+
+        events_added = 0
+        for event_id in event_ids:
+            try:
+                evt_class = TraceEventClass(event_id)
+                te = AMOTraceEvent(evt_class)
+
+                cols = (
+                    minimal_columns
+                    if event_id in _MINIMAL_COLUMNS_IDS
+                    else full_columns
+                )
+
+                # Apply exclusions for this event
+                excluded = excluded_columns.get(event_id, set())
+                cols_added = 0
+                cols_skipped = []
+
+                for col in cols:
+                    col_id = int(col)
+                    if col_id in excluded:
+                        cols_skipped.append(
+                            _COLUMN_ID_NAMES.get(col_id, str(col_id))
+                        )
+                        continue
                     try:
-                        self._apply_session_filter(
-                            trace, self._session_id, TraceColumn
-                        )
+                        te.Columns.Add(col)
+                        cols_added += 1
                     except Exception as e:
-                        logger.warning(
-                            f"Could not apply session filter: {e}"
+                        logger.debug(
+                            f"Column {col} add failed for "
+                            f"event {event_id}: {e}"
                         )
 
-                # Auto-stop after 1 hour as safety net
-                # Must use System.DateTime — pythonnet cannot auto-convert
-                # Python datetime.datetime to .NET System.DateTime
-                try:
-                    import System  # type: ignore
-                    trace.StopTime = System.DateTime.UtcNow.AddHours(1)
-                except Exception:
-                    pass  # Non-critical safety net; proceed without it
+                if cols_skipped:
+                    evt_name = _EVENT_ID_NAMES.get(
+                        event_id, str(event_id)
+                    )
+                    logger.debug(
+                        f"Event {evt_name}: excluded columns "
+                        f"{cols_skipped}"
+                    )
 
-                # Subscribe to OnEvent callback
-                trace.OnEvent += self._on_trace_event
-                self._event_handler = self._on_trace_event
-
-                # Commit trace definition and start
-                trace.Update(
-                    UpdateOptions.Default,
-                    UpdateMode.CreateOrReplace,
-                )
-                trace.Start()
-
-                self._trace = trace
-                self._trace_active = True
-                logger.warning(
-                    f"Trace started: {trace_name} "
-                    f"({events_added}/{len(ids)} event types registered)"
-                )
-                return True
+                events_collection.Add(te)
+                events_added += 1
 
             except Exception as e:
-                logger.warning(f"Failed to start trace: {e}")
-                self._cleanup_trace()
-                return False
+                evt_name = _EVENT_ID_NAMES.get(
+                    event_id, str(event_id)
+                )
+                logger.warning(
+                    f"Skipping trace event {evt_name} "
+                    f"(id={event_id}): {e}"
+                )
+
+        return events_added
+
+    @staticmethod
+    def _format_exclusions(
+        excluded: Dict[int, Set[int]]
+    ) -> str:
+        """Format excluded columns map for logging."""
+        if not excluded:
+            return "none"
+        parts = []
+        for eid, cids in excluded.items():
+            evt = _EVENT_ID_NAMES.get(eid, str(eid))
+            cols = [_COLUMN_ID_NAMES.get(c, str(c)) for c in cids]
+            parts.append(f"{evt}:[{','.join(cols)}]")
+        return " ".join(parts)
 
     def stop_trace(self) -> List[TraceEvent]:
         """
@@ -595,13 +755,16 @@ class TraceManager:
         self, connection: Any, query: str
     ) -> List[Dict[str, Any]]:
         """
-        Execute a DAX query via ADOMD and return rows as dicts.
+        Execute a DAX query via ADOMD, draining results fast.
 
-        This is a minimal execution path used by execute_with_trace.
-        For full query execution with validation, use the
-        OptimizedQueryExecutor instead.
+        This is the profiling execution path used by execute_with_trace.
+        It does NOT materialize rows — it only drains the reader to let
+        the AS engine complete. Materializing rows through pythonnet is
+        extremely slow (~500ms for 20K rows) and inflates QueryEnd.Duration
+        via backpressure on the AS engine.
+
+        For full query execution with data, use OptimizedQueryExecutor.
         """
-        rows: List[Dict[str, Any]] = []
         reader = None
         try:
             from Microsoft.AnalysisServices.AdomdClient import (  # type: ignore
@@ -612,23 +775,11 @@ class TraceManager:
             cmd.CommandTimeout = 120
             reader = cmd.ExecuteReader()
 
-            # Read column names
-            col_count = reader.FieldCount
-            col_names = [reader.GetName(i) for i in range(col_count)]
-
+            # Drain the reader as fast as possible without extracting
+            # values. Each Read() is a single .NET interop call vs
+            # N×GetValue+str() calls per row when materializing.
             while reader.Read():
-                row = {}
-                for i in range(col_count):
-                    try:
-                        val = reader.GetValue(i)
-                        # Convert .NET types to Python
-                        if val is not None and str(type(val)) != "<class 'NoneType'>":
-                            row[col_names[i]] = str(val)
-                        else:
-                            row[col_names[i]] = None
-                    except Exception:
-                        row[col_names[i]] = None
-                rows.append(row)
+                pass
 
         except Exception as e:
             logger.error(f"Query execution in trace context failed: {e}")
@@ -639,7 +790,7 @@ class TraceManager:
                 except Exception:
                     pass
 
-        return rows
+        return []
 
     def _apply_session_filter(
         self, trace: Any, session_id: str, TraceColumn: Any

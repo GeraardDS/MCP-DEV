@@ -40,10 +40,12 @@ from server.dispatch import ToolDispatcher
 from server.handlers import register_all_handlers
 from server.resources import get_resource_manager
 
-logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("mcp_powerbi_finvision")
 
-# Configure file-based logging with buffering for performance
+# Configure file-based logging with buffering for performance.
+# INFO level captures profiling run summaries and trace lifecycle;
+# WARNING captures errors and retries; DEBUG is file-only on demand.
 try:
     logs_dir = os.path.join(parent_dir, "logs")
     os.makedirs(logs_dir, exist_ok=True)
@@ -55,12 +57,12 @@ try:
         # Use MemoryHandler with buffering to reduce I/O overhead
         from logging.handlers import MemoryHandler
         _fh = logging.FileHandler(LOG_PATH, encoding="utf-8")
-        _fh.setLevel(logging.WARNING)
+        _fh.setLevel(logging.INFO)
         _fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        # Flush on every WARNING (not just ERROR) so trace diagnostics appear immediately
-        _mh = MemoryHandler(capacity=10, flushLevel=logging.WARNING, target=_fh)
+        # Flush on every INFO so profiling data appears immediately
+        _mh = MemoryHandler(capacity=10, flushLevel=logging.INFO, target=_fh)
         root_logger.addHandler(_mh)
-        logger.warning("File logging enabled with buffering: %s", LOG_PATH)
+        logger.info("File logging enabled: %s", LOG_PATH)
 except Exception as e:
     LOG_PATH = os.path.join(os.path.dirname(__file__), "..", "pbixray.log")
     logger.warning("Could not set up file logging: %s", e)

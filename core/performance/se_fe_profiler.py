@@ -235,19 +235,18 @@ class SEFEProfiler:
             logger.warning("No QueryEnd event found in trace")
             return None
 
-        # Diagnostic: log raw trace values for debugging
-        logger.warning(
-            f"QueryEnd raw: duration_ms={query_end_event.duration_ms}, "
-            f"cpu_time_ms={query_end_event.cpu_time_ms}, "
-            f"start_time={query_end_event.start_time}, "
-            f"end_time={query_end_event.end_time}"
+        # Profiling run summary — always logged for diagnostics
+        logger.info(
+            f"Profile: total={query_end_event.duration_ms:.0f}ms "
+            f"cpu={query_end_event.cpu_time_ms:.0f}ms "
+            f"se_queries={len(se_events)} "
+            f"cache_hits={cache_hits}"
         )
         for i, se_evt in enumerate(se_events):
-            logger.warning(
-                f"SE[{i}] raw: duration_ms={se_evt.duration_ms}, "
-                f"cpu_time_ms={se_evt.cpu_time_ms}, "
-                f"start_time={se_evt.start_time}, "
-                f"end_time={se_evt.end_time}"
+            logger.info(
+                f"  SE[{i}]: dur={se_evt.duration_ms:.0f}ms "
+                f"cpu={se_evt.cpu_time_ms:.0f}ms "
+                f"text={se_evt.text[:80] if se_evt.text else ''}"
             )
 
         # Total duration: prefer QueryEnd.Duration from the AS engine
