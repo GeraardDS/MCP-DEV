@@ -1,5 +1,60 @@
+import logging
 from typing import Any, Dict, List, Optional
 from core.validation.error_handler import ErrorHandler
+
+logger = logging.getLogger(__name__)
+
+
+def _run_sefe_profile(connection_state: Any, query: str) -> Dict[str, Any]:
+    """Run DAX Studio-style SE/FE profiling via AMO trace events.
+
+    Returns a dict with total_ms, fe_ms, se_ms, se_query_count, se_cache_hits,
+    se_queries, se_parallelism, and profiling_method.  Falls back to basic
+    execution if tracing is unavailable.
+    """
+    from core.performance.se_fe_profiler import SEFEProfiler
+    from core.performance.trace_manager import TraceManager
+
+    query_executor = connection_state.query_executor
+    connection = query_executor.connection if query_executor else None
+
+    if connection is None:
+        return ErrorHandler.handle_manager_unavailable("connection")
+
+    profiler = SEFEProfiler(trace_manager=TraceManager())
+    try:
+        result = profiler.profile_query(connection=connection, query=query)
+    except Exception as e:
+        logger.warning(f"SE/FE profiling failed: {e}")
+        exec_result = query_executor.validate_and_execute_dax(query, 0)
+        exec_result.setdefault("notes", []).append(
+            f"SE/FE profiling unavailable: {e}"
+        )
+        return exec_result
+
+    return {"ok": True, "query": query, **result.to_dict()}
+
+
+def _is_complete_define_query(query: str) -> bool:
+    """Check if query is a complete DEFINE+EVALUATE statement that must not be wrapped."""
+    q_upper = (query or "").strip().upper()
+    return q_upper.startswith("DEFINE")
+
+
+def _should_apply_topn(query: str) -> bool:
+    """Check if query is a bare EVALUATE that should be wrapped with TOPN for safety."""
+    q_upper = (query or "").strip().upper()
+    return (
+        q_upper.startswith("EVALUATE")
+        and "TOPN(" not in q_upper
+        and not _is_complete_define_query(query)
+    )
+
+
+def _apply_topn_wrapper(query: str, limit: int) -> str:
+    """Wrap a bare EVALUATE query with TOPN for row safety."""
+    body = (query.strip()[len("EVALUATE"):]).strip()
+    return f"EVALUATE TOPN({limit}, {body})"
 
 
 class QueryPolicy:
@@ -57,14 +112,21 @@ class QueryPolicy:
             pass
         effective_mode = (mode or "auto").lower()
         notes: List[str] = []
+
+        # mode=profile → single-run SE/FE trace (DAX Studio Server Timings style)
+        if effective_mode == "profile":
+            result = _run_sefe_profile(connection_state, query)
+            result.setdefault("decision", "profile")
+            result.setdefault("reason", "SE/FE trace profiling via AMO trace events")
+            return result
+
+        q_upper = (query or "").strip().upper()
         if effective_mode == "auto":
-            q_upper = (query or "").strip().upper()
-            # EVALUATE queries are for data preview, not performance analysis
-            do_perf = not q_upper.startswith("EVALUATE")
+            # EVALUATE/DEFINE queries are for data preview, not performance analysis
+            do_perf = not q_upper.startswith(("EVALUATE", "DEFINE"))
         else:
-            # Support both "analyze" and "profile" modes for performance analysis
-            # "simple" mode is treated as preview (no performance analysis)
-            do_perf = effective_mode in ("analyze", "profile")
+            # "analyze" → N-run benchmark; "simple" → preview
+            do_perf = effective_mode == "analyze"
         if do_perf:
             r = self._get_default_perf_runs(runs)
             if not performance_analyzer:
@@ -82,11 +144,9 @@ class QueryPolicy:
                 result.setdefault("reason", "Performance analysis selected to obtain execution timing statistics")
                 return result
             except Exception as _e:
-                q_upper = (query or "").strip().upper()
-                if q_upper.startswith("EVALUATE") and "TOPN(" not in q_upper:
+                if _should_apply_topn(query):
                     try:
-                        body = (query.strip()[len("EVALUATE"):]).strip()
-                        query = f"EVALUATE TOPN({lim}, {body})"
+                        query = _apply_topn_wrapper(query, lim)
                         notes.append(f"Applied TOPN({lim}) to EVALUATE query for safety (analyze fallback)")
                     except Exception:
                         pass
@@ -99,11 +159,10 @@ class QueryPolicy:
                 if verbose and notes:
                     exec_result.setdefault("notes", []).extend(notes)
                 return exec_result
-        q_upper = (query or "").strip().upper()
-        if q_upper.startswith("EVALUATE") and "TOPN(" not in q_upper:
+        # Preview path: apply TOPN for bare EVALUATE queries only
+        if _should_apply_topn(query):
             try:
-                body = (query.strip()[len("EVALUATE"):]).strip()
-                query = f"EVALUATE TOPN({lim}, {body})"
+                query = _apply_topn_wrapper(query, lim)
                 notes.append(f"Applied TOPN({lim}) to EVALUATE query for safety")
             except Exception:
                 pass

@@ -157,9 +157,23 @@ def _handle_query_dependencies(args: Dict[str, Any]) -> Dict[str, Any]:
 
         if object_name:
             # Query for a specific object
-            fwd = deps.get("measure_to_measure", {}).get(object_name, [])
-            rev = deps.get("measure_to_measure_reverse", {}).get(object_name, [])
-            col_deps = deps.get("measure_to_column", {}).get(object_name, [])
+            # Resolve key: try exact match first, then search for unqualified name
+            m2m = deps.get("measure_to_measure", {})
+            m2m_rev = deps.get("measure_to_measure_reverse", {})
+            m2c = deps.get("measure_to_column", {})
+
+            resolved_key = object_name
+            if object_name not in m2m and object_name not in m2m_rev:
+                # Try matching unqualified [MeasureName] against TableName[MeasureName] keys
+                bare_name = object_name.strip("[]' ")
+                for key in list(m2m.keys()) + list(m2m_rev.keys()) + list(m2c.keys()):
+                    if key.endswith(f"[{bare_name}]"):
+                        resolved_key = key
+                        break
+
+            fwd = m2m.get(resolved_key, [])
+            rev = m2m_rev.get(resolved_key, [])
+            col_deps = m2c.get(resolved_key, [])
 
             if direction in ("forward", "both"):
                 result["depends_on_measures"] = fwd

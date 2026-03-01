@@ -140,17 +140,28 @@ class VertiPaqStorageReport:
 
     def generate_report(self) -> StorageReport:
         """Generate full storage report using DMVs."""
+        diagnostics = []
+
         # Step 1: Get column-level storage info
         columns = self._query_column_storage()
+        diagnostics.append(
+            f"column_storage: {len(columns)} columns retrieved"
+        )
 
         # Step 2: Get segment-level data for enrichment
         segment_data = self._query_segment_data()
+        diagnostics.append(
+            f"segment_data: {len(segment_data)} entries"
+        )
 
         # Step 3: Enrich columns with segment info
         self._enrich_with_segments(columns, segment_data)
 
         # Step 4: Get table-level row counts
         table_rows = self._query_table_rows()
+        diagnostics.append(
+            f"table_rows: {len(table_rows)} tables"
+        )
 
         # Step 5: Aggregate into table storage objects
         tables = self._aggregate_tables(columns, table_rows)
@@ -163,6 +174,16 @@ class VertiPaqStorageReport:
         recommendations = self._generate_recommendations(
             tables
         )
+
+        if not tables:
+            logger.warning(
+                "Storage report empty. Diagnostics: "
+                + "; ".join(diagnostics)
+            )
+            recommendations.append(
+                "No storage data retrieved. "
+                "Diagnostics: " + "; ".join(diagnostics)
+            )
 
         return StorageReport(
             tables=tables,
@@ -193,9 +214,15 @@ class VertiPaqStorageReport:
             if not result.get("success"):
                 logger.warning(
                     "DISCOVER_STORAGE_TABLE_COLUMNS failed: "
-                    f"{result.get('error', 'Unknown')}"
+                    f"{result.get('error', 'Unknown')}. "
+                    "Trying fallback."
                 )
                 return self._query_column_storage_fallback()
+
+            logger.info(
+                f"DMV returned {result.get('row_count', 0)} rows, "
+                f"columns: {result.get('columns', [])}"
+            )
 
             for row in result.get("data", []):
                 col_type = row.get(

@@ -1654,8 +1654,9 @@ class OptimizedQueryExecutor:
         Returns:
             Prepared query string
         """
-        # Auto-add EVALUATE if needed
-        if not query.strip().upper().startswith('EVALUATE'):
+        # Auto-add EVALUATE if needed (skip for complete DEFINE/EVALUATE statements)
+        query_upper = query.strip().upper()
+        if not query_upper.startswith(('EVALUATE', 'DEFINE')):
             if self._is_table_expression(query):
                 query = f"EVALUATE TOPN({top_n}, {query})" if top_n > 0 else f"EVALUATE {query}"
             else:

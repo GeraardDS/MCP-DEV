@@ -215,16 +215,16 @@ class SEFEProfiler:
             ec = evt.event_class
             if ec in ("QueryEnd", "10"):
                 query_end_event = evt
-            elif ec in ("VertiPaqSEQueryEnd", "89"):
+            elif ec in ("VertiPaqSEQueryEnd", "83"):
                 # Skip internal scan subclass
                 if evt.event_subclass == "VertiPaqScanInternal":
                     continue
                 se_events.append(evt)
             elif ec in (
-                "VertiPaqSEQueryCacheMatch", "90"
+                "VertiPaqSEQueryCacheMatch", "85"
             ):
                 cache_hits += 1
-            elif ec in ("DirectQueryEnd", "120"):
+            elif ec in ("DirectQueryEnd", "99"):
                 se_events.append(evt)
 
         if query_end_event is None:
