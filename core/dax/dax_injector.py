@@ -5,7 +5,9 @@ Provides live DAX measure injection and modification capabilities.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
+
+from core.dax.dax_utilities import validate_dax_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +103,53 @@ class DAXInjector:
             logger.error(f"Error verifying connection: {e}")
             return {'success': False, 'error': str(e)}
 
+    def _get_database_name(
+        self, server
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """
+        Get database name via DMV query with AMO fallback.
+
+        Tries a DMV catalog query first, then falls back to the
+        first database exposed by AMO (typical for PBI Desktop).
+
+        Args:
+            server: Connected AMO Server instance
+
+        Returns:
+            Tuple of (db_name, error_dict). On success,
+            error_dict is None. On failure, db_name is empty
+            and error_dict contains the error response.
+        """
+        db_name = None
+        try:
+            db_query = (
+                "SELECT [CATALOG_NAME] "
+                "FROM $SYSTEM.DBSCHEMA_CATALOGS"
+            )
+            cmd = AdomdCommand(db_query, self.connection)
+            reader = cmd.ExecuteReader()
+            if reader.Read():
+                db_name = str(reader.GetValue(0))
+            reader.Close()
+        except Exception:
+            db_name = None
+
+        if not db_name:
+            try:
+                if server.Databases.Count > 0:
+                    db_name = server.Databases[0].Name
+            except Exception:
+                pass
+
+        if not db_name:
+            return "", {
+                "success": False,
+                "error": "Could not determine database name",
+                "error_type": "database_error",
+            }
+
+        return db_name, None
+
     def upsert_measure(
         self,
         table_name: str,
@@ -147,15 +196,18 @@ class DAXInjector:
                 ]
             }
 
-        # Basic identifier validation similar to Tabular MCP approach
-        def _valid_identifier(s: Optional[str]) -> bool:
-            return bool(s) and len(str(s).strip()) > 0 and len(str(s)) <= 128 and '\0' not in str(s)
-
-        if not _valid_identifier(table_name) or not _valid_identifier(measure_name):
+        # Validate identifiers
+        if not validate_dax_identifier(table_name):
             return {
                 "success": False,
-                "error": "Table and measure names must be non-empty and <=128 chars",
-                "error_type": "invalid_parameters"
+                "error": f"Invalid table name: '{table_name}'",
+                "error_type": "invalid_parameters",
+            }
+        if not validate_dax_identifier(measure_name):
+            return {
+                "success": False,
+                "error": f"Invalid measure name: '{measure_name}'",
+                "error_type": "invalid_parameters",
             }
 
         server = AMOServer()
@@ -164,31 +216,9 @@ class DAXInjector:
             # Connect to server
             server.Connect(self.connection.ConnectionString)
 
-            # Get database name via DMV, with fallback to first database on server
-            db_name = None
-            try:
-                db_query = "SELECT [CATALOG_NAME] FROM $SYSTEM.DBSCHEMA_CATALOGS"
-                cmd = AdomdCommand(db_query, self.connection)
-                reader = cmd.ExecuteReader()
-                if reader.Read():
-                    db_name = str(reader.GetValue(0))
-                reader.Close()
-            except Exception:
-                db_name = None
-
-            if not db_name:
-                try:
-                    # Fallback to first database exposed by AMO (typical for Desktop)
-                    if server.Databases.Count > 0:
-                        db_name = server.Databases[0].Name
-                except Exception:
-                    pass
-                if not db_name:
-                    return {
-                        "success": False,
-                        "error": "Could not determine database name",
-                        "error_type": "database_error"
-                    }
+            db_name, db_error = self._get_database_name(server)
+            if db_error:
+                return db_error
 
             # Get database and model
             db = server.Databases.GetByName(db_name)
@@ -341,13 +371,17 @@ class DAXInjector:
             }
 
         # Validate identifiers early
-        def _valid_identifier(s: Optional[str]) -> bool:
-            return bool(s) and len(str(s).strip()) > 0 and len(str(s)) <= 128 and '\0' not in str(s)
-        if not _valid_identifier(table_name) or not _valid_identifier(measure_name):
+        if not validate_dax_identifier(table_name):
             return {
                 "success": False,
-                "error": "Table and measure names must be non-empty and <=128 chars",
-                "error_type": "invalid_parameters"
+                "error": f"Invalid table name: '{table_name}'",
+                "error_type": "invalid_parameters",
+            }
+        if not validate_dax_identifier(measure_name):
+            return {
+                "success": False,
+                "error": f"Invalid measure name: '{measure_name}'",
+                "error_type": "invalid_parameters",
             }
 
         server = AMOServer()
@@ -355,29 +389,9 @@ class DAXInjector:
         try:
             server.Connect(self.connection.ConnectionString)
 
-            # Get database name with same DMV+fallback strategy
-            db_name = None
-            try:
-                db_query = "SELECT [CATALOG_NAME] FROM $SYSTEM.DBSCHEMA_CATALOGS"
-                cmd = AdomdCommand(db_query, self.connection)
-                reader = cmd.ExecuteReader()
-                if reader.Read():
-                    db_name = str(reader.GetValue(0))
-                reader.Close()
-            except Exception:
-                db_name = None
-
-            if not db_name:
-                try:
-                    if server.Databases.Count > 0:
-                        db_name = server.Databases[0].Name
-                except Exception:
-                    pass
-                if not db_name:
-                    return {
-                        "success": False,
-                        "error": "Could not determine database name"
-                    }
+            db_name, db_error = self._get_database_name(server)
+            if db_error:
+                return db_error
 
             # Get database and model
             db = server.Databases.GetByName(db_name)
@@ -457,51 +471,37 @@ class DAXInjector:
                 "error_type": "connection_lost"
             }
 
-        def _valid_identifier(s: Optional[str]) -> bool:
-            return bool(s) and len(str(s).strip()) > 0 and len(str(s)) <= 128 and '\0' not in str(s)
-
-        if not _valid_identifier(table_name) or not _valid_identifier(measure_name) or not _valid_identifier(new_name):
-            return {
-                "success": False,
-                "error": "Table and measure names must be non-empty and <=128 chars",
-                "error_type": "invalid_parameters"
-            }
+        for name_label, name_val in [
+            ("table", table_name),
+            ("measure", measure_name),
+            ("new measure", new_name),
+        ]:
+            if not validate_dax_identifier(name_val):
+                return {
+                    "success": False,
+                    "error": f"Invalid {name_label} name: "
+                             f"'{name_val}'",
+                    "error_type": "invalid_parameters",
+                }
 
         server = AMOServer()
 
         try:
             server.Connect(self.connection.ConnectionString)
 
-            # Get database name
-            db_name = None
-            try:
-                db_query = "SELECT [CATALOG_NAME] FROM $SYSTEM.DBSCHEMA_CATALOGS"
-                cmd = AdomdCommand(db_query, self.connection)
-                reader = cmd.ExecuteReader()
-                if reader.Read():
-                    db_name = str(reader.GetValue(0))
-                reader.Close()
-            except Exception:
-                db_name = None
-
-            if not db_name:
-                try:
-                    if server.Databases.Count > 0:
-                        db_name = server.Databases[0].Name
-                except Exception:
-                    pass
-                if not db_name:
-                    return {
-                        "success": False,
-                        "error": "Could not determine database name"
-                    }
+            db_name, db_error = self._get_database_name(server)
+            if db_error:
+                return db_error
 
             # Get database and model
             db = server.Databases.GetByName(db_name)
             model = db.Model
 
             # Find table
-            table = next((t for t in model.Tables if t.Name == table_name), None)
+            table = next(
+                (t for t in model.Tables if t.Name == table_name),
+                None,
+            )
             if not table:
                 return {
                     "success": False,
@@ -582,15 +582,18 @@ class DAXInjector:
                 "error_type": "connection_lost"
             }
 
-        def _valid_identifier(s: Optional[str]) -> bool:
-            return bool(s) and len(str(s).strip()) > 0 and len(str(s)) <= 128 and '\0' not in str(s)
-
-        if not _valid_identifier(source_table) or not _valid_identifier(measure_name) or not _valid_identifier(target_table):
-            return {
-                "success": False,
-                "error": "Table and measure names must be non-empty and <=128 chars",
-                "error_type": "invalid_parameters"
-            }
+        for name_label, name_val in [
+            ("source table", source_table),
+            ("measure", measure_name),
+            ("target table", target_table),
+        ]:
+            if not validate_dax_identifier(name_val):
+                return {
+                    "success": False,
+                    "error": f"Invalid {name_label} name: "
+                             f"'{name_val}'",
+                    "error_type": "invalid_parameters",
+                }
 
         if source_table == target_table:
             return {
@@ -604,29 +607,9 @@ class DAXInjector:
         try:
             server.Connect(self.connection.ConnectionString)
 
-            # Get database name
-            db_name = None
-            try:
-                db_query = "SELECT [CATALOG_NAME] FROM $SYSTEM.DBSCHEMA_CATALOGS"
-                cmd = AdomdCommand(db_query, self.connection)
-                reader = cmd.ExecuteReader()
-                if reader.Read():
-                    db_name = str(reader.GetValue(0))
-                reader.Close()
-            except Exception:
-                db_name = None
-
-            if not db_name:
-                try:
-                    if server.Databases.Count > 0:
-                        db_name = server.Databases[0].Name
-                except Exception:
-                    pass
-                if not db_name:
-                    return {
-                        "success": False,
-                        "error": "Could not determine database name"
-                    }
+            db_name, db_error = self._get_database_name(server)
+            if db_error:
+                return db_error
 
             # Get database and model
             db = server.Databases.GetByName(db_name)

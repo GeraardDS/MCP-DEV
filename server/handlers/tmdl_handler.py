@@ -283,7 +283,7 @@ def register_tmdl_operations_handler(registry):
 
     tool = ToolDefinition(
         name="02_TMDL_Operations",
-        description="TMDL automation: export, find_replace (regex), bulk_rename (with ref updates), generate_script, migrate_measures.",
+        description="TMDL automation: export, find/replace, bulk rename, script generation, measure migration.",
         handler=handle_tmdl_operations,
         input_schema={
             "type": "object",
@@ -294,19 +294,19 @@ def register_tmdl_operations_handler(registry):
                 },
                 "output_dir": {
                     "type": "string",
-                    "description": "Output directory (export)"
+                    "description": "Output directory"
                 },
                 "tmdl_path": {
                     "type": "string",
-                    "description": "TMDL export folder (find_replace, bulk_rename)"
+                    "description": "TMDL export folder"
                 },
                 "pattern": {
                     "type": "string",
-                    "description": "Find pattern (find_replace)"
+                    "description": "Find pattern"
                 },
                 "replacement": {
                     "type": "string",
-                    "description": "Replacement text (find_replace)"
+                    "description": "Replacement text"
                 },
                 "dry_run": {
                     "type": "boolean",
@@ -314,19 +314,19 @@ def register_tmdl_operations_handler(registry):
                 },
                 "regex": {
                     "type": "boolean",
-                    "description": "Use regex (find_replace, default: false)"
+                    "description": "Use regex (default: false)"
                 },
                 "case_sensitive": {
                     "type": "boolean",
-                    "description": "Case sensitive (find_replace, default: true)"
+                    "description": "Case sensitive (default: true)"
                 },
                 "target": {
                     "type": "string",
-                    "description": "Target objects (find_replace, default: 'all')"
+                    "description": "Target objects (default: 'all')"
                 },
                 "renames": {
                     "type": "array",
-                    "description": "Rename operations (bulk_rename)",
+                    "description": "Rename operations",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -344,32 +344,32 @@ def register_tmdl_operations_handler(registry):
                 },
                 "definition": {
                     "type": "object",
-                    "description": "Object definition (generate_script)"
+                    "description": "Object definition"
                 },
                 "object_type": {
                     "type": "string",
                     "enum": ["table", "measure", "relationship", "calc_group"],
-                    "description": "Object type (generate_script, default: 'table')"
+                    "description": "Object type (default: 'table')"
                 },
                 "source_path": {
                     "type": "string",
-                    "description": "Source TMDL file (migrate_measures)"
+                    "description": "Source TMDL file"
                 },
                 "target_path": {
                     "type": "string",
-                    "description": "Target TMDL file (migrate_measures)"
+                    "description": "Target TMDL file"
                 },
                 "display_folder_filter": {
                     "type": "string",
-                    "description": "Folder prefix filter (migrate_measures)"
+                    "description": "Folder prefix filter"
                 },
                 "replace_target": {
                     "type": "boolean",
-                    "description": "Replace target entirely (migrate_measures, default: false)"
+                    "description": "Replace target entirely (default: false)"
                 },
                 "skip_duplicates": {
                     "type": "boolean",
-                    "description": "Skip existing measures (migrate_measures, default: true)"
+                    "description": "Skip existing measures (default: true)"
                 }
             },
             "required": ["operation"]

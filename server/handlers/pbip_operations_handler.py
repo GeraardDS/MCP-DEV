@@ -31,32 +31,49 @@ _normalize_pbip_path = normalize_pbip_path
 
 
 # ═════════════════════════════════════════════════════════════════════
-# Main dispatcher
+# Dispatchers
 # ═════════════════════════════════════════════════════════════════════
 
-def handle_pbip_operations(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle unified PBIP operations."""
+def handle_pbip_model_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch for PBIP model analysis operations."""
     operation = args.get("operation")
-
     if not operation:
         return {"success": False, "error": "operation parameter is required"}
-
     handlers = {
         "analyze": _handle_analyze,
+        "validate_model": _handle_validate_model,
+        "compare_models": _handle_compare_models,
+        "generate_documentation": _handle_generate_documentation,
+    }
+    handler = handlers.get(operation)
+    if not handler:
+        valid = ", ".join(handlers)
+        return {
+            "success": False,
+            "error": f"Unknown operation: {operation}. Valid: {valid}",
+        }
+    return handler(args)
+
+
+def handle_pbip_query(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch for PBIP query operations."""
+    operation = args.get("operation")
+    if not operation:
+        return {"success": False, "error": "operation parameter is required"}
+    handlers = {
         "query_dependencies": _handle_query_dependencies,
         "query_measures": _handle_query_measures,
         "query_relationships": _handle_query_relationships,
         "query_unused": _handle_query_unused,
-        "validate_model": _handle_validate_model,
-        "compare_models": _handle_compare_models,
-        "generate_documentation": _handle_generate_documentation,
         "git_diff": _handle_git_diff,
     }
-
     handler = handlers.get(operation)
     if not handler:
-        return {"success": False, "error": f"Unknown operation: {operation}"}
-
+        valid = ", ".join(handlers)
+        return {
+            "success": False,
+            "error": f"Unknown operation: {operation}. Valid: {valid}",
+        }
     return handler(args)
 
 
@@ -639,31 +656,89 @@ def _generate_markdown(model: Dict[str, Any], deps: Dict[str, Any]) -> str:
 # Registration
 # ═════════════════════════════════════════════════════════════════════
 
-def register_pbip_operations_handler(registry):
-    """Register PBIP operations handler."""
-
+def register_pbip_model_analysis_handler(registry):
+    """Register PBIP model analysis handler."""
     tool = ToolDefinition(
-        name="07_PBIP_Operations",
-        description="Offline PBIP analysis (no live connection needed): analyze, query_dependencies, query_measures, query_relationships, query_unused, validate_model, compare_models, generate_documentation, git_diff.",
-        handler=handle_pbip_operations,
+        name="07_PBIP_Model_Analysis",
+        description=(
+            "Offline PBIP analysis (no live connection needed):"
+            " analyze, validate_model, compare_models,"
+            " generate_documentation."
+        ),
+        handler=handle_pbip_model_analysis,
         input_schema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
                     "enum": [
-                        "analyze", "query_dependencies", "query_measures",
-                        "query_relationships", "query_unused", "validate_model",
-                        "compare_models", "generate_documentation", "git_diff",
+                        "analyze", "validate_model",
+                        "compare_models", "generate_documentation",
                     ],
                 },
                 "pbip_path": {
                     "type": "string",
-                    "description": "Path to .pbip file, project directory, or .SemanticModel folder",
+                    "description": (
+                        "Path to .pbip file, project directory,"
+                        " or .SemanticModel folder"
+                    ),
+                },
+                "output_path": {
+                    "type": "string",
+                    "description": "Output path",
+                },
+                "source_path": {
+                    "type": "string",
+                    "description": "Source PBIP path (compare_models)",
+                },
+                "target_path": {
+                    "type": "string",
+                    "description": "Target PBIP path (compare_models)",
+                },
+            },
+            "required": ["operation"],
+        },
+        category="pbip",
+        sort_order=70,
+    )
+    registry.register(tool)
+    logger.info("Registered pbip_model_analysis handler")
+
+
+def register_pbip_query_handler(registry):
+    """Register PBIP query handler."""
+    tool = ToolDefinition(
+        name="07_PBIP_Query",
+        description=(
+            "Offline PBIP queries (no live connection needed):"
+            " query_dependencies, query_measures,"
+            " query_relationships, query_unused, git_diff."
+        ),
+        handler=handle_pbip_query,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [
+                        "query_dependencies", "query_measures",
+                        "query_relationships", "query_unused",
+                        "git_diff",
+                    ],
+                },
+                "pbip_path": {
+                    "type": "string",
+                    "description": (
+                        "Path to .pbip file, project directory,"
+                        " or .SemanticModel folder"
+                    ),
                 },
                 "object_name": {
                     "type": "string",
-                    "description": "Object name (query_dependencies, e.g. '[Total Sales]')",
+                    "description": (
+                        "Object name (query_dependencies,"
+                        " e.g. '[Total Sales]')"
+                    ),
                 },
                 "direction": {
                     "type": "string",
@@ -675,34 +750,28 @@ def register_pbip_operations_handler(registry):
                 },
                 "display_folder": {
                     "type": "string",
-                    "description": "Display folder filter (query_measures)",
+                    "description": (
+                        "Display folder filter (query_measures)"
+                    ),
                 },
                 "pattern": {
                     "type": "string",
-                    "description": "Name pattern regex (query_measures)",
+                    "description": (
+                        "Name pattern regex (query_measures)"
+                    ),
                 },
                 "expression_search": {
                     "type": "string",
-                    "description": "DAX expression regex search (query_measures)",
-                },
-                "source_path": {
-                    "type": "string",
-                    "description": "Source PBIP path (compare_models)",
-                },
-                "target_path": {
-                    "type": "string",
-                    "description": "Target PBIP path (compare_models)",
-                },
-                "output_path": {
-                    "type": "string",
-                    "description": "Output path (analyze, generate_documentation)",
+                    "description": (
+                        "DAX expression regex search"
+                        " (query_measures)"
+                    ),
                 },
             },
             "required": ["operation"],
         },
         category="pbip",
-        sort_order=70,  # Primary PBIP analysis tool
+        sort_order=71,
     )
-
     registry.register(tool)
-    logger.info("Registered pbip_operations handler")
+    logger.info("Registered pbip_query handler")

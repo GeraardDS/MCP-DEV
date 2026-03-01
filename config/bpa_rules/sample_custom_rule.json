@@ -1,0 +1,17 @@
+{
+  "name": "Sample Custom BPA Rules",
+  "description": "Example custom rule file. Place JSON files in config/bpa_rules/ to add custom BPA rules. Each file is loaded automatically on BPA initialization.",
+  "version": "1.0",
+  "rules": [
+    {
+      "ID": "CUSTOM_001",
+      "Name": "Sample: Measure names should be descriptive",
+      "Category": "Naming",
+      "Severity": 1,
+      "Description": "Measure names should be at least 3 characters long to be descriptive.",
+      "Scope": "Measure",
+      "Expression": "RegEx.IsMatch(Name, \"^.{1,2}$\")",
+      "FixExpression": "Rename the measure to a more descriptive name (at least 3 characters)."
+    }
+  ]
+}

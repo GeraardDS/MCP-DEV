@@ -12,8 +12,10 @@ This module provides advanced DAX context analysis capabilities:
 - Advanced DAX code rewriting
 - Variable optimization scanning
 - Visual context flow diagrams
+- CallbackDataID pattern detection
+- Static analysis rules engine with health scoring
 
-Version: 4.0.0 - Enhanced with industry-standard analysis features
+Version: 4.2.0 - Added DAX static analysis rules engine
 """
 
 from .context_analyzer import (
@@ -38,6 +40,8 @@ from .code_rewriter import (
     Transformation,
 )
 from .visual_flow import VisualFlowDiagramGenerator, FlowStep
+from .callback_detector import CallbackDetector, CallbackDetection
+from .dax_rules_engine import DaxRulesEngine, DaxIssue
 
 __all__ = [
     # Core analyzers
@@ -69,4 +73,10 @@ __all__ = [
     # Visual flow
     "VisualFlowDiagramGenerator",
     "FlowStep",
+    # CallbackDataID detection
+    "CallbackDetector",
+    "CallbackDetection",
+    # Static analysis rules engine
+    "DaxRulesEngine",
+    "DaxIssue",
 ]

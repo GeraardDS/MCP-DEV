@@ -550,10 +550,10 @@ def register_dependencies_handlers(registry):
             "type": "object",
             "properties": {
                 "operation": {"type": "string", "enum": ["dependencies", "impact", "export"]},
-                "table": {"type": "string", "description": "Table name (dependencies/impact)"},
-                "measure": {"type": "string", "description": "Measure name (dependencies/impact)"},
+                "table": {"type": "string", "description": "Table name"},
+                "measure": {"type": "string", "description": "Measure name"},
                 "include_diagram": {"type": "boolean", "description": "Include Mermaid diagram", "default": True},
-                "output_path": {"type": "string", "description": "CSV output path (export)"}
+                "output_path": {"type": "string", "description": "CSV output path"}
             },
             "required": ["operation"]
         },

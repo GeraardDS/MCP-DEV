@@ -60,7 +60,8 @@ CATEGORY_TOOLS = {
         "06_Analysis_Operations",
     ],
     ToolCategory.PBIP: [
-        "07_PBIP_Operations",
+        "07_PBIP_Model_Analysis",
+        "07_PBIP_Query",
         "07_Report_Info",
         "07_PBIP_Dependency_Analysis",
         "07_Slicer_Operations",
@@ -68,6 +69,7 @@ CATEGORY_TOOLS = {
         "07_Analyze_Bookmarks",
         "07_Analyze_Theme_Compliance",
         "08_Visual_Operations",
+        "08_Visual_Sync",
         "SVG_Visual_Operations",
     ],
     ToolCategory.DOCS: [
@@ -99,7 +101,7 @@ CATEGORY_INFO = {
     ToolCategory.QUERY: {"name": "Query & Search", "description": "DAX queries, search objects", "tool_count": 3},
     ToolCategory.DAX: {"name": "DAX Intelligence", "description": "DAX analysis, dependencies, optimization", "tool_count": 3},
     ToolCategory.ANALYSIS: {"name": "Analysis", "description": "Model analysis, BPA, comparison", "tool_count": 1},
-    ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis, SVG visuals", "tool_count": 9},
+    ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis, SVG visuals", "tool_count": 11},
     ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs", "tool_count": 1},
     ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation", "tool_count": 6},
 }

@@ -170,6 +170,15 @@
     "compare_query_performance": 180,
     "analyze_query_plan": 90
   },
+  "debug": {
+    "pbip_freshness_minutes": 5,
+    "vqb_cache_ttl_seconds": 300,
+    "filter_truncation_chars": 50,
+    "variable_truncation_chars": 100,
+    "proximity_distance_chars": 50,
+    "max_measures_shown": 3,
+    "max_query_result_rows": 100
+  },
   "performance_tracing": {
     "default_runs": 3,
     "default_clear_cache": true,

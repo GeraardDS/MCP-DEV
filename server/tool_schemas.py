@@ -43,22 +43,22 @@ TOOL_SCHEMAS = {
             "dry_run": {"type": "boolean", "default": False},
             "summary_only": {"type": "boolean", "default": True},
             "page_name": {"type": "string", "description": "Filter by page"},
-            "source_visual": {"type": "string", "description": "Source visual (interactions)"},
-            "target_visual": {"type": "string", "description": "Target visual (interactions)"},
+            "source_visual": {"type": "string", "description": "Source visual"},
+            "target_visual": {"type": "string", "description": "Target visual"},
             "interaction_type": {"type": "string", "enum": ["NoFilter", "Filter", "Highlight"]},
             "include_visual_info": {"type": "boolean", "default": True},
-            "interactions": {"type": "array", "description": "Bulk interactions [{source, target, type}]", "items": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}, "type": {"type": "string", "enum": ["NoFilter", "Filter", "Highlight"]}}, "required": ["source", "target", "type"]}},
+            "interactions": {"type": "array", "description": "Bulk interactions [{source, target, type}]", "items": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}, "type": {"type": "string"}}, "required": ["source", "target", "type"]}},
             "replace_all": {"type": "boolean", "default": False}
         },
         "required": ["pbip_path"]
     },
 
-    # Visual Operations
+    # Visual Operations (list, position, config)
     'visual_operations': {
         "type": "object",
         "properties": {
             "pbip_path": {"type": "string", "description": "Path to PBIP/Report folder"},
-            "operation": {"type": "string", "enum": ["list", "update_position", "replace_measure", "sync_visual", "sync_column_widths", "update_visual_config"], "default": "list"},
+            "operation": {"type": "string", "enum": ["list", "update_position", "update_visual_config"], "default": "list"},
             "display_title": {"type": "string", "description": "Filter by title"},
             "visual_type": {"type": "string", "description": "Filter by type"},
             "visual_name": {"type": "string", "description": "Filter by visual ID"},
@@ -69,6 +69,29 @@ TOOL_SCHEMAS = {
             "width": {"type": "number"},
             "height": {"type": "number"},
             "z": {"type": "integer"},
+            "dry_run": {"type": "boolean", "default": False},
+            "summary_only": {"type": "boolean", "default": True},
+            "config_type": {"type": "string", "description": "Config object (update_visual_config)"},
+            "property_name": {"type": "string", "description": "Property to update"},
+            "property_value": {"type": ["string", "number", "boolean"]},
+            "selector_metadata": {"type": "string", "description": "Per-series selector"},
+            "value_type": {"type": "string", "enum": ["auto", "literal", "boolean", "number", "string"], "default": "auto"},
+            "remove_property": {"type": "boolean", "default": False},
+            "config_updates": {"type": "array", "description": "Batch config changes", "items": {"type": "object", "properties": {"config_type": {"type": "string"}, "property_name": {"type": "string"}, "property_value": {"type": ["string", "number", "boolean"]}, "selector_metadata": {"type": "string"}, "value_type": {"type": "string"}, "remove_property": {"type": "boolean"}}, "required": ["config_type", "property_name"]}}
+        },
+        "required": ["pbip_path"]
+    },
+
+    # Visual Sync (replace_measure, sync_visual, sync_column_widths)
+    'visual_sync': {
+        "type": "object",
+        "properties": {
+            "pbip_path": {"type": "string", "description": "Path to PBIP/Report folder"},
+            "operation": {"type": "string", "enum": ["replace_measure", "sync_visual", "sync_column_widths"]},
+            "display_title": {"type": "string", "description": "Filter by title"},
+            "visual_type": {"type": "string", "description": "Filter by type"},
+            "visual_name": {"type": "string", "description": "Filter by visual ID"},
+            "page_name": {"type": "string", "description": "Filter by page"},
             "dry_run": {"type": "boolean", "default": False},
             "summary_only": {"type": "boolean", "default": True},
             "source_entity": {"type": "string", "description": "Source table (replace_measure)"},
@@ -82,16 +105,9 @@ TOOL_SCHEMAS = {
             "target_visual_type": {"type": "string", "description": "Target visual type (sync)"},
             "sync_position": {"type": "boolean", "default": True},
             "sync_children": {"type": "boolean", "default": True},
-            "target_pages": {"type": "array", "items": {"type": "string"}, "description": "Target pages (sync)"},
-            "config_type": {"type": "string", "description": "Config object (update_visual_config)"},
-            "property_name": {"type": "string", "description": "Property to update"},
-            "property_value": {"type": ["string", "number", "boolean"]},
-            "selector_metadata": {"type": "string", "description": "Per-series selector"},
-            "value_type": {"type": "string", "enum": ["auto", "literal", "boolean", "number", "string"], "default": "auto"},
-            "remove_property": {"type": "boolean", "default": False},
-            "config_updates": {"type": "array", "description": "Batch config changes", "items": {"type": "object", "properties": {"config_type": {"type": "string"}, "property_name": {"type": "string"}, "property_value": {"type": ["string", "number", "boolean"]}, "selector_metadata": {"type": "string"}, "value_type": {"type": "string"}, "remove_property": {"type": "boolean"}}, "required": ["config_type", "property_name"]}}
+            "target_pages": {"type": "array", "items": {"type": "string"}, "description": "Target pages (sync)"}
         },
-        "required": ["pbip_path"]
+        "required": ["pbip_path", "operation"]
     },
 
     # Report Info
@@ -109,13 +125,13 @@ TOOL_SCHEMAS = {
             "page_name": {"type": "string", "description": "Filter by page name"},
             "summary_only": {"type": "boolean", "description": "Compact output", "default": True},
             "max_visuals_per_page": {"type": "integer", "default": 50},
-            "measure_filter": {"type": "string", "description": "Filter by measure name (measure_usage)"},
+            "measure_filter": {"type": "string", "description": "Filter by measure name"},
             "output_format": {
                 "type": "string",
                 "enum": ["text", "json"],
                 "default": "text"
             },
-            "export_path": {"type": "string", "description": "CSV export directory (measure_usage)"}
+            "export_path": {"type": "string", "description": "CSV export directory"}
         },
         "required": ["pbip_path"]
     },

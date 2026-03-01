@@ -16,29 +16,13 @@ AMOServer = None
 AdomdCommand = None
 
 try:
-    import clr
-    import os
+    from core.infrastructure.dll_paths import (
+        load_amo_assemblies,
+        load_adomd_assembly,
+    )
 
-    # Find DLL folder
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(script_dir)  # server
-    root_dir = os.path.dirname(parent_dir)     # root
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-
-    # Load AMO DLLs
-    core_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Core.dll")
-    amo_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.dll")
-    tabular_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Tabular.dll")
-    adomd_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.AdomdClient.dll")
-
-    if os.path.exists(core_dll):
-        clr.AddReference(core_dll)
-    if os.path.exists(amo_dll):
-        clr.AddReference(amo_dll)
-    if os.path.exists(tabular_dll):
-        clr.AddReference(tabular_dll)
-    if os.path.exists(adomd_dll):
-        clr.AddReference(adomd_dll)
+    load_amo_assemblies()
+    load_adomd_assembly()
 
     from Microsoft.AnalysisServices.Tabular import Server as AMOServer
     from Microsoft.AnalysisServices.AdomdClient import AdomdCommand
@@ -709,6 +693,15 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
             result_analyze = analyzer.analyze_context_transitions(expression)
             anti_patterns = analyzer.detect_dax_anti_patterns(expression)
 
+            # Run static analysis rules engine
+            rules_analysis = None
+            try:
+                from core.dax.dax_rules_engine import DaxRulesEngine
+                rules_engine = DaxRulesEngine()
+                rules_analysis = rules_engine.analyze(expression)
+            except Exception as e:
+                logger.warning(f"Rules engine analysis not available: {e}")
+
             # Generate annotated DAX code for visual display
             annotated_dax = analyzer.format_dax_with_annotations(expression, result_analyze.transitions)
 
@@ -898,7 +891,9 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     'improvements_available': improvements.get('has_improvements', False),
                     'improvements_count': improvements.get('improvements_count', 0),
                     'best_practices_score': best_practices_result.get('overall_score', 0) if best_practices_result else None,
-                    'best_practices_issues': best_practices_result.get('total_issues', 0) if best_practices_result else 0
+                    'best_practices_issues': best_practices_result.get('total_issues', 0) if best_practices_result else 0,
+                    'health_score': rules_analysis.get('health_score') if rules_analysis else None,
+                    'static_analysis_issues': rules_analysis.get('issue_count', 0) if rules_analysis else 0
                 },
                 'context_analysis': {
                     'summary': result_analyze.summary,
@@ -925,6 +920,7 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     'articles': anti_patterns.get('articles', []),
                     'error': anti_patterns.get('error') if not anti_patterns.get('success') else None
                 },
+                'static_analysis': rules_analysis if rules_analysis else {'note': 'Static analysis not available'},
                 'improvements': {
                     'has_improvements': improvements.get('has_improvements', False),
                     'summary': improvements.get('summary', 'No improvements suggested'),
@@ -986,6 +982,15 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
 
             # Add anti-pattern detection
             anti_patterns = analyzer.detect_dax_anti_patterns(expression)
+
+            # Run static analysis rules engine
+            rules_analysis = None
+            try:
+                from core.dax.dax_rules_engine import DaxRulesEngine
+                rules_engine = DaxRulesEngine()
+                rules_analysis = rules_engine.analyze(expression)
+            except Exception as e:
+                logger.warning(f"Rules engine analysis not available: {e}")
 
             # Get VertiPaq analysis for comprehensive optimization
             vertipaq_analysis = None
@@ -1109,6 +1114,9 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                 'articles': anti_patterns.get('articles', []),
                 'error': anti_patterns.get('error') if not anti_patterns.get('success') else None
             }
+
+            # Include static analysis (rules engine)
+            response['static_analysis'] = rules_analysis if rules_analysis else {'note': 'Static analysis not available'}
 
             # Include VertiPaq analysis
             response['vertipaq_analysis'] = vertipaq_analysis if vertipaq_analysis and vertipaq_analysis.get('success') else {
@@ -1271,6 +1279,14 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                 result_analyze = analyzer.analyze_context_transitions(expression)
                 anti_patterns = analyzer.detect_dax_anti_patterns(expression)
 
+                # Run static analysis rules engine
+                try:
+                    from core.dax.dax_rules_engine import DaxRulesEngine
+                    rules_engine = DaxRulesEngine()
+                    response['static_analysis'] = rules_engine.analyze(expression)
+                except Exception as rules_err:
+                    logger.warning(f"Rules engine not available in report mode: {rules_err}")
+
                 from core.dax import DaxContextDebugger
                 debugger_temp = DaxContextDebugger()
 
@@ -1342,7 +1358,7 @@ def register_dax_handlers(registry):
     tools = [
         ToolDefinition(
             name="05_DAX_Intelligence",
-            description="DAX analysis: context transitions, anti-patterns, VertiPaq, call tree, optimized code. Smart measure finder. Modes: all|analyze|debug|report",
+            description="DAX analysis: context transitions, anti-patterns, VertiPaq, call tree, optimized code.",
             handler=handle_dax_intelligence,
             input_schema=TOOL_SCHEMAS.get('dax_intelligence', {}),
             category="dax",

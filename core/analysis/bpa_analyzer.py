@@ -3,7 +3,9 @@ Best Practice Analyzer for Semantic Models
 Analyzes TMSL models against a comprehensive set of best practice rules
 """
 
+import glob
 import json
+import os
 import re
 import time
 from typing import Dict, List, Any, Optional, Union
@@ -79,6 +81,482 @@ class BPAAnalyzer:
 
         if rules_file_path:
             self.load_rules(rules_file_path)
+
+        # Load built-in enhanced rules and custom rules
+        self._init_builtin_rules()
+        self._load_custom_rules()
+
+    def _init_builtin_rules(self) -> None:
+        """Add built-in enhanced BPA rules to the rule set.
+
+        These rules supplement whatever was loaded from the JSON
+        rules file and cover categories like DAX Expressions,
+        Naming, Formatting, Relationships, Calculation Groups,
+        and Performance.
+        """
+        builtin = self._get_builtin_rules()
+        existing_ids = {r.id for r in self.rules}
+        added = 0
+        for rule_data in builtin:
+            rid = rule_data.get("ID", "")
+            if rid and rid not in existing_ids:
+                scope_raw = rule_data.get("Scope", "")
+                scope = (
+                    [s.strip() for s in scope_raw.split(",")]
+                    if isinstance(scope_raw, str)
+                    else scope_raw
+                )
+                rule = BPARule(
+                    id=rid,
+                    name=rule_data.get("Name", ""),
+                    category=rule_data.get("Category", ""),
+                    description=rule_data.get(
+                        "Description", ""
+                    ),
+                    severity=BPASeverity(
+                        rule_data.get("Severity", 1)
+                    ),
+                    scope=scope,
+                    expression=rule_data.get(
+                        "Expression", ""
+                    ),
+                    fix_expression=rule_data.get(
+                        "FixExpression"
+                    ),
+                    compatibility_level=rule_data.get(
+                        "CompatibilityLevel", 1200
+                    ),
+                )
+                self.rules.append(rule)
+                existing_ids.add(rid)
+                added += 1
+        if added:
+            logger.info(
+                f"Added {added} built-in enhanced BPA rules"
+            )
+
+    def _load_custom_rules(self) -> None:
+        """Load custom BPA rules from config/bpa_rules/*.json.
+
+        Each JSON file should have a top-level ``rules`` array
+        following the same schema as the main rules file.
+        Rules whose ID already exists are silently skipped to
+        avoid duplicates.
+        """
+        # Resolve config/bpa_rules/ relative to project root
+        script_dir = os.path.dirname(
+            os.path.abspath(__file__)
+        )
+        # core/analysis -> core -> project root
+        root_dir = os.path.dirname(
+            os.path.dirname(script_dir)
+        )
+        custom_dir = os.path.join(
+            root_dir, "config", "bpa_rules"
+        )
+        if not os.path.isdir(custom_dir):
+            return
+
+        pattern = os.path.join(custom_dir, "*.json")
+        json_files = sorted(glob.glob(pattern))
+        if not json_files:
+            return
+
+        existing_ids = {r.id for r in self.rules}
+        total_added = 0
+
+        for fpath in json_files:
+            try:
+                with open(
+                    fpath, "r", encoding="utf-8"
+                ) as f:
+                    data = json.load(f)
+                rules_list = data.get("rules", [])
+                added = 0
+                for rule_data in rules_list:
+                    rid = rule_data.get("ID", "")
+                    if not rid or rid in existing_ids:
+                        continue
+                    scope_raw = rule_data.get("Scope", "")
+                    scope = (
+                        [
+                            s.strip()
+                            for s in scope_raw.split(",")
+                        ]
+                        if isinstance(scope_raw, str)
+                        else scope_raw
+                    )
+                    rule = BPARule(
+                        id=rid,
+                        name=rule_data.get("Name", ""),
+                        category=rule_data.get(
+                            "Category", ""
+                        ),
+                        description=rule_data.get(
+                            "Description", ""
+                        ),
+                        severity=BPASeverity(
+                            rule_data.get("Severity", 1)
+                        ),
+                        scope=scope,
+                        expression=rule_data.get(
+                            "Expression", ""
+                        ),
+                        fix_expression=rule_data.get(
+                            "FixExpression"
+                        ),
+                        compatibility_level=rule_data.get(
+                            "CompatibilityLevel", 1200
+                        ),
+                    )
+                    self.rules.append(rule)
+                    existing_ids.add(rid)
+                    added += 1
+                if added:
+                    fname = os.path.basename(fpath)
+                    logger.info(
+                        f"Loaded {added} custom BPA rules "
+                        f"from {fname}"
+                    )
+                total_added += added
+            except (
+                json.JSONDecodeError,
+                FileNotFoundError,
+                OSError,
+            ) as e:
+                logger.warning(
+                    f"Failed to load custom BPA rules "
+                    f"from {fpath}: {e}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Unexpected error loading custom "
+                    f"BPA rules from {fpath}: {e}"
+                )
+
+        if total_added:
+            logger.info(
+                f"Total custom BPA rules loaded: "
+                f"{total_added}"
+            )
+
+    @staticmethod
+    def _get_builtin_rules() -> List[Dict[str, Any]]:
+        """Return built-in enhanced BPA rule definitions.
+
+        These are programmatic rules that don't rely on the
+        expression evaluator's regex engine but are instead
+        checked via standard expression evaluation patterns
+        already supported by ``evaluate_expression``.
+        """
+        rules: List[Dict[str, Any]] = []
+
+        # ── DAX Expressions ─────────────────────────────
+        rules.append({
+            "ID": "DAX_CALCULATE_COUNTROWS",
+            "Name": "Avoid CALCULATE(COUNTROWS(...))",
+            "Category": "DAX Expressions",
+            "Severity": 2,
+            "Description": (
+                "CALCULATE(COUNTROWS(...)) can often be "
+                "simplified. Use COUNTROWS with CALCULATE "
+                "wrapping the table filter instead."
+            ),
+            "Scope": "Measure",
+            "Expression": (
+                'RegEx.IsMatch(Expression, '
+                '"CALCULATE\\s*\\(\\s*COUNTROWS"'
+                ', "(?i)")'
+            ),
+            "FixExpression": (
+                "Restructure to use CALCULATE with "
+                "COUNTROWS and explicit filter arguments."
+            ),
+        })
+        rules.append({
+            "ID": "DAX_ISBLANK_ZERO",
+            "Name": (
+                "Simplify IF(ISBLANK(...), 0, ...)"
+            ),
+            "Category": "DAX Expressions",
+            "Severity": 1,
+            "Description": (
+                "IF(ISBLANK(x), 0, x) can be simplified "
+                "to x + 0 or COALESCE(x, 0) for cleaner "
+                "DAX."
+            ),
+            "Scope": "Measure",
+            "Expression": (
+                'RegEx.IsMatch(Expression, '
+                '"IF\\s*\\(\\s*ISBLANK\\s*\\('
+                '.+?\\)\\s*,\\s*0"'
+                ', "(?i)")'
+            ),
+            "FixExpression": (
+                "Use COALESCE(expression, 0) or "
+                "expression + 0 instead."
+            ),
+        })
+        rules.append({
+            "ID": "DAX_NESTED_IF",
+            "Name": "Avoid deeply nested IF statements",
+            "Category": "DAX Expressions",
+            "Severity": 2,
+            "Description": (
+                "Multiple nested IF statements reduce "
+                "readability. Use SWITCH for multi-"
+                "condition logic."
+            ),
+            "Scope": "Measure",
+            "Expression": (
+                'RegEx.IsMatch(Expression, '
+                '"IF\\s*\\([^)]*IF\\s*\\([^)]*'
+                'IF\\s*\\("'
+                ', "(?i)")'
+            ),
+            "FixExpression": (
+                "Replace nested IFs with SWITCH(TRUE(), "
+                "condition1, result1, condition2, result2"
+                ", ..., default)."
+            ),
+        })
+
+        # ── Naming ──────────────────────────────────────
+        rules.append({
+            "ID": "NAMING_MEASURE_LEADING_TRAILING_SPACE",
+            "Name": (
+                "Measure name has leading/trailing spaces"
+            ),
+            "Category": "Naming",
+            "Severity": 2,
+            "Description": (
+                "Measure names should not start or end "
+                "with spaces. This can cause unexpected "
+                "behavior in DAX references."
+            ),
+            "Scope": "Measure",
+            "Expression": (
+                'RegEx.IsMatch(Name, '
+                '"^\\s|\\s$")'
+            ),
+            "FixExpression": (
+                "Trim leading and trailing spaces from "
+                "the measure name."
+            ),
+        })
+        rules.append({
+            "ID": "NAMING_TABLE_CONVENTION",
+            "Name": (
+                "Table name should follow consistent "
+                "naming convention"
+            ),
+            "Category": "Naming",
+            "Severity": 1,
+            "Description": (
+                "Table names should use PascalCase or a "
+                "consistent naming pattern. Names with "
+                "leading/trailing spaces or special "
+                "characters at the start are discouraged."
+            ),
+            "Scope": "Table",
+            "Expression": (
+                'RegEx.IsMatch(Name, '
+                '"^[\\s_\\-]|[\\s]$")'
+            ),
+            "FixExpression": (
+                "Rename the table to follow PascalCase "
+                "or your project's naming convention."
+            ),
+        })
+        rules.append({
+            "ID": "NAMING_COLUMN_SPECIAL_CHAR_START",
+            "Name": (
+                "Column name starts with special "
+                "character"
+            ),
+            "Category": "Naming",
+            "Severity": 2,
+            "Description": (
+                "Column names should not start with "
+                "special characters like @, #, $, etc. "
+                "This can cause issues in DAX expressions."
+            ),
+            "Scope": "DataColumn, CalculatedColumn",
+            "Expression": (
+                'RegEx.IsMatch(Name, '
+                '"^[^a-zA-Z0-9_]")'
+            ),
+            "FixExpression": (
+                "Rename the column to start with a "
+                "letter, number, or underscore."
+            ),
+        })
+
+        # ── Formatting ──────────────────────────────────
+        rules.append({
+            "ID": "FORMAT_MEASURE_NO_FORMAT_STRING",
+            "Name": "Measure has no format string",
+            "Category": "Formatting",
+            "Severity": 1,
+            "Description": (
+                "Measures should have a format string "
+                "defined for consistent display in "
+                "reports and visuals."
+            ),
+            "Scope": "Measure",
+            "Expression": (
+                'string.IsNullOrWhitespace('
+                'FormatString)'
+            ),
+            "FixExpression": (
+                "Add an appropriate format string, "
+                "e.g. '#,0', '#,0.00', '0.0%', etc."
+            ),
+        })
+        rules.append({
+            "ID": "FORMAT_PERCENTAGE_CONSISTENCY",
+            "Name": (
+                "Percentage measure should use % format"
+            ),
+            "Category": "Formatting",
+            "Severity": 1,
+            "Description": (
+                "Measures whose names suggest a "
+                "percentage (containing '%', 'pct', or "
+                "'percent') should use a percentage "
+                "format string."
+            ),
+            "Scope": "Measure",
+            "Expression": (
+                'RegEx.IsMatch(Name, '
+                '"(%|pct|percent)", "(?i)") '
+                'and not RegEx.IsMatch(FormatString, '
+                '"%")'
+            ),
+            "FixExpression": (
+                "Set the format string to '0.0%' or "
+                "'0.00%'."
+            ),
+        })
+
+        # ── Relationships ───────────────────────────────
+        rules.append({
+            "ID": "REL_BIDIRECTIONAL_WARNING",
+            "Name": (
+                "Bidirectional cross-filter relationship"
+            ),
+            "Category": "Relationships",
+            "Severity": 2,
+            "Description": (
+                "Bidirectional cross-filtering can cause "
+                "ambiguous filter propagation and "
+                "performance issues. Use single-direction "
+                "unless strictly required."
+            ),
+            "Scope": "Relationship",
+            "Expression": (
+                'crossFilteringBehavior == '
+                '"BothDirections"'
+            ),
+            "FixExpression": (
+                "Change the relationship to single-"
+                "direction cross-filtering."
+            ),
+        })
+        rules.append({
+            "ID": "REL_TABLE_NO_RELATIONSHIPS",
+            "Name": "Table has no relationships",
+            "Category": "Relationships",
+            "Severity": 1,
+            "Description": (
+                "Tables without any relationships may "
+                "be disconnected from the model. Ensure "
+                "this is intentional (e.g., parameter "
+                "tables, disconnected slicers)."
+            ),
+            "Scope": "Table",
+            "Expression": (
+                'Model.AllRelationships.Any('
+                'FromTable == outerIt.Name or '
+                'ToTable == outerIt.Name'
+                ') == false'
+            ),
+            "FixExpression": (
+                "Create a relationship to connect this "
+                "table to the model, or document why it "
+                "is intentionally disconnected."
+            ),
+        })
+
+        # ── Calculation Groups ──────────────────────────
+        rules.append({
+            "ID": "CALCGROUP_ORDINAL_GAPS",
+            "Name": (
+                "Calculation group has ordinal gaps"
+            ),
+            "Category": "Calculation Groups",
+            "Severity": 1,
+            "Description": (
+                "Calculation items should have "
+                "sequential ordinal values without gaps "
+                "for predictable evaluation order."
+            ),
+            "Scope": "CalculationGroup",
+            "Expression": (
+                'calculationItems.Count > 0'
+            ),
+            "FixExpression": (
+                "Review and re-number calculation item "
+                "ordinals to be sequential (0, 1, 2...)."
+            ),
+        })
+
+        # ── Performance ─────────────────────────────────
+        rules.append({
+            "ID": "PERF_TABLE_TOO_MANY_COLUMNS",
+            "Name": "Table has too many columns",
+            "Category": "Performance",
+            "Severity": 2,
+            "Description": (
+                "Tables with more than 30 columns may "
+                "indicate a need to split into multiple "
+                "tables or remove unused columns to "
+                "improve model performance."
+            ),
+            "Scope": "Table",
+            "Expression": (
+                'Columns.Count > 30'
+            ),
+            "FixExpression": (
+                "Remove unused columns or split the "
+                "table into smaller, focused tables."
+            ),
+        })
+        rules.append({
+            "ID": "PERF_WIDE_TABLE_WARNING",
+            "Name": (
+                "Table has excessive columns (>50)"
+            ),
+            "Category": "Performance",
+            "Severity": 3,
+            "Description": (
+                "Tables with more than 50 columns are "
+                "likely to cause significant performance "
+                "issues. Consider removing unnecessary "
+                "columns."
+            ),
+            "Scope": "Table",
+            "Expression": (
+                'Columns.Count > 50'
+            ),
+            "FixExpression": (
+                "Aggressively prune unused columns. "
+                "Consider splitting into fact and "
+                "dimension tables."
+            ),
+        })
+
+        return rules
 
     def _precompile_common_patterns(self):
         """Eagerly compile common regex patterns used in BPA rules for performance"""
@@ -215,21 +693,50 @@ class BPAAnalyzer:
             Frozen tuple representation of context for cache key
         """
         try:
-            # Extract the object being evaluated (measure, column, table, etc.)
+            # The object being evaluated lives inside
+            # context['obj'] or context['current'], not
+            # at the context root.
+            obj = (
+                context.get('obj')
+                or context.get('current')
+                or {}
+            )
+            tbl = context.get('table') or {}
             obj_type = context.get('_ObjectType', '')
-            obj_name = context.get('Name', context.get('name', ''))
-            table_name = context.get('Table', context.get('table', ''))
+            obj_name = (
+                obj.get('Name', obj.get('name', ''))
+                if isinstance(obj, dict) else str(obj)
+            )
+            table_name = (
+                tbl.get('name', tbl.get('Name', ''))
+                if isinstance(tbl, dict) else str(tbl)
+            )
 
-            # Create a minimal frozen representation
-            # We don't freeze the entire context (would be too heavy), just the identifying parts
             frozen = (
                 obj_type,
                 str(obj_name),
                 str(table_name),
-                # Add a few other commonly accessed properties that affect evaluation
-                str(context.get('Expression', context.get('expression', ''))),
-                str(context.get('IsHidden', context.get('isHidden', ''))),
-                str(context.get('DataType', context.get('dataType', '')))
+                str(
+                    obj.get(
+                        'Expression',
+                        obj.get('expression', '')
+                    )
+                    if isinstance(obj, dict) else ''
+                ),
+                str(
+                    obj.get(
+                        'IsHidden',
+                        obj.get('isHidden', '')
+                    )
+                    if isinstance(obj, dict) else ''
+                ),
+                str(
+                    obj.get(
+                        'DataType',
+                        obj.get('dataType', '')
+                    )
+                    if isinstance(obj, dict) else ''
+                ),
             )
 
             return frozen
@@ -330,8 +837,17 @@ class BPAAnalyzer:
             if regex_match:
                 field = regex_match.group(1).strip()
                 pattern = regex_match.group(2)
-                value = self.evaluate_expression(field, context)
-                flags = re.IGNORECASE if '(?i)' in pattern else 0
+                third_arg = regex_match.group(3) or ''
+                value = self.evaluate_expression(
+                    field, context
+                )
+                has_ignorecase = (
+                    '(?i)' in pattern
+                    or '(?i)' in third_arg
+                )
+                flags = (
+                    re.IGNORECASE if has_ignorecase else 0
+                )
                 pattern = pattern.replace('(?i)', '')
                 compiled = self._compile_regex(pattern, flags)
                 result = bool(compiled.search(str(value) if value is not None else ''))
@@ -438,6 +954,43 @@ class BPAAnalyzer:
                 self._eval_depth -= 1
                 return result if result is not None else ""
 
+            # Handle .Any(condition) BEFORE paren reducer
+            # to preserve the inner expression for
+            # per-item evaluation.
+            any_pre = re.match(
+                r'([A-Za-z0-9_.]+)\.Any\((.+)\)'
+                r'(\s*==\s*(true|false))?$',
+                expression,
+            )
+            if any_pre:
+                coll_path = any_pre.group(1)
+                inner_expr = any_pre.group(2)
+                collection = self._get_by_path(
+                    context, coll_path
+                )
+                if not isinstance(collection, list):
+                    any_result = False
+                else:
+                    any_result = False
+                    for item in collection:
+                        item_ctx = {
+                            **context,
+                            'it': item,
+                            'current': item,
+                        }
+                        if self.evaluate_expression(
+                            inner_expr, item_ctx
+                        ):
+                            any_result = True
+                            break
+                # Handle optional == true/false suffix
+                cmp_val = any_pre.group(4)
+                if cmp_val == 'false':
+                    any_result = not any_result
+                # cmp_val == 'true' or None: keep as-is
+                self._eval_depth -= 1
+                return any_result
+
             # Now reduce simple parenthesis outside of the handled patterns above
             paren_count = 0
             while paren_count < 10:  # Limit iterations
@@ -518,12 +1071,43 @@ class BPAAnalyzer:
                 self._eval_depth -= 1
                 return False
 
-            # Handle .Count() or .Count
-            count_match = re.match(r'([A-Za-z0-9_.]+)\.Count(\(\))?', expression)
+            # Handle .Count() or .Count with optional comparison
+            count_match = re.match(
+                r'([A-Za-z0-9_.]+)\.Count(?:\(\))?'
+                r'(?:\s*([><!=]+)\s*(\d+\.?\d*))?$',
+                expression,
+            )
             if count_match:
                 collection_path = count_match.group(1)
-                collection = self._get_by_path(context, collection_path)
-                result = len(collection) if isinstance(collection, list) else 0
+                collection = self._get_by_path(
+                    context, collection_path
+                )
+                count_val = (
+                    len(collection)
+                    if isinstance(collection, list)
+                    else 0
+                )
+                cmp_op = count_match.group(2)
+                if cmp_op and count_match.group(3):
+                    threshold = float(
+                        count_match.group(3)
+                    )
+                    if cmp_op == '>':
+                        result = count_val > threshold
+                    elif cmp_op == '<':
+                        result = count_val < threshold
+                    elif cmp_op == '>=':
+                        result = count_val >= threshold
+                    elif cmp_op == '<=':
+                        result = count_val <= threshold
+                    elif cmp_op in ('==', '='):
+                        result = count_val == threshold
+                    elif cmp_op in ('!=', '<>'):
+                        result = count_val != threshold
+                    else:
+                        result = count_val
+                else:
+                    result = count_val
                 self._eval_depth -= 1
                 return result
 
@@ -563,6 +1147,40 @@ class BPAAnalyzer:
                     result = prop_value != value
                 else:
                     result = prop_value == value
+                self._eval_depth -= 1
+                return result
+
+            # Handle numeric comparisons: prop > N, prop < N, etc.
+            num_cmp = re.match(
+                r'([A-Za-z0-9_.]+)\s*([><]=?)\s*'
+                r'(\d+\.?\d*)$',
+                expression,
+            )
+            if num_cmp:
+                prop = num_cmp.group(1)
+                operator = num_cmp.group(2)
+                threshold = float(num_cmp.group(3))
+                prop_value = self.evaluate_expression(
+                    prop, context
+                )
+                try:
+                    num_val = (
+                        float(prop_value)
+                        if prop_value is not None
+                        else 0
+                    )
+                except (ValueError, TypeError):
+                    num_val = 0
+                if operator == '>':
+                    result = num_val > threshold
+                elif operator == '<':
+                    result = num_val < threshold
+                elif operator == '>=':
+                    result = num_val >= threshold
+                elif operator == '<=':
+                    result = num_val <= threshold
+                else:
+                    result = False
                 self._eval_depth -= 1
                 return result
 
@@ -642,7 +1260,10 @@ class BPAAnalyzer:
         if first == 'Model':
             current = context.get('model', {})
             idx = 1
-        elif first in ('current', 'it', 'obj', 'table', 'model'):
+        elif first in (
+            'current', 'it', 'obj', 'table',
+            'model', 'outerIt',
+        ):
             current = context.get(first, context.get(first.lower(), {}))
             idx = 1
         else:
@@ -663,8 +1284,43 @@ class BPAAnalyzer:
             if part == 'AllCalculationItems':
                 current = index.get('all_calc_items') or []
                 continue
+            if part == 'AllRelationships':
+                current = (
+                    index.get('relationships') or []
+                )
+                continue
+            if part == 'Columns':
+                # Table-level column list
+                if isinstance(current, dict):
+                    current = (
+                        current.get('columns') or []
+                    )
+                continue
+            if part == 'Measures':
+                # Table-level measure list
+                if isinstance(current, dict):
+                    current = (
+                        current.get('measures') or []
+                    )
+                continue
             if part == 'RowLevelSecurity':
-                current = context.get('table', {}).get('roles', [])
+                tbl = context.get('table', {})
+                current = tbl.get('roles', [])
+                continue
+            # Relationship property aliases
+            if part == 'FromTable':
+                if isinstance(current, dict):
+                    current = (
+                        current.get('fromTable')
+                        or current.get('FromTable', '')
+                    )
+                continue
+            if part == 'ToTable':
+                if isinstance(current, dict):
+                    current = (
+                        current.get('toTable')
+                        or current.get('ToTable', '')
+                    )
                 continue
 
             if isinstance(current, dict):
@@ -884,6 +1540,73 @@ class BPAAnalyzer:
             category = violation.category
             summary["by_category"][category] = summary["by_category"].get(category, 0) + 1
         return summary
+
+    def get_violations_by_category(
+        self,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Return violations grouped by category.
+
+        Returns a dict mapping category names to lists of
+        violation dicts, with a ``_categories`` key listing
+        all known category names (even if empty).
+        """
+        known_categories = [
+            "DAX Expressions",
+            "Naming",
+            "Formatting",
+            "Relationships",
+            "Calculation Groups",
+            "Performance",
+            "Maintenance",
+            "Metadata",
+            "Data Model",
+            "Data Types",
+            "Time Intelligence",
+            "Security",
+            "Error Prevention",
+        ]
+
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for v in self.violations:
+            cat = v.category or "Uncategorized"
+            if cat not in grouped:
+                grouped[cat] = []
+            grouped[cat].append({
+                "rule_id": v.rule_id,
+                "rule_name": v.rule_name,
+                "severity": BPASeverity(
+                    v.severity
+                ).name,
+                "description": v.description,
+                "object_type": v.object_type,
+                "object_name": v.object_name,
+                "table_name": v.table_name,
+                "fix": v.fix_expression,
+            })
+
+        # Ensure all known categories appear in output
+        for cat in known_categories:
+            if cat not in grouped:
+                grouped[cat] = []
+
+        # Add discovered categories not in known list
+        for cat in list(grouped.keys()):
+            if cat not in known_categories:
+                known_categories.append(cat)
+
+        # Add metadata
+        result: Dict[str, Any] = {
+            "_categories": known_categories,
+            "_total": len(self.violations),
+        }
+        result.update(grouped)
+        return result
+
+    def get_rule_categories(self) -> List[str]:
+        """Return sorted list of unique categories across
+        all loaded rules (built-in + custom)."""
+        cats = sorted({r.category for r in self.rules})
+        return cats
 
     def _analyze_rule(self, rule: BPARule, model: Dict, index: Optional[Dict[str, Any]] = None) -> None:
         """Analyze a single rule against the model"""

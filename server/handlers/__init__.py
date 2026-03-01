@@ -11,9 +11,15 @@ from server.handlers.column_usage_handler import register_column_usage_handler
 # export_dax_measures: merged into dependencies_handler (05_DAX_Operations.export)
 from server.handlers.documentation_handler import register_documentation_handlers
 # comparison_handler: merged into analysis_handler (06_Analysis_Operations.compare)
-from server.handlers.pbip_operations_handler import register_pbip_operations_handler
+from server.handlers.pbip_operations_handler import (
+    register_pbip_model_analysis_handler,
+    register_pbip_query_handler,
+)
 from server.handlers.slicer_operations_handler import register_slicer_operations_handler
-from server.handlers.visual_operations_handler import register_visual_operations_handler
+from server.handlers.visual_operations_handler import (
+    register_visual_operations_handler,
+    register_visual_sync_handler,
+)
 from server.handlers.report_info_handler import register_report_info_handler
 from server.handlers.tmdl_handler import register_tmdl_operations_handler
 from server.handlers.dax_context_handler import register_dax_handlers
@@ -66,9 +72,11 @@ def register_all_handlers(registry):
     # export_dax_measures removed - merged into dependencies_handler
     register_documentation_handlers(registry)
     # comparison_handlers removed - merged into analysis_handler
-    register_pbip_operations_handler(registry)
+    register_pbip_model_analysis_handler(registry)
+    register_pbip_query_handler(registry)
     register_slicer_operations_handler(registry)
     register_visual_operations_handler(registry)
+    register_visual_sync_handler(registry)
     register_report_info_handler(registry)
     register_tmdl_operations_handler(registry)
     register_dax_handlers(registry)
