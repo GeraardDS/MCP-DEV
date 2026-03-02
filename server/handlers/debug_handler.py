@@ -715,6 +715,7 @@ def _execute_visual_query(
                         'se_pct': trace_result.get('se_pct', 0.0),
                     }
                     response['se_fe_trace'] = {
+                        'runner': 'native',
                         'performance': perf,
                         'se_events': trace_result.get('se_events', []),
                         'cache_cleared': trace_result.get(
@@ -2524,6 +2525,7 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
                         'se_pct': trace_result.get('se_pct', 0.0),
                     }
                     response['se_fe_trace'] = {
+                        'runner': 'native',
                         'performance': perf,
                         'se_events': trace_result.get('se_events', []),
                         'cache_cleared': trace_result.get('cache_cleared', False),

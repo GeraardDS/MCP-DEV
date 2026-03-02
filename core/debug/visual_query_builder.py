@@ -46,6 +46,9 @@ DATA_VISUAL_TYPES = {
     'scriptVisual', 'pythonVisual', 'rScript',
 }
 
+# Visual types that include grand total rows (need ROLLUPADDISSUBTOTAL in SUMMARIZECOLUMNS)
+SUBTOTAL_VISUAL_TYPES = {'pivotTable', 'matrix', 'table', 'tableEx'}
+
 
 @dataclass
 class VisualInfo:
@@ -678,25 +681,53 @@ class VisualQueryBuilder:
         # Get grouping columns from the visual
         grouping_columns = visual_info.columns if visual_info.columns else []
 
-        # Build the query - use SUMMARIZECOLUMNS if we have grouping columns
+        # All filters assembled here; _build_visual_dax_query handles classification
         all_filters = filter_context.all_filters()
-        dax_query = self._build_visual_dax_query(target_measures, grouping_columns, all_filters)
 
         # For backward compatibility, use first measure as the target
         target_measure = target_measures[0]
 
-        # Fetch actual measure expressions from the model
+        # Fetch actual measure expressions from the model (needed for table-qualified
+        # refs, format-string detection, and the expanded query)
         measure_definitions = []
         expanded_query = None
+        measure_table_map: Dict[str, str] = {}
+        format_string_measures: List[str] = []
+
         if expand_measures and self._query_executor:
             measure_defs = self.get_measure_expressions(target_measures)
             measure_definitions = list(measure_defs.values())
+
+            # Table-qualified measure references (e.g. 'm Measure'[Net Asset Value])
+            measure_table_map = {m.name: m.table for m in measure_definitions if m.table}
+
+            # Detect format-string companion measures (_MeasureName FormatString)
+            # and add them with IGNORE() so SUMMARIZECOLUMNS doesn't blank-filter them
+            if self._all_measures_loaded:
+                for m_def in measure_definitions:
+                    fs_name = f"_{m_def.name} FormatString"
+                    fs_def = self._measure_cache.get(fs_name)
+                    if fs_def and fs_def.table:
+                        format_string_measures.append(f"'{fs_def.table}'[{fs_name}]")
 
             # Build expanded query with actual measure DAX
             if measure_definitions:
                 expanded_query = self._build_expanded_dax_query(
                     measure_definitions, grouping_columns, all_filters
                 )
+
+        # Use ROLLUPADDISSUBTOTAL for matrix/table visuals (they have grand total rows)
+        include_grand_total = getattr(visual_info, 'visual_type', None) in SUBTOTAL_VISUAL_TYPES
+
+        # Build the PBI-accurate DEFINE/EVALUATE query with TREATAS filter vars
+        dax_query = self._build_visual_dax_query(
+            target_measures,
+            grouping_columns,
+            all_filters,
+            measure_table_map=measure_table_map,
+            include_grand_total=include_grand_total,
+            format_string_measures=format_string_measures,
+        )
 
         # Build filter breakdown for documentation
         filter_breakdown = {
@@ -728,175 +759,204 @@ class VisualQueryBuilder:
             filter_breakdown=filter_breakdown
         )
 
+    def _format_value_for_treatas(self, val: Any) -> str:
+        """Format a single value for inclusion in a TREATAS set literal.
+
+        Handles TypedValue wrappers (duck-typed) as well as raw Python scalars.
+        """
+        # Duck-type TypedValue (has .value + .value_type attributes)
+        if hasattr(val, 'value') and hasattr(val, 'value_type'):
+            if val.value is None:
+                return 'BLANK()'
+            raw, vt = val.value, val.value_type
+            if vt == 'string':
+                escaped = str(raw).replace('"', '""')
+                return f'"{escaped}"'
+            if vt == 'boolean':
+                return 'TRUE' if str(raw).lower() == 'true' else 'FALSE'
+            if vt in ('integer', 'decimal'):
+                return str(raw)
+            val = raw  # unknown sub-type — fall through
+        if val is None:
+            return 'BLANK()'
+        if isinstance(val, bool):
+            return 'TRUE' if val else 'FALSE'
+        if isinstance(val, (int, float)) and not isinstance(val, bool):
+            return str(val)
+        escaped = str(val).replace('"', '""')
+        return f'"{escaped}"'
+
+    def _format_values_as_treatas_set(self, values: List[Any]) -> str:
+        """Format a list of filter values as a DAX set literal: {v1, v2, ...}"""
+        parts = [self._format_value_for_treatas(v) for v in (values or [])]
+        return '{' + ', '.join(parts) + '}' if parts else '{BLANK()}'
+
     def _build_visual_dax_query(
         self,
         measures: List[str],
         grouping_columns: List[str],
         filters: List,
-        fact_table: Optional[str] = None
+        fact_table: Optional[str] = None,
+        measure_table_map: Optional[Dict[str, str]] = None,
+        include_grand_total: bool = False,
+        row_limit: int = 502,
+        format_string_measures: Optional[List[str]] = None,
     ) -> str:
         """
         Build a DAX query that reproduces the visual's data.
 
-        For visuals with grouping columns (matrix, chart with categories), builds
-        a SUMMARIZE + ADDCOLUMNS query inside CALCULATETABLE (more reliable than
-        SUMMARIZECOLUMNS with complex filters). For simple card/KPI visuals, builds
-        a ROW query.
+        Uses the same DEFINE/EVALUATE + TREATAS filter vars + SUMMARIZECOLUMNS
+        structure that Power BI Desktop actually sends to the engine, producing
+        accurate SE/FE timing profiles when run via NativeTraceRunner.
+
+        For visuals with grouping columns (matrix, chart, table) the query is:
+            DEFINE
+                VAR __DS0FilterTable  = TREATAS({val}, 'T'[C])
+                ...
+                VAR __DS0Core         = SUMMARIZECOLUMNS(col, __DS0FilterTable..., "M", [M])
+                VAR __DS0PrimaryWindowed = TOPN(502, __DS0Core, col, 1)
+            EVALUATE __DS0PrimaryWindowed
+            ORDER BY col
+
+        For card/KPI visuals (no grouping columns) a ROW() query is returned,
+        with TREATAS filter vars passed to CALCULATE when filters are present.
 
         Args:
             measures: List of measure references (e.g., ['[Total Sales]', '[Profit]'])
-            grouping_columns: List of column references for grouping (e.g., ["'Date'[Year]"])
+            grouping_columns: List of column refs for grouping (e.g., ["'Date'[Year]"])
             filters: List of FilterExpression objects
-            fact_table: Optional fact table for SUMMARIZE (auto-detected if not provided)
+            fact_table: Unused (kept for backward compatibility)
+            measure_table_map: Optional dict mapping measure name -> table name for
+                               table-qualified refs like 'm Measure'[Net Asset Value]
+            include_grand_total: When True, wraps groupby column in ROLLUPADDISSUBTOTAL
+                                 and orders by [IsGrandTotalRowTotal] DESC (matrix/table)
+            row_limit: Row limit passed to TOPN (default 502 matches PBI page size)
+            format_string_measures: Optional list of table-qualified format-string measure
+                                    refs to add with IGNORE(), e.g.
+                                    ["'m Measure'[_Net Asset Value FormatString]"]
 
         Returns:
-            Complete DAX query string
+            Complete DAX query string starting with DEFINE or EVALUATE
         """
-        # Filter out non-data filters (field parameters and UI controls)
-        # The measures themselves handle field parameter logic internally
-        # UI control filters affect formatting, not data
         from .filter_to_dax import FilterClassification
 
-        data_filters = []
-        field_param_filters = []
-        ui_control_filters = []
+        # --- 1. Classify filters ---
+        data_filters: List = []
+        field_param_filters: List = []
 
         for f in filters:
-            if f.dax:
-                classification = getattr(f, 'classification', FilterClassification.DATA)
-                if classification == FilterClassification.FIELD_PARAMETER:
-                    field_param_filters.append(f)
-                elif classification == FilterClassification.UI_CONTROL:
-                    ui_control_filters.append(f)
-                else:
-                    data_filters.append(f)
-
-        # Build filter list - use simple syntax for single values
-        filter_dax_list = []
-        for f in data_filters:
-            # Optimize: Use = instead of IN for single values
-            if len(f.values) == 1 and f.condition_type == 'In':
-                val = f.values[0]
-                # Handle special cases
-                if val is None or str(val).lower() == 'null':
-                    filter_dax_list.append(f"ISBLANK('{f.table}'[{f.column}])")
-                elif isinstance(val, bool):
-                    filter_dax_list.append(f"'{f.table}'[{f.column}] = {str(val).upper()}")
-                elif isinstance(val, (int, float)):
-                    filter_dax_list.append(f"'{f.table}'[{f.column}] = {val}")
-                else:
-                    # String value - escape quotes
-                    val_str = str(val).replace('"', '""')
-                    filter_dax_list.append(f"'{f.table}'[{f.column}] = \"{val_str}\"")
+            if not f.dax:
+                continue
+            classification = getattr(f, 'classification', FilterClassification.DATA)
+            if classification == FilterClassification.UI_CONTROL:
+                continue  # formatting/display only — never affects data
+            elif classification == FilterClassification.FIELD_PARAMETER:
+                field_param_filters.append(f)
             else:
-                filter_dax_list.append(f.dax)
+                data_filters.append(f)
 
-        if grouping_columns:
-            # Extract tables from all columns to detect multi-table scenarios
-            tables_in_columns = set()
-            for col in grouping_columns:
-                if "'" in col and '[' in col:
-                    # Extract table from "'Table'[Column]"
-                    table_name = col.split('[')[0]
-                    tables_in_columns.add(table_name)
+        # Data filters first, then field parameter filters (matches PBI ordering)
+        active_filters = data_filters + field_param_filters
 
-            # Determine if we can use SUMMARIZE (single table) or need SUMMARIZECOLUMNS (multi-table)
-            use_summarize = False
-            if not fact_table and len(tables_in_columns) == 1:
-                # Single table - can use SUMMARIZE
-                fact_table = list(tables_in_columns)[0]
-                use_summarize = True
-            elif fact_table:
-                # Fact table explicitly provided - use SUMMARIZE
-                use_summarize = True
-            # else: multi-table or no fact table - use SUMMARIZECOLUMNS
+        # --- 2. Build TREATAS var declarations ---
+        # Each filter becomes: VAR __DS0FilterTableN = TREATAS({values}, 'T'[C])
+        treatas_vars: List[Tuple[str, str]] = []
+        for i, f in enumerate(active_filters):
+            var_name = "__DS0FilterTable" if i == 0 else f"__DS0FilterTable{i + 1}"
+            values_set = self._format_values_as_treatas_set(f.values)
+            treatas_vars.append((var_name, f"TREATAS({values_set}, '{f.table}'[{f.column}])"))
 
-            columns_str = ',\n        '.join(grouping_columns)
-
-            # Build measure expressions with ADDCOLUMNS
-            measure_parts = []
-            for m in measures:
-                alias = m.strip('[]')
-                measure_parts.append(f'"{alias}", {m}')
-            measures_str = ',\n    '.join(measure_parts)
-
-            if filter_dax_list:
-                filters_str = ',\n    '.join(filter_dax_list)
-
-                if use_summarize and fact_table:
-                    # Single table: Use SUMMARIZE + ADDCOLUMNS (more reliable with field parameters)
-                    query = f'''EVALUATE
-CALCULATETABLE(
-    ADDCOLUMNS(
-        SUMMARIZE(
-            {fact_table},
-            {columns_str}
-        ),
-        {measures_str}
-    ),
-    {filters_str}
-)'''
-                else:
-                    # Multi-table: Use SUMMARIZECOLUMNS (handles cross-table columns properly)
-                    query = f'''EVALUATE
-CALCULATETABLE(
-    SUMMARIZECOLUMNS(
-        {columns_str},
-        {measures_str}
-    ),
-    {filters_str}
-)'''
-            else:
-                if use_summarize and fact_table:
-                    query = f'''EVALUATE
-ADDCOLUMNS(
-    SUMMARIZE(
-        {fact_table},
-        {columns_str}
-    ),
-    {measures_str}
-)'''
-                else:
-                    query = f'''EVALUATE
-SUMMARIZECOLUMNS(
-    {columns_str},
-    {measures_str}
-)'''
-        else:
-            # No grouping columns - simple ROW query for card/KPI visuals
-            if len(measures) == 1:
-                measure = measures[0]
-                if filter_dax_list:
-                    filters_str = ',\n    '.join(filter_dax_list)
-                    query = f'''EVALUATE
-ROW(
-    "Value", CALCULATE({measure}, {filters_str})
-)'''
-                else:
-                    query = f'''EVALUATE
-ROW("Value", {measure})'''
-            else:
-                # Multiple measures
-                measure_parts = []
+        # --- 3. No grouping columns → ROW() query for card/KPI visuals ---
+        if not grouping_columns:
+            if treatas_vars:
+                # Build DEFINE block so we can reference filter vars in CALCULATE
+                define_lines = [
+                    f"    VAR {vn} =\n        {expr}" for vn, expr in treatas_vars
+                ]
+                filter_var_refs = ", ".join(vn for vn, _ in treatas_vars)
+                row_parts = []
                 for m in measures:
-                    alias = m.strip('[]')
-                    if filter_dax_list:
-                        filters_str = ', '.join(filter_dax_list)
-                        measure_parts.append(f'"{alias}", CALCULATE({m}, {filters_str})')
-                    else:
-                        measure_parts.append(f'"{alias}", {m}')
-                measures_str = ',\n    '.join(measure_parts)
-                query = f'''EVALUATE
-ROW(
-    {measures_str}
-)'''
+                    alias = m.strip('[]').replace(' ', '_')
+                    row_parts.append(f'    "{alias}", CALCULATE({m}, {filter_var_refs})')
+                define_block = "\n".join(define_lines)
+                row_body = ",\n".join(row_parts)
+                return f"DEFINE\n{define_block}\n\nEVALUATE\nROW(\n{row_body}\n)"
+            else:
+                # No filters — simple ROW
+                row_parts = [f'    "{m.strip("[]").replace(" ", "_")}", {m}' for m in measures]
+                return f"EVALUATE\nROW(\n{','.join(row_parts)}\n)"
 
-        # NOTE: Comments are intentionally NOT added to the query string.
-        # Adding comments before EVALUATE causes issues when the query is later
-        # wrapped by validate_and_execute_dax (it checks for EVALUATE prefix).
-        # Information about excluded filters is returned separately in the response.
+        # --- 4. Build SUMMARIZECOLUMNS arguments ---
+        sc_args: List[str] = []
 
-        return query
+        # 4a. Groupby columns — with optional ROLLUPADDISSUBTOTAL for matrix/table
+        first_col = grouping_columns[0]
+        if include_grand_total:
+            sc_args.append(f"        ROLLUPADDISSUBTOTAL({first_col}, \"IsGrandTotalRowTotal\")")
+            for col in grouping_columns[1:]:
+                sc_args.append(f"        {col}")
+        else:
+            for col in grouping_columns:
+                sc_args.append(f"        {col}")
+
+        # 4b. Filter table references (direct SUMMARIZECOLUMNS args — not CALCULATETABLE)
+        for var_name, _ in treatas_vars:
+            sc_args.append(f"        {var_name}")
+
+        # 4c. Measure name-expression pairs (table-qualified when available)
+        for m in measures:
+            m_name = m.strip('[]')
+            alias = m_name.replace(' ', '_')
+            if measure_table_map and m_name in measure_table_map:
+                m_ref = f"'{measure_table_map[m_name]}'[{m_name}]"
+            else:
+                m_ref = m
+            sc_args.append(f"        \"{alias}\", {m_ref}")
+
+        # 4d. Format string companion measures wrapped in IGNORE()
+        for fs_ref in (format_string_measures or []):
+            # Derive alias from measure name inside the ref: 'Table'[_Name] -> v__Name_FormatString
+            try:
+                fs_name = fs_ref.split('[')[1].rstrip(']')
+                fs_alias = "v_" + fs_name.replace(' ', '_').lstrip('_')
+            except (IndexError, AttributeError):
+                fs_alias = "v_FormatString"
+            sc_args.append(f"        \"{fs_alias}\", IGNORE({fs_ref})")
+
+        sc_body = ",\n".join(sc_args)
+
+        # --- 5. Build DEFINE block ---
+        define_lines: List[str] = []
+
+        # TREATAS filter vars
+        for var_name, treatas_expr in treatas_vars:
+            define_lines.append(f"    VAR {var_name} =\n        {treatas_expr}")
+
+        # Core SUMMARIZECOLUMNS var
+        define_lines.append(
+            f"    VAR __DS0Core =\n        SUMMARIZECOLUMNS(\n{sc_body}\n        )"
+        )
+
+        # TOPN windowed var
+        if include_grand_total:
+            define_lines.append(
+                f"    VAR __DS0PrimaryWindowed =\n"
+                f"        TOPN({row_limit}, __DS0Core, [IsGrandTotalRowTotal], 0, {first_col}, 1)"
+            )
+            order_by = f"[IsGrandTotalRowTotal] DESC, {first_col}"
+        else:
+            define_lines.append(
+                f"    VAR __DS0PrimaryWindowed =\n"
+                f"        TOPN({row_limit}, __DS0Core, {first_col}, 1)"
+            )
+            order_by = first_col
+
+        define_block = "\n".join(define_lines)
+        return (
+            f"DEFINE\n{define_block}\n\n"
+            f"EVALUATE __DS0PrimaryWindowed\n"
+            f"ORDER BY {order_by}"
+        )
 
     def _build_expanded_dax_query(
         self,
