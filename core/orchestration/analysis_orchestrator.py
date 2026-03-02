@@ -51,20 +51,15 @@ class AnalysisOrchestrator(BaseOrchestrator):
         if not connection_state.is_connected():
             return ErrorHandler.handle_not_connected()
         executor = connection_state.query_executor
-        perf = connection_state.performance_analyzer
         if not executor:
             return ErrorHandler.handle_manager_unavailable('query_executor')
         r = self._get_default_perf_runs(runs)
         results: List[Dict[str, Any]] = []
         for q in queries or []:
-            if perf:
-                results.append(perf.analyze_query(executor, q, r, bool(clear_cache), include_event_counts))
-            else:
-                # basic timing fallback
-                start = time.time()
-                res = executor.validate_and_execute_dax(q, 0)
-                ms = (time.time() - start) * 1000
-                results.append({'success': res.get('success', False), 'query': q, 'summary': {'avg_execution_ms': round(ms, 2), 'note': 'analyzer unavailable'}})
+            start = time.time()
+            res = executor.validate_and_execute_dax(q, 0)
+            ms = (time.time() - start) * 1000
+            results.append({'success': res.get('success', False), 'query': q, 'summary': {'avg_execution_ms': round(ms, 2)}})
         return {'success': True, 'runs': r, 'items': results}
 
     def profile_columns(self, connection_state, table: str, columns: Optional[List[str]] = None) -> Dict[str, Any]:

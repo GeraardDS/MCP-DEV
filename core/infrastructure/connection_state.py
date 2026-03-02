@@ -269,7 +269,6 @@ class ConnectionState:
             try:
                 conn = self.connection_manager.get_connection()
 
-                # Import managers (import performance_analyzer separately to handle deletion)
                 from core.infrastructure.query_executor import OptimizedQueryExecutor
                 from core.dax.dax_injector import DAXInjector
                 from core.model.dependency_analyzer import DependencyAnalyzer
