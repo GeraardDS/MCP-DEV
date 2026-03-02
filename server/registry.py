@@ -48,6 +48,7 @@ CATEGORY_TOOLS = {
     ],
     ToolCategory.QUERY: [
         "04_Run_DAX",
+        "04_Run_DAX_Trace",
         "04_Query_Operations",
         "04_Search_String",
     ],
@@ -98,7 +99,7 @@ CATEGORY_INFO = {
     ToolCategory.CORE: {"name": "Connection & Help", "description": "Connect to Power BI, get help", "tool_count": 3},
     ToolCategory.MODEL: {"name": "Model Operations", "description": "Table/column/measure/relationship CRUD", "tool_count": 7},
     ToolCategory.BATCH: {"name": "Batch & Transactions", "description": "Batch operations with ACID transactions", "tool_count": 2},
-    ToolCategory.QUERY: {"name": "Query & Search", "description": "DAX queries, search objects", "tool_count": 3},
+    ToolCategory.QUERY: {"name": "Query & Search", "description": "DAX queries, search objects", "tool_count": 4},
     ToolCategory.DAX: {"name": "DAX Intelligence", "description": "DAX analysis, dependencies, optimization", "tool_count": 3},
     ToolCategory.ANALYSIS: {"name": "Analysis", "description": "Model analysis, BPA, comparison", "tool_count": 1},
     ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis, SVG visuals", "tool_count": 11},

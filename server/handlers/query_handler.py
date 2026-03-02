@@ -15,16 +15,22 @@ def handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
     if not connection_state.is_connected():
         return ErrorHandler.handle_not_connected()
 
-    agent_policy = connection_state.agent_policy
-    if not agent_policy:
-        return ErrorHandler.handle_manager_unavailable('agent_policy')
-
     query = args.get('query')
     if not query:
         return {'success': False, 'error': 'query parameter required'}
 
-    top_n = args.get('top_n', 100)
     mode = args.get('mode', 'auto')
+
+    # Trace mode: delegate to query trace handler for SE/FE analysis
+    if mode == 'trace':
+        from server.handlers.query_trace_handler import handle_run_dax_trace
+        return handle_run_dax_trace(args)
+
+    agent_policy = connection_state.agent_policy
+    if not agent_policy:
+        return ErrorHandler.handle_manager_unavailable('agent_policy')
+
+    top_n = args.get('top_n', 100)
 
     result = agent_policy.safe_run_dax(
         connection_state=connection_state,
@@ -100,8 +106,8 @@ def register_query_handlers(registry):
                 "properties": {
                     "query": {"type": "string", "description": "DAX query (EVALUATE statement)"},
                     "top_n": {"type": "integer", "description": "Max rows (default: 100)", "default": 100},
-                    "mode": {"type": "string", "enum": ["auto", "analyze", "simple"], "default": "auto",
-                             "description": "auto=preview, simple=preview, analyze=N-run benchmark"}
+                    "mode": {"type": "string", "enum": ["auto", "analyze", "simple", "trace"], "default": "auto",
+                             "description": "auto=preview, simple=preview, analyze=N-run benchmark, trace=SE/FE timing analysis"}
                 },
                 "required": ["query"]
             },

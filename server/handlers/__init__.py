@@ -5,6 +5,7 @@ Individual handler modules for different tool categories
 from server.handlers.connection_handler import register_connection_handlers
 # metadata_handler: merged into query_handler (04_Query_Operations + 04_Search_String)
 from server.handlers.query_handler import register_query_handlers
+from server.handlers.query_trace_handler import register_query_trace_handler
 from server.handlers.analysis_handler import register_analysis_handlers
 from server.handlers.dependencies_handler import register_dependencies_handlers
 from server.handlers.column_usage_handler import register_column_usage_handler
@@ -66,6 +67,7 @@ def register_all_handlers(registry):
 
     # metadata_handlers removed - merged into query_handler
     register_query_handlers(registry)
+    register_query_trace_handler(registry)
     register_analysis_handlers(registry)
     register_dependencies_handlers(registry)
     register_column_usage_handler(registry)
