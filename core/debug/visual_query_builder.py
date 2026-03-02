@@ -155,6 +155,7 @@ class VisualQueryResult:
     measure_definitions: List[MeasureDefinition] = field(default_factory=list)
     expanded_query: Optional[str] = None  # Query with measure expressions inline
     filter_breakdown: Dict[str, Any] = field(default_factory=dict)
+    format_string_measures: List[str] = field(default_factory=list)  # IGNORE() refs for dynamic format strings
 
 
 class VisualQueryBuilder:
@@ -222,6 +223,74 @@ class VisualQueryBuilder:
             from .aggregation_matcher import AggregationMatcher
             self._aggregation_matcher = AggregationMatcher(self._query_executor)
         return self._aggregation_matcher
+
+    def _detect_format_string_measures_via_tom(
+        self, measure_names: List[str], connection_string: str
+    ) -> List[str]:
+        """
+        Detect dynamic format string companion measures via TOM/AMO.
+
+        Power BI creates a hidden companion measure named `_<Name> FormatString`
+        for every measure that has a dynamic format string set. This is exposed
+        in TOM as Measure.FormatStringDefinition (compat level 1470+).
+
+        Using AMO directly is more reliable than the DMV INFO.MEASURES() approach
+        because Power BI Desktop may not surface private/hidden companion measures
+        through the DMV.
+
+        Args:
+            measure_names: Clean measure names (no brackets) to check
+            connection_string: ADOMD/AMO connection string
+
+        Returns:
+            List of table-qualified refs like ["'m Measure'[_Net Asset Value FormatString]"]
+            Empty list if AMO unavailable, compat < 1470, or no dynamic formats found.
+        """
+        try:
+            from core.infrastructure.dll_paths import load_amo_assemblies
+            load_amo_assemblies()
+            from Microsoft.AnalysisServices.Tabular import Server as _AMOServer
+        except Exception:
+            return []
+
+        refs: List[str] = []
+        server = _AMOServer()
+        try:
+            server.Connect(connection_string)
+
+            # Resolve database name
+            db_name = None
+            if server.Databases.Count > 0:
+                db_name = server.Databases[0].Name
+
+            if not db_name:
+                return []
+
+            db = server.Databases.GetByName(db_name)
+            model = db.Model
+
+            name_set = set(measure_names)
+
+            for table in model.Tables:
+                for measure in table.Measures:
+                    if measure.Name not in name_set:
+                        continue
+                    # FormatStringDefinition is only available at compat 1470+
+                    fsd = getattr(measure, 'FormatStringDefinition', None)
+                    if fsd is not None:
+                        table_name = table.Name
+                        companion = f"_{measure.Name} FormatString"
+                        refs.append(f"'{table_name}'[{companion}]")
+
+        except Exception as e:
+            self.logger.debug(f"TOM format string detection failed: {e}")
+        finally:
+            try:
+                server.Disconnect()
+            except Exception:
+                pass
+
+        return refs
 
     def load_column_types(self, query_executor) -> int:
         """
@@ -552,6 +621,94 @@ class VisualQueryBuilder:
             self.logger.debug(f"Error parsing TMDL file {tmdl_file}: {e}")
             return None
 
+    def _detect_dynamic_format_string_measures(
+        self,
+        measure_definitions: List[MeasureDefinition],
+    ) -> List[str]:
+        """
+        Detect measures that have a dynamic format string (formatStringDefinition in TMDL).
+
+        Power BI projects these as 'Table'[_MeasureName FormatString] in SUMMARIZECOLUMNS
+        queries, wrapped in IGNORE() so they don't filter out rows. The companion
+        measure is NOT a real model measure — it's a synthetic projection of the
+        Measure.FormatStringDefinition.Expression TOM property, so INFO.MEASURES()
+        will never return it. TMDL file scanning is the only reliable detection path.
+
+        Returns:
+            List of fully-qualified measure refs, e.g.
+            ["'m Measure'[_Net Asset Value FormatString]"]
+        """
+        if not measure_definitions:
+            return []
+
+        semantic_model_path = self._find_semantic_model_path()
+        if not semantic_model_path:
+            # Fallback: PBIP projects often have a separately-named .SemanticModel
+            # sibling folder (e.g. Report=R0101-*.Report, Model=S01-*.SemanticModel).
+            # Scan the parent directory for any .SemanticModel folder with TMDL files.
+            parent = self.pbip_folder.parent
+            try:
+                for candidate in sorted(parent.iterdir()):
+                    if candidate.is_dir() and candidate.name.endswith('.SemanticModel'):
+                        def_path = candidate / 'definition'
+                        if def_path.exists() and any(def_path.glob('**/*.tmdl')):
+                            semantic_model_path = def_path
+                            break
+            except Exception:
+                pass
+        if not semantic_model_path:
+            return []
+
+        import re
+        result: List[str] = []
+        tmdl_files = list(semantic_model_path.glob('**/*.tmdl'))
+
+        for m_def in measure_definitions:
+            if not m_def.name:
+                continue
+
+            for tmdl_file in tmdl_files:
+                try:
+                    content = tmdl_file.read_text(encoding='utf-8')
+
+                    # Find the measure block (quoted or unquoted name)
+                    pattern = (
+                        rf"measure\s+'({re.escape(m_def.name)})'\s*="
+                        rf"|measure\s+({re.escape(m_def.name)})\s*="
+                    )
+                    match = re.search(pattern, content, re.IGNORECASE)
+                    if not match:
+                        continue
+
+                    # Extract the block up to the next measure definition
+                    next_measure = re.search(
+                        r'\n\s*measure\s+', content[match.end():], re.IGNORECASE
+                    )
+                    block_end = (
+                        (match.end() + next_measure.start())
+                        if next_measure
+                        else len(content)
+                    )
+                    block = content[match.start():block_end]
+
+                    # Measure found — check for formatStringDefinition in its block
+                    if not re.search(r'formatStringDefinition\s*=', block, re.IGNORECASE):
+                        break  # Measure found but no dynamic format string
+
+                    # Resolve table name: prefer m_def.table, fallback to file stem
+                    table_name = m_def.table
+                    if not table_name and 'tables' in tmdl_file.parts:
+                        table_name = tmdl_file.stem
+
+                    if table_name:
+                        result.append(f"'{table_name}'[_{m_def.name} FormatString]")
+                    break  # Done with this measure
+
+                except Exception as e:
+                    self.logger.debug(f"Error scanning {tmdl_file} for format string: {e}")
+
+        return result
+
     def get_measure_expressions(self, measure_names: List[str]) -> Dict[str, MeasureDefinition]:
         """
         Get DAX expressions for multiple measures.
@@ -710,17 +867,27 @@ class VisualQueryBuilder:
             # Table-qualified measure references (e.g. 'm Measure'[Net Asset Value])
             measure_table_map = {m.name: m.table for m in measure_definitions if m.table}
 
-            # Detect format-string companion measures (_MeasureName FormatString)
-            # and add them with IGNORE() so SUMMARIZECOLUMNS doesn't blank-filter them.
-            # Trigger batch load now if not already done — single-measure queries skip it.
-            if not self._all_measures_loaded:
-                self._load_all_measures_from_dmv()
-            if self._all_measures_loaded:
-                for m_def in measure_definitions:
-                    fs_name = f"_{m_def.name} FormatString"
-                    fs_def = self._measure_cache.get(fs_name)
-                    if fs_def and fs_def.table:
-                        format_string_measures.append(f"'{fs_def.table}'[{fs_name}]")
+            # Detect dynamic format string companion measures.
+            # Primary: TOM/AMO via FormatStringDefinition property (live model, most reliable).
+            # Fallback: TMDL file scanning (PBIP offline projects, no live connection needed).
+            conn_str = None
+            try:
+                from core.infrastructure.connection_state import connection_state as _cs
+                cm = getattr(_cs, 'connection_manager', None)
+                if cm:
+                    conn_str = getattr(cm, 'connection_string', None)
+            except Exception:
+                pass
+
+            if conn_str and measure_definitions:
+                format_string_measures = self._detect_format_string_measures_via_tom(
+                    [m.name for m in measure_definitions], conn_str
+                )
+
+            if not format_string_measures:
+                format_string_measures = self._detect_dynamic_format_string_measures(
+                    measure_definitions
+                )
 
             # Build expanded query with actual measure DAX
             if measure_definitions:
@@ -768,7 +935,8 @@ class VisualQueryBuilder:
             measure_name=target_measure,
             measure_definitions=measure_definitions,
             expanded_query=expanded_query,
-            filter_breakdown=filter_breakdown
+            filter_breakdown=filter_breakdown,
+            format_string_measures=format_string_measures,
         )
 
     def _format_value_for_treatas(self, val: Any) -> str:

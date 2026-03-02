@@ -408,6 +408,12 @@ def _build_filter_context(
     if not compact and result.expanded_query:
         response['expanded_query'] = result.expanded_query
 
+    # Always surface detected format string companion measures so the caller
+    # knows they are included as IGNORE() args in the trace query.
+    fs_measures = getattr(result, 'format_string_measures', [])
+    if fs_measures:
+        response['format_string_measures'] = fs_measures
+
     return {
         'response': response,
         'all_filters': all_filters,
@@ -457,14 +463,16 @@ def _apply_manual_filters(
                 for f in manual_filters
             ]
             query_to_execute = builder._build_visual_dax_query(
-                measures, columns, manual_objs
+                measures, columns, manual_objs,
+                format_string_measures=getattr(result, 'format_string_measures', [])
             )
             response['generated_query'] = query_to_execute
             response['auto_filters_skipped'] = True
             response['manual_filters_applied'] = manual_filters
         else:
             query_to_execute = builder._build_visual_dax_query(
-                measures, columns, []
+                measures, columns, [],
+                format_string_measures=getattr(result, 'format_string_measures', [])
             )
             response['generated_query'] = query_to_execute
             response['auto_filters_skipped'] = True
@@ -520,7 +528,8 @@ def _apply_manual_filters(
             for f in all_dax
         ]
         query_to_execute = builder._build_visual_dax_query(
-            measures, columns, combined
+            measures, columns, combined,
+            format_string_measures=getattr(result, 'format_string_measures', [])
         )
 
         response['generated_query'] = query_to_execute
