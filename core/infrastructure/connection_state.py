@@ -21,7 +21,6 @@ class ConnectionState:
         """Initialize connection state manager."""
         self.connection_manager = None
         self.query_executor = None
-        self.performance_analyzer = None
         self.dax_injector = None
         self.bpa_analyzer = None
         self.dependency_analyzer = None
@@ -301,35 +300,6 @@ class ConnectionState:
                         pass
                     logger.info("[OK] Query executor initialized")
 
-                # Initialize performance analyzer with AMO SessionTrace (optional - may not exist)
-                if not self.performance_analyzer or force_reinit:
-                    try:
-                        from core.performance.performance_analyzer import EnhancedAMOTraceAnalyzer
-                        if self.connection_manager and self.connection_manager.connection_string:
-                            self.performance_analyzer = EnhancedAMOTraceAnalyzer(self.connection_manager.connection_string)
-                            amo_connected = self.performance_analyzer.connect_amo()
-
-                            # Respect configured trace mode for clearer logs
-                            try:
-                                mode = str(config.get('performance.trace_mode', 'full') or 'full').lower()
-                            except Exception:
-                                mode = 'full'
-                            if mode == 'off':
-                                logger.info("[OK] Performance analyzer initialized (trace_mode=off; basic timing only)")
-                            elif mode == 'basic':
-                                logger.info("[OK] Performance analyzer initialized (trace_mode=basic; basic timing preferred)")
-                            else:
-                                if amo_connected:
-                                    logger.info("[OK] Performance analyzer initialized (AMO SessionTrace with event subscriptions)")
-                                else:
-                                    logger.warning("[WARN] AMO not available - performance analysis will use basic timing")
-                        else:
-                            logger.warning("Cannot initialize performance analyzer: no connection string")
-                    except ImportError:
-                        logger.info("[SKIP] Performance analyzer not available (module not found)")
-                    except Exception as e:
-                        logger.warning(f"[SKIP] Performance analyzer initialization failed: {e}")
-
                 # Initialize other managers
                 if not self.dax_injector or force_reinit:
                     self.dax_injector = DAXInjector(conn)
@@ -467,7 +437,6 @@ class ConnectionState:
     def cleanup(self):
         """Clean up connection state and managers."""
         self.query_executor = None
-        self.performance_analyzer = None
         self.dax_injector = None
         self.bpa_analyzer = None
         self.dependency_analyzer = None
@@ -674,7 +643,7 @@ class ConnectionState:
         """
         managers_status = {}
         manager_names = [
-            'query_executor', 'performance_analyzer', 'dax_injector',
+            'query_executor', 'dax_injector',
             'bpa_analyzer', 'dependency_analyzer', 'bulk_operations',
             'calc_group_manager', 'partition_manager', 'rls_manager',
             'model_exporter', 'performance_optimizer', 'model_validator'

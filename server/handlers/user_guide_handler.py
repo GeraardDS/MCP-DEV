@@ -156,9 +156,9 @@ Execute DAX query with auto limits.
 - **Parameters**:
   - `query` (str, required): DAX EVALUATE statement
   - `top_n` (int, default 100): Row limit
-  - `mode` (str, default 'auto'): 'auto'|'analyze'|'profile'|'simple'
+  - `mode` (str, default 'auto'): 'auto'|'analyze'|'simple'
     - auto: Smart mode selection
-    - analyze/profile: Include timing analysis
+    - analyze: Include timing analysis
     - simple: Preview only
 
 ### 04_Get_Data_Sources

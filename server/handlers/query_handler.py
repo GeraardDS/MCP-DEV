@@ -100,8 +100,8 @@ def register_query_handlers(registry):
                 "properties": {
                     "query": {"type": "string", "description": "DAX query (EVALUATE statement)"},
                     "top_n": {"type": "integer", "description": "Max rows (default: 100)", "default": 100},
-                    "mode": {"type": "string", "enum": ["auto", "analyze", "profile", "simple"], "default": "auto",
-                             "description": "auto=preview, simple=preview, analyze=N-run benchmark, profile=SE/FE trace"}
+                    "mode": {"type": "string", "enum": ["auto", "analyze", "simple"], "default": "auto",
+                             "description": "auto=preview, simple=preview, analyze=N-run benchmark"}
                 },
                 "required": ["query"]
             },
