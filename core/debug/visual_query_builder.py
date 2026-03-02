@@ -637,6 +637,10 @@ class VisualQueryBuilder:
                 }
                 expr = self.converter.convert_slicer_selection(slicer_info)
                 if expr:
+                    # Skip blank-only non-inverted slicers: Power BI treats these as
+                    # "no selection" (show all) at query time and omits the filter.
+                    if not expr.values and expr.has_null_values and not slicer.is_inverted:
+                        continue
                     filter_context.slicer_filters.append(expr)
 
         return visual_info, filter_context
@@ -707,7 +711,10 @@ class VisualQueryBuilder:
             measure_table_map = {m.name: m.table for m in measure_definitions if m.table}
 
             # Detect format-string companion measures (_MeasureName FormatString)
-            # and add them with IGNORE() so SUMMARIZECOLUMNS doesn't blank-filter them
+            # and add them with IGNORE() so SUMMARIZECOLUMNS doesn't blank-filter them.
+            # Trigger batch load now if not already done — single-measure queries skip it.
+            if not self._all_measures_loaded:
+                self._load_all_measures_from_dmv()
             if self._all_measures_loaded:
                 for m_def in measure_definitions:
                     fs_name = f"_{m_def.name} FormatString"
@@ -791,9 +798,11 @@ class VisualQueryBuilder:
         escaped = str(val).replace('"', '""')
         return f'"{escaped}"'
 
-    def _format_values_as_treatas_set(self, values: List[Any]) -> str:
+    def _format_values_as_treatas_set(self, values: List[Any], include_blank: bool = False) -> str:
         """Format a list of filter values as a DAX set literal: {v1, v2, ...}"""
         parts = [self._format_value_for_treatas(v) for v in (values or [])]
+        if include_blank and 'BLANK()' not in parts:
+            parts.append('BLANK()')
         return '{' + ', '.join(parts) + '}' if parts else '{BLANK()}'
 
     def _build_composite_treatas(self, f) -> str:
@@ -892,7 +901,11 @@ class VisualQueryBuilder:
             if f.composite_columns and f.composite_tuples is not None:
                 treatas_expr = self._build_composite_treatas(f)
             else:
-                values_set = self._format_values_as_treatas_set(f.values)
+                # Boolean columns always include BLANK() in the TREATAS set — Power BI
+                # adds it at query time to handle NULL rows in boolean-type columns.
+                col_type = self.converter.get_column_type(f.table, f.column)
+                include_blank = (col_type == 'boolean') or f.has_null_values
+                values_set = self._format_values_as_treatas_set(f.values, include_blank=include_blank)
                 treatas_expr = f"TREATAS({values_set}, '{f.table}'[{f.column}])"
             treatas_vars.append((var_name, treatas_expr))
 
