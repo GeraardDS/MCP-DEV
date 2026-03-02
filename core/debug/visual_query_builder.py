@@ -76,6 +76,9 @@ class SlicerState:
     selection_mode: str
     is_inverted: bool
     affects_all_pages: bool = False
+    # Multi-column composite TREATAS support (sf Row Drill, sf Slicer 1, etc.)
+    extra_columns: List[str] = field(default_factory=list)  # Additional 'Table'[Col] refs
+    composite_values: Optional[List[List[Any]]] = None  # Value tuples, one per selected row
 
 
 @dataclass
@@ -628,7 +631,9 @@ class VisualQueryBuilder:
                     'property': slicer.column,
                     'selected_values': slicer.selected_values,
                     'is_inverted_selection': slicer.is_inverted,
-                    'selection_mode': slicer.selection_mode
+                    'selection_mode': slicer.selection_mode,
+                    'extra_columns': slicer.extra_columns,
+                    'composite_values': slicer.composite_values,
                 }
                 expr = self.converter.convert_slicer_selection(slicer_info)
                 if expr:
@@ -791,6 +796,25 @@ class VisualQueryBuilder:
         parts = [self._format_value_for_treatas(v) for v in (values or [])]
         return '{' + ', '.join(parts) + '}' if parts else '{BLANK()}'
 
+    def _build_composite_treatas(self, f) -> str:
+        """Build a multi-column composite TREATAS expression.
+
+        Produces:
+            TREATAS(
+                {("Cat1", "Field1"), ("Cat2", "Field2")},
+                'Table'[Column1],
+                'Table'[Column2]
+            )
+        """
+        rows = []
+        for tuple_vals in (f.composite_tuples or []):
+            parts = [self._format_value_for_treatas(v) for v in tuple_vals]
+            rows.append('(' + ', '.join(parts) + ')')
+
+        values_set = '{' + ',\n                '.join(rows) + '}' if rows else '{}'
+        col_refs = ',\n            '.join(f.composite_columns)
+        return f"TREATAS(\n            {values_set},\n            {col_refs}\n        )"
+
     def _build_visual_dax_query(
         self,
         measures: List[str],
@@ -859,12 +883,18 @@ class VisualQueryBuilder:
         active_filters = data_filters + field_param_filters
 
         # --- 2. Build TREATAS var declarations ---
-        # Each filter becomes: VAR __DS0FilterTableN = TREATAS({values}, 'T'[C])
+        # Each filter becomes either:
+        #   Single-col: VAR __DS0FilterTableN = TREATAS({values}, 'T'[C])
+        #   Composite:  VAR __DS0FilterTableN = TREATAS({(v1a,v1b),...}, 'T'[C1], 'T'[C2])
         treatas_vars: List[Tuple[str, str]] = []
         for i, f in enumerate(active_filters):
             var_name = "__DS0FilterTable" if i == 0 else f"__DS0FilterTable{i + 1}"
-            values_set = self._format_values_as_treatas_set(f.values)
-            treatas_vars.append((var_name, f"TREATAS({values_set}, '{f.table}'[{f.column}])"))
+            if f.composite_columns and f.composite_tuples is not None:
+                treatas_expr = self._build_composite_treatas(f)
+            else:
+                values_set = self._format_values_as_treatas_set(f.values)
+                treatas_expr = f"TREATAS({values_set}, '{f.table}'[{f.column}])"
+            treatas_vars.append((var_name, treatas_expr))
 
         # --- 3. No grouping columns → ROW() query for card/KPI visuals ---
         if not grouping_columns:
@@ -1695,6 +1725,12 @@ TOPN(
                         measures.append(f"[{prop}]")
 
                 if 'Column' in field:
+                    # Skip inactive projections — these are field-parameter-controlled
+                    # alternatives that Power BI does NOT include as direct groupby axes
+                    # (e.g., 'd Asset Class'[Asset Class] with active:false on a matrix
+                    # whose rows are driven by sf Row Drill field parameter)
+                    if not proj.get('active', True):
+                        continue
                     col_ref = field['Column']
                     table = col_ref.get('Expression', {}).get('SourceRef', {}).get('Entity', '')
                     prop = col_ref.get('Property', '')
@@ -1810,6 +1846,24 @@ TOPN(
         self._slicers_cache[cache_key] = slicers
         return slicers
 
+    @staticmethod
+    def _resolve_field_param_column(table: str, prop: str) -> str:
+        """
+        Resolve the actual DAX column name for a field parameter slicer projection.
+
+        Power BI field parameter tables store selections in a hidden 'Fields' column
+        (e.g., 'sf Filter 1'[sf Filter 1 Fields]).  The visual.json projection records
+        the *display* column whose Property name matches the table name.  When we detect
+        this pattern we append ' Fields' to get the real TREATAS target column.
+
+        Rule:  if is_field_parameter AND property == table_name  →  use '{property} Fields'
+               otherwise keep property as-is  (e.g., 'Category' stays 'Category')
+        """
+        from .filter_to_dax import is_field_parameter_table
+        if is_field_parameter_table(table) and prop == table:
+            return f"{prop} Fields"
+        return prop
+
     def _parse_slicer_state(
         self,
         data: Dict,
@@ -1817,39 +1871,52 @@ TOPN(
         visual_id: str,
         page_name: str
     ) -> Optional[SlicerState]:
-        """Parse slicer state from visual JSON."""
+        """Parse slicer state from visual JSON.
+
+        Handles both single-column slicers (regular and single-field-param like sf Filter 1)
+        and multi-column composite field parameter slicers (sf Row Drill, sf Slicer 1) that
+        require composite-key TREATAS with tuple values.
+        """
         try:
-            # Get field reference
+            from .filter_to_dax import is_field_parameter_table
+
+            # Get field reference(s)
             query = visual.get('query', {})
             query_state = query.get('queryState', {})
-            values = query_state.get('Values', {})
-            projections = values.get('projections', [])
+            values_section = query_state.get('Values', {})
+            projections = values_section.get('projections', [])
 
             if not projections:
                 return None
 
-            field = projections[0].get('field', {})
-            column_ref = field.get('Column', {})
+            # Parse ALL projections (field param slicers can have 2: Category + Fields)
+            proj_columns: List[Dict] = []  # [{table, column}]
+            for proj in projections:
+                field = proj.get('field', {})
+                col_ref = field.get('Column', {})
+                if not col_ref:
+                    continue
+                expr = col_ref.get('Expression', {})
+                source_ref = expr.get('SourceRef', {})
+                t = source_ref.get('Entity', '')
+                p = col_ref.get('Property', '')
+                if t and p:
+                    # Resolve to actual DAX column (handles 'sf Filter 1' → 'sf Filter 1 Fields')
+                    resolved_p = self._resolve_field_param_column(t, p)
+                    proj_columns.append({'table': t, 'column': resolved_p})
 
-            if not column_ref:
+            if not proj_columns:
                 return None
 
-            expr = column_ref.get('Expression', {})
-            source_ref = expr.get('SourceRef', {})
-            table = source_ref.get('Entity', '')
-            column = column_ref.get('Property', '')
-
-            if not table or not column:
-                return None
+            table = proj_columns[0]['table']
+            column = proj_columns[0]['column']
 
             # Get selection state
             objects = visual.get('objects', {})
 
-            # Selection mode - check both singleSelect and strictSingleSelect
+            # Selection mode
             selection_config = objects.get('selection', [{}])
             selection_props = selection_config[0].get('properties', {}) if selection_config else {}
-
-            # Power BI uses either 'singleSelect' or 'strictSingleSelect' depending on version
             single_select = (
                 selection_props.get('singleSelect', {}).get('expr', {}).get('Literal', {}).get('Value', 'false') == 'true' or
                 selection_props.get('strictSingleSelect', {}).get('expr', {}).get('Literal', {}).get('Value', 'false') == 'true'
@@ -1860,30 +1927,39 @@ TOPN(
             data_props = data_config[0].get('properties', {}) if data_config else {}
             is_inverted = data_props.get('isInvertedSelectionMode', {}).get('expr', {}).get('Literal', {}).get('Value', 'false') == 'true'
 
-            # Current selections
+            # Current selections — parse as tuples to support multi-column slicers
             general_config = objects.get('general', [{}])
             general_props = general_config[0].get('properties', {}) if general_config else {}
             current_filter = general_props.get('filter', {}).get('filter', {})
 
-            selected_values = []
+            is_multi_col = len(proj_columns) > 1
+            selected_values: List[Any] = []
+            composite_values: Optional[List[List[Any]]] = [] if is_multi_col else None
+
             if current_filter:
                 where_clause = current_filter.get('Where', [])
-                self.logger.debug(f"Slicer {visual_id}: Found {len(where_clause)} where clauses in filter")
                 for condition in where_clause:
                     in_clause = condition.get('Condition', {}).get('In', {})
                     values_list = in_clause.get('Values', [])
-                    self.logger.debug(f"Slicer {visual_id}: Found {len(values_list)} value groups")
                     for value_group in values_list:
-                        for value_item in value_group:
-                            literal = value_item.get('Literal', {})
-                            val = literal.get('Value', '')
-                            # Keep the original literal value with type suffix
-                            # e.g., '0'L for strings, 0L for integers
-                            # The FilterToDaxConverter will handle type conversion
-                            selected_values.append(val)
-                            self.logger.debug(f"Slicer {visual_id}: Extracted value: {val!r}")
+                        if is_multi_col:
+                            # Each value_group is a tuple: one literal per projection column
+                            tuple_row = []
+                            for value_item in value_group:
+                                literal = value_item.get('Literal', {})
+                                tuple_row.append(literal.get('Value', ''))
+                            composite_values.append(tuple_row)
+                            # Also store just the first column's value in selected_values (for display)
+                            if tuple_row:
+                                selected_values.append(tuple_row[0])
+                        else:
+                            # Single-column: keep flat list of literal values
+                            for value_item in value_group:
+                                literal = value_item.get('Literal', {})
+                                val = literal.get('Value', '')
+                                selected_values.append(val)
             else:
-                self.logger.debug(f"Slicer {visual_id} ({table}.{column}): No current_filter found in general.properties.filter.filter")
+                self.logger.debug(f"Slicer {visual_id} ({table}.{column}): No current_filter found")
 
             # Determine selection mode
             if is_inverted and single_select:
@@ -1893,7 +1969,17 @@ TOPN(
             else:
                 selection_mode = 'multi_select'
 
-            self.logger.debug(f"Slicer {visual_id} ({table}.{column}): {len(selected_values)} selected values, mode={selection_mode}, inverted={is_inverted}")
+            # Extra columns for composite TREATAS (second projection onwards, same table)
+            extra_columns: List[str] = []
+            if is_multi_col:
+                for pc in proj_columns[1:]:
+                    extra_columns.append(f"'{pc['table']}'[{pc['column']}]")
+
+            self.logger.debug(
+                f"Slicer {visual_id} ({table}.{column}): "
+                f"{len(selected_values)} values, mode={selection_mode}, "
+                f"multi_col={is_multi_col}, extra_cols={extra_columns}"
+            )
 
             return SlicerState(
                 slicer_id=visual_id,
@@ -1903,7 +1989,9 @@ TOPN(
                 field_reference=f"'{table}'[{column}]",
                 selected_values=selected_values,
                 selection_mode=selection_mode,
-                is_inverted=is_inverted
+                is_inverted=is_inverted,
+                extra_columns=extra_columns,
+                composite_values=composite_values if composite_values else None,
             )
 
         except Exception as e:

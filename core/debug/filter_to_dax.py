@@ -44,6 +44,9 @@ class FilterExpression:
     is_field_parameter: bool = False  # True if this is a field parameter table (has composite keys)
     classification: str = 'data'  # Filter classification: 'data', 'field_parameter', 'ui_control', 'unknown'
     has_null_values: bool = False  # True if filter contains null/blank values
+    # Composite TREATAS support (multi-column field params: sf Row Drill, sf Slicer 1, etc.)
+    composite_columns: Optional[List[str]] = None  # Full 'Table'[Col] refs for all columns; when set, use composite TREATAS
+    composite_tuples: Optional[List[List[Any]]] = None  # List of value tuples, one per selected row
 
 
 # Field parameter table detection patterns
@@ -137,6 +140,11 @@ def is_ui_control_table(table_name: str) -> bool:
     UI control tables affect visual formatting but not data.
     These can often be skipped for data analysis queries.
 
+    NOTE: Tables with 's ' prefix (e.g., 's Scale', 's Decimal') are regular
+    disconnected slicer / selection tables and are NOT UI controls — Power BI
+    always includes them in the visual query. Only exclude truly formatting-only
+    tables that have no 's ' or 'sf ' prefix.
+
     Args:
         table_name: The table name to check
 
@@ -147,6 +155,12 @@ def is_ui_control_table(table_name: str) -> bool:
         return False
 
     table_lower = table_name.lower().strip("'")
+
+    # 's ' prefix = regular selection / disconnected slicer tables (e.g., 's Scale',
+    # 's Decimal', 's Reporting Currency'). Power BI always includes these in the
+    # visual query TREATAS filters — never classify them as UI controls.
+    if table_lower.startswith('s ') and not table_lower.startswith('sf '):
+        return False
 
     for pattern in UI_CONTROL_PATTERNS:
         if pattern in table_lower:
@@ -359,10 +373,12 @@ class FilterToDaxConverter:
         Args:
             slicer_info: Slicer info dictionary containing:
                 - entity: Table name
-                - property: Column name
+                - property: Column name (already resolved to DAX column, e.g. 'sf Filter 1 Fields')
                 - selected_values: List of selected values (can be raw or TypedValue)
                 - is_inverted_selection: Whether selection is inverted
                 - selection_mode: 'single_select', 'multi_select', 'single_select_all'
+                - extra_columns: Optional list of additional 'Table'[Col] refs (composite TREATAS)
+                - composite_values: Optional list of value tuples (one per row) for composite TREATAS
 
         Returns:
             FilterExpression or None if no filter needed
@@ -373,6 +389,8 @@ class FilterToDaxConverter:
             selected_values = slicer_info.get('selected_values', [])
             is_inverted = slicer_info.get('is_inverted_selection', False)
             selection_mode = slicer_info.get('selection_mode', 'multi_select')
+            extra_columns = slicer_info.get('extra_columns', [])
+            composite_values = slicer_info.get('composite_values', None)
 
             if not entity or not column:
                 return None
@@ -381,6 +399,44 @@ class FilterToDaxConverter:
             if selection_mode == 'single_select_all' and not selected_values:
                 return None
 
+            # --- Composite multi-column TREATAS path (sf Row Drill, sf Slicer 1, etc.) ---
+            if extra_columns and composite_values:
+                all_col_refs = [f"'{entity}'[{column}]"] + list(extra_columns)
+                # Clean each value in each tuple
+                cleaned_tuples = []
+                raw_first_col_values = []
+                for row in composite_values:
+                    cleaned_row = []
+                    for val in row:
+                        if isinstance(val, TypedValue):
+                            cleaned_row.append(val)
+                        else:
+                            cleaned_row.append(self._clean_literal_value(val) if isinstance(val, str) else TypedValue(val, 'unknown'))
+                    cleaned_tuples.append(cleaned_row)
+                    if cleaned_row:
+                        raw_first_col_values.append(cleaned_row[0].value if isinstance(cleaned_row[0], TypedValue) else cleaned_row[0])
+
+                if not cleaned_tuples:
+                    return None
+
+                filter_classification = classify_filter(entity, column)
+                # dax is a placeholder — _build_visual_dax_query uses composite_columns/tuples directly
+                return FilterExpression(
+                    dax=f"-- composite TREATAS on '{entity}'[{column}]",
+                    source='slicer',
+                    table=entity,
+                    column=column,
+                    condition_type='Composite',
+                    values=raw_first_col_values,
+                    original=slicer_info,
+                    is_field_parameter=True,
+                    classification=filter_classification,
+                    has_null_values=False,
+                    composite_columns=all_col_refs,
+                    composite_tuples=cleaned_tuples,
+                )
+
+            # --- Standard single-column path ---
             if not selected_values:
                 return None
 
@@ -755,13 +811,15 @@ class FilterToDaxConverter:
 
         # Handle quoted literals with L suffix: 'value'L -> value (STRING)
         if value.endswith("'L") and value.startswith("'"):
-            return TypedValue(value[1:-2], 'string')  # Definitely a string!
+            inner = value[1:-2].replace("''", "'")  # unescape embedded single quotes
+            return TypedValue(inner, 'string')  # Definitely a string!
         elif value.endswith('"L') and value.startswith('"'):
             return TypedValue(value[1:-2], 'string')  # Definitely a string!
 
         # Handle quoted values without L suffix (still strings)
         elif value.startswith("'") and value.endswith("'"):
-            return TypedValue(value[1:-1], 'string')
+            inner = value[1:-1].replace("''", "'")  # unescape embedded single quotes
+            return TypedValue(inner, 'string')
         elif value.startswith('"') and value.endswith('"'):
             return TypedValue(value[1:-1], 'string')
 
