@@ -640,7 +640,8 @@ class VisualQueryBuilder:
         visual_name: Optional[str] = None,
         measure_name: Optional[str] = None,
         include_slicers: bool = True,
-        expand_measures: bool = True
+        expand_measures: bool = True,
+        measures: Optional[List[str]] = None,
     ) -> Optional[VisualQueryResult]:
         """
         Build a DAX query that reproduces what a visual shows.
@@ -663,12 +664,12 @@ class VisualQueryBuilder:
         if not visual_info:
             return None
 
-        # Determine measures to use
-        if measure_name:
-            # Single measure specified
+        # Determine measures to use (explicit list > single name > visual auto-discovery)
+        if measures:
+            target_measures = [m if m.startswith('[') else f'[{m}]' for m in measures]
+        elif measure_name:
             target_measures = [measure_name if measure_name.startswith('[') else f'[{measure_name}]']
         elif visual_info.measures:
-            # Use all measures from the visual
             target_measures = [m if m.startswith('[') else f'[{m}]' for m in visual_info.measures]
         else:
             self.logger.warning("No measure specified and visual has no measures")
