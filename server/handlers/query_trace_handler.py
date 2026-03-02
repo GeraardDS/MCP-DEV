@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def handle_run_dax_trace(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute DAX query with SE/FE trace analysis"""
+    """Execute DAX query with SE/FE trace analysis using native .NET runner"""
     if not connection_state.is_connected():
         return ErrorHandler.handle_not_connected()
 
@@ -20,21 +20,26 @@ def handle_run_dax_trace(args: Dict[str, Any]) -> Dict[str, Any]:
     if not query:
         return {'success': False, 'error': 'query parameter required'}
 
-    clear_cache = args.get('clear_cache', False)
+    clear_cache = args.get('clear_cache', True)
 
     try:
-        from core.infrastructure.query_trace import QueryTraceRunner
-
-        adomd_conn = connection_state.connection_manager.get_connection()
-        if not adomd_conn:
-            return {'success': False, 'error': 'Failed to get ADOMD connection'}
-
         conn_str = connection_state.connection_manager.connection_string
         if not conn_str:
             return {'success': False, 'error': 'No connection string available'}
 
-        runner = QueryTraceRunner(adomd_conn, conn_str)
-        result = runner.execute_with_trace(query, clear_cache)
+        from core.infrastructure.query_trace import NativeTraceRunner
+        if not NativeTraceRunner.is_available():
+            return {
+                'success': False,
+                'error': 'Native trace runner (DaxExecutor.exe) not found. '
+                         'Build it with: cd core/infrastructure/dax_executor && dotnet build -c Release'
+            }
+
+        native = NativeTraceRunner(conn_str)
+        result = native.execute_with_trace(query, clear_cache)
+
+        if "_error" in result:
+            return {'success': False, 'error': f'Trace execution failed: {result["_error"]}'}
 
         # Core returns flat dict — restructure into response format
         perf = {
@@ -59,15 +64,15 @@ def handle_run_dax_trace(args: Dict[str, Any]) -> Dict[str, Any]:
 
         return {
             'success': True,
+            'runner': 'native',
             'performance': perf,
             'se_events': result.get('se_events', []),
-            'query_rows': result.get('query_rows', 0),
             'cache_cleared': result.get('cache_cleared', False),
             'summary': summary,
         }
 
     except ImportError:
-        return {'success': False, 'error': 'QueryTraceRunner not available. Ensure core/infrastructure/query_trace.py exists.'}
+        return {'success': False, 'error': 'NativeTraceRunner not available. Ensure core/infrastructure/query_trace.py exists.'}
     except Exception as e:
         logger.error(f"Query trace execution failed: {e}")
         return {'success': False, 'error': f'Trace execution failed: {str(e)}'}
@@ -83,7 +88,7 @@ def register_query_trace_handler(registry):
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "DAX query (EVALUATE statement)"},
-                "clear_cache": {"type": "boolean", "default": False,
+                "clear_cache": {"type": "boolean", "default": True,
                                 "description": "Clear VertiPaq cache before execution"}
             },
             "required": ["query"]

@@ -33,21 +33,22 @@ namespace DaxExecutor
     public class DaxTraceRunner
     {
         // Configuration constants
-        private const int TRACE_PING_INTERVAL_MS = 500;           // DAX Studio uses 500ms between pings
-        private const int TRACE_EVENT_COLLECTION_DELAY_MS = 3000; // Wait time for trace events to arrive
+        private const int TRACE_PING_INTERVAL_MS = 300;           // Interval between pings to activate trace (local: 300ms is enough)
+        private const int TRACE_EVENT_COLLECTION_DELAY_MS = 5000; // Maximum wait for trace events (adaptive poll exits earlier)
+        private const int TRACE_POLL_INTERVAL_MS = 100;           // How often to check for QueryEnd arrival
+        private const int TRACE_POST_QUERYEND_BUFFER_MS = 300;    // Extra buffer after QueryEnd arrives for trailing SE events
         private const int DAX_COMMAND_TIMEOUT_SECONDS = 300;      // 5 minutes for large queries
         private const int TRACE_AUTO_STOP_HOURS = 1;              // Auto-stop trace after 1 hour
-        private const int TRACE_PING_ITERATIONS = 5;              // Number of ping iterations to activate trace
+        private const int TRACE_PING_ITERATIONS = 2;              // 2 pings sufficient for local Power BI Desktop (saves ~500ms vs 3)
 
         private static string CreateErrorResponse(Exception ex)
         {
             var errorResult = new
             {
-                Results = new object[0],  // Empty results array on error
                 SessionId = "",
-                Performance = new 
-                { 
-                    Total = 0, 
+                Performance = new
+                {
+                    Total = 0,
                     Error = true,
                     ErrorMessage = ex.Message
                 },
@@ -59,10 +60,15 @@ namespace DaxExecutor
 
         private static string BuildConnectionString(string dataSource, string datasetName, string accessToken)
         {
-            // Desktop connection - no authentication
-            if (dataSource.Contains("localhost:", StringComparison.OrdinalIgnoreCase))
+            // Desktop connection - no authentication.
+            // Force IPv4 (127.0.0.1) because .NET 8 resolves 'localhost' to IPv6,
+            // but Power BI Desktop SSAS only listens on IPv4.
+            // Also set Application Name so the trace filter can match on it.
+            if (dataSource.Contains("localhost:", StringComparison.OrdinalIgnoreCase) ||
+                dataSource.Contains("127.0.0.1:", StringComparison.OrdinalIgnoreCase))
             {
-                return $"Data Source={dataSource};Initial Catalog={datasetName};";
+                var ipv4Source = dataSource.Replace("localhost:", "127.0.0.1:", StringComparison.OrdinalIgnoreCase);
+                return $"Data Source={ipv4Source};Initial Catalog={datasetName};Application Name=DaxExecutor;";
             }
             // Cloud connection - use token
             return $"Data Source={dataSource};Initial Catalog={datasetName};Password={accessToken};";
@@ -80,7 +86,7 @@ namespace DaxExecutor
 
                 // Setup connection string using the provided XMLA server
                 var connectionString = BuildConnectionString(xmlaServer, datasetName, accessToken);
-                
+
                 return await ExecuteTraceInternal(connectionString, daxQuery, accessToken, datasetName);
             }
             catch (Exception ex)
@@ -90,14 +96,55 @@ namespace DaxExecutor
             }
         }
 
+        /// <summary>
+        /// Entry point for local Power BI Desktop trace (no auth, auto-detect database).
+        /// Called from --local stdin mode.
+        /// </summary>
+        public static async Task<string> RunLocalTraceAsync(
+            string connectionString,
+            string daxQuery,
+            bool clearCache)
+        {
+            try
+            {
+                // Force IPv4: .NET 8 resolves 'localhost' to IPv6 but PBI Desktop only listens on IPv4
+                connectionString = connectionString.Replace("localhost:", "127.0.0.1:", StringComparison.OrdinalIgnoreCase);
+
+                // Auto-detect database name from the local connection
+                string datasetName = "";
+                using (var tempConn = new AdomdConnection(connectionString))
+                {
+                    tempConn.Open();
+                    using var cmd = new AdomdCommand(
+                        "SELECT [CATALOG_NAME] FROM $SYSTEM.DBSCHEMA_CATALOGS", tempConn);
+                    using var reader = cmd.ExecuteReader();
+                    if (reader.Read())
+                    {
+                        datasetName = reader.GetString(0);
+                    }
+                }
+
+                return await ExecuteTraceInternal(
+                    connectionString, daxQuery, "desktop-no-auth", datasetName, clearCache);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"RunLocalTraceAsync FAILED: {ex.GetType().Name}: {ex.Message}");
+                Console.Error.WriteLine($"Stack: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                    Console.Error.WriteLine($"Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                return CreateErrorResponse(ex);
+            }
+        }
+
         private static async Task<string> ExecuteTraceInternal(
             string connectionString,
             string daxQuery,
             string accessToken,
-            string datasetName)
+            string datasetName,
+            bool clearCache = true)
         {
             var collectedEvents = new List<TraceEvent>();
-            var queryResult = new Dictionary<string, object>();
             var queryStartTime = DateTime.UtcNow;
             var queryEndTime = DateTime.UtcNow;
                 
@@ -119,8 +166,11 @@ namespace DaxExecutor
 
                 using var server = new Server();
                 
-                // Determine if this is a local/desktop connection by checking the connection string
-                bool isLocalConnection = connectionString.Contains("localhost:", StringComparison.OrdinalIgnoreCase);
+                // Determine if this is a local/desktop connection (localhost or 127.0.0.1).
+                // Note: RunLocalTraceAsync replaces "localhost:" with "127.0.0.1:" before this point,
+                // so we must check for both forms.
+                bool isLocalConnection = connectionString.Contains("localhost:", StringComparison.OrdinalIgnoreCase)
+                    || connectionString.Contains("127.0.0.1:", StringComparison.OrdinalIgnoreCase);
                 
                 if (!isLocalConnection && !string.IsNullOrEmpty(accessToken) && accessToken != "desktop-no-auth-needed")
                 {
@@ -145,10 +195,16 @@ namespace DaxExecutor
                 try
                 {
                     trace = server.Traces.Add(traceName);
-                    
 
-                    trace.Filter = GetSessionIdFilter(sessionId, applicationName);
-                    
+                    // For local Power BI Desktop: VertiPaqSEQueryEnd events do NOT carry SessionID
+                    // or ApplicationName, so a session-scoped filter silently drops all real SE events.
+                    // Local SSAS is single-user — capture everything and correlate in Calculate().
+                    // For cloud connections, still apply the session filter on FE events.
+                    if (!isLocalConnection)
+                    {
+                        trace.Filter = GetSessionIdFilter(sessionId, applicationName);
+                    }
+
                     // Set stop time for automatic cleanup
                     trace.StopTime = DateTime.UtcNow.AddHours(TRACE_AUTO_STOP_HOURS);
 
@@ -158,28 +214,19 @@ namespace DaxExecutor
                     {
                         try
                         {
-                            var textData = e.TextData?.ToString() ?? "";
+                            var textData = "";
+                            try { textData = e.TextData?.ToString() ?? ""; } catch { }
                             if (textData.Contains("$SYSTEM.DISCOVER_SESSIONS") || textData.StartsWith("/* PING */"))
-                            {
-
                                 return;
-                            }
 
-                            var traceEvent = new TraceEvent
-                            {
-                                EventClass = e.EventClass.ToString(),
-                                StartTime = null,
-                                EndTime = null,
-                                Duration = null,
-                                CpuTime = null,
-                                TextData = textData,
-                                DatabaseName = e.DatabaseName?.ToString(),
-                                SessionId = e.SessionID?.ToString(),
-                                ApplicationName = e.ApplicationName?.ToString(),
-                                ObjectName = e.ObjectName?.ToString(),
-                                ActivityId = e.SessionID?.ToString(),
-                                InternalBatchEvent = false
-                            };
+                            var traceEvent = new TraceEvent { InternalBatchEvent = false };
+                            try { traceEvent.EventClass = e.EventClass.ToString(); } catch { traceEvent.EventClass = "Unknown"; }
+                            try { traceEvent.TextData = textData; } catch { }
+                            try { traceEvent.DatabaseName = e.DatabaseName?.ToString(); } catch { }
+                            try { traceEvent.SessionId = e.SessionID?.ToString(); } catch { }
+                            try { traceEvent.ApplicationName = e.ApplicationName?.ToString(); } catch { }
+                            try { traceEvent.ObjectName = e.ObjectName?.ToString(); } catch { }
+                            try { traceEvent.ActivityId = e.SessionID?.ToString(); } catch { }
                             
                             try
                             {
@@ -240,27 +287,50 @@ namespace DaxExecutor
                         }
                         catch (Exception ex)
                         {
-
+                            Console.Error.WriteLine($"OnEvent handler error: {ex.GetType().Name}: {ex.Message}");
                         }
                     };
 
                     // Set trace stop time and start it
                     trace.StopTime = DateTime.UtcNow.AddHours(TRACE_AUTO_STOP_HOURS);
-                    
+
+                    // Clear cache BEFORE starting the trace so cache-invalidation
+                    // SE/Command events are never captured and don't pollute timings.
+                    if (clearCache)
+                    {
+                        await ClearDatasetCache(queryConnection, server, datasetName);
+                    }
+
+                    // Warm up the DAX formula engine session before the trace starts.
+                    // DMV queries (ID mapping, trace pings) don't initialize the DAX engine's
+                    // per-session state. Without this, the first EVALUATE on a fresh ADOMD
+                    // connection pays ~300ms FE overhead that persistent tools like DAX Studio
+                    // never pay (they reuse long-lived sessions). The trivial ROW("x",1) query
+                    // touches no tables so it doesn't populate SE result cache for the actual query.
+                    if (isLocalConnection)
+                    {
+                        try
+                        {
+                            using var warmupCmd = new AdomdCommand("EVALUATE ROW(\"__warmup__\", 1)", queryConnection);
+                            warmupCmd.CommandTimeout = 10;
+                            using var warmupReader = warmupCmd.ExecuteReader();
+                            while (warmupReader.Read()) { }
+                        }
+                        catch { /* warm-up failure is non-fatal */ }
+                    }
 
                     trace.Start();
 
-
-                    await ClearDatasetCache(queryConnection, server, datasetName);
-
-
-                    for (int i = 0; i < 5; i++)
+                    for (int i = 0; i < TRACE_PING_ITERATIONS; i++)
                     {
                         PingTraceConnection(queryConnection);
-                        await Task.Delay(500);
+                        await Task.Delay(TRACE_PING_INTERVAL_MS);
                     }
 
-
+                    // Execute the query and drain the reader as fast as possible.
+                    // We don't store or sort rows — just Read() to let the server
+                    // complete the query. Native .NET reads are fast enough that
+                    // SSAS QueryEnd timing won't be significantly inflated.
                     queryStartTime = DateTime.UtcNow;
                     try
                     {
@@ -268,74 +338,30 @@ namespace DaxExecutor
                         command.CommandTimeout = DAX_COMMAND_TIMEOUT_SECONDS;
 
                         using var reader = command.ExecuteReader();
-                        
-                        // Handle N result sets (N EVALUATE statements)
-                        var allResults = new List<Dictionary<string, object>>();
-                        bool moreResults = true;
-                        int resultNumber = 1;
-                        
-                        while (moreResults)
+                        // Drain all result sets without storing data
+                        do
                         {
-                            var columns = new List<string>();
-                            for (int i = 0; i < reader.FieldCount; i++)
-                            {
-                                columns.Add(reader.GetName(i));
-                            }
-                            int columnCount = reader.FieldCount;
-
-                            var allRows = new List<List<object>>();
-                            
-                            while (reader.Read())
-                            {
-                                var row = new List<object>();
-                                for (int i = 0; i < reader.FieldCount; i++)
-                                {
-                                    var value = reader.GetValue(i);
-                                    row.Add(value == DBNull.Value ? null! : value);
-                                }
-                                allRows.Add(row);
-                            }
-
-                            // Sort for consistent comparison
-                            IOrderedEnumerable<List<object>> sortedQuery = allRows.OrderBy(row => row[0]);
-                            for (int i = 1; i < columnCount; i++)
-                            {
-                                int columnIndex = i;
-                                sortedQuery = sortedQuery.ThenBy(row => row[columnIndex]);
-                            }
-                            var sortedRows = sortedQuery.ToList();
-
-                            var sampleRows = sortedRows.Take(50).ToList();
-
-                            var resultSet = new Dictionary<string, object>
-                            {
-                                ["ResultNumber"] = resultNumber,
-                                ["Columns"] = columns,
-                                ["RowCount"] = allRows.Count,
-                                ["ColumnCount"] = columnCount,
-                                ["Rows"] = sampleRows
-                            };
-                            
-                            allResults.Add(resultSet);
-                            
-                            // Move to next result set (next EVALUATE statement)
-                            moreResults = reader.NextResult();
-                            resultNumber++;
-                        }
-                        
-                        // Store all results
-                        queryResult["Results"] = allResults;
-
-
+                            while (reader.Read()) { }
+                        } while (reader.NextResult());
                     }
                     finally
                     {
                         queryEndTime = DateTime.UtcNow;
                     }
 
-                    // Wait for trace events to be collected
-
-                    await Task.Delay(TRACE_EVENT_COLLECTION_DELAY_MS);
+                    // Adaptive wait: poll until QueryEnd arrives, then add a small buffer
+                    // for any trailing SE events. Falls back to max wait if QueryEnd never arrives.
+                    var waitStart = DateTime.UtcNow;
+                    var maxWait = TimeSpan.FromMilliseconds(TRACE_EVENT_COLLECTION_DELAY_MS);
+                    while (DateTime.UtcNow - waitStart < maxWait)
+                    {
+                        await Task.Delay(TRACE_POLL_INTERVAL_MS);
+                        if (collectedEvents.Any(e => e.EventClass == "QueryEnd"))
+                        {
+                            await Task.Delay(TRACE_POST_QUERYEND_BUFFER_MS);
+                            break;
+                        }
+                    }
 
 
                 }
@@ -353,13 +379,13 @@ namespace DaxExecutor
 
                 var timings = DaxStudioServerTimings.Calculate(collectedEvents, queryStartTime, queryEndTime, columnIdToNameMap, tableIdToNameMap);
 
-                // Simple structure: just results array and performance
+                // Trace-only output: performance metrics and SE event details (no row data)
                 var resultDict = new Dictionary<string, object>
                 {
-                    ["Results"] = queryResult["Results"],
                     ["SessionId"] = sessionId,
                     ["Performance"] = timings.Performance,
-                    ["EventDetails"] = timings.EventDetails
+                    ["EventDetails"] = timings.EventDetails,
+                    ["CacheCleared"] = clearCache
                 };
 
                 return SystemJsonSerializer.Serialize(resultDict, new SystemJsonSerializerOptions { WriteIndented = true });
@@ -538,7 +564,7 @@ namespace DaxExecutor
             
             var doc = new XmlDocument();
             doc.LoadXml(filterXml);
-            return doc;
+            return doc.DocumentElement!; // AMO expects XmlElement, not XmlDocument
         }
 
         private static async Task ClearDatasetCache(AdomdConnection connection, Server server, string datasetName)

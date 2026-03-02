@@ -9,6 +9,7 @@
 
 using System;
 using System.CommandLine;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace DaxExecutor
@@ -17,6 +18,13 @@ namespace DaxExecutor
     {
         static async Task<int> Main(string[] args)
         {
+            // Check for --local mode (stdin JSON, local Power BI Desktop)
+            if (args.Length >= 1 && args[0] == "--local")
+            {
+                return await RunLocalMode();
+            }
+
+            // Original cloud/XMLA mode
             var workspaceOption = new Option<string>("--workspace", "Power BI workspace name");
             var xmlaOption = new Option<string>("--xmla", "XMLA server connection string (alternative to --workspace)");
             var datasetOption = new Option<string>("--dataset", "Power BI dataset name") { IsRequired = true };
@@ -91,6 +99,57 @@ namespace DaxExecutor
             }, workspaceOption, xmlaOption, datasetOption, queryOption, verboseOption);
 
             return await rootCommand.InvokeAsync(args);
+        }
+
+        /// <summary>
+        /// Local mode: reads JSON from stdin, runs trace against local Power BI Desktop.
+        /// Input:  {"connection_string": "Data Source=localhost:PORT", "query": "EVALUATE ...", "clear_cache": true}
+        /// Output: JSON with Performance and EventDetails on stdout.
+        /// </summary>
+        private static async Task<int> RunLocalMode()
+        {
+            try
+            {
+                string input = Console.In.ReadToEnd().Trim();
+                if (string.IsNullOrEmpty(input))
+                {
+                    Console.Error.WriteLine("Error: No JSON input provided on stdin");
+                    Console.WriteLine("{\"Performance\":{\"Error\":true,\"ErrorMessage\":\"No JSON input on stdin\"},\"EventDetails\":[]}");
+                    return 1;
+                }
+
+                // Parse input JSON
+                using var doc = JsonDocument.Parse(input);
+                var root = doc.RootElement;
+
+                string connectionString = root.GetProperty("connection_string").GetString() ?? "";
+                string query = root.GetProperty("query").GetString() ?? "";
+                bool clearCache = root.TryGetProperty("clear_cache", out var cc) && cc.GetBoolean();
+
+                if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(query))
+                {
+                    Console.Error.WriteLine("Error: connection_string and query are required");
+                    Console.WriteLine("{\"Performance\":{\"Error\":true,\"ErrorMessage\":\"connection_string and query are required\"},\"EventDetails\":[]}");
+                    return 1;
+                }
+
+                Console.Error.WriteLine($"Local trace: {connectionString}, clear_cache={clearCache}");
+
+                string result = await DaxTraceRunner.RunLocalTraceAsync(connectionString, query, clearCache);
+                Console.WriteLine(result);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"{{\"Performance\":{{\"Error\":true,\"ErrorMessage\":\"{EscapeJson(ex.Message)}\"}},\"EventDetails\":[]}}");
+                return 1;
+            }
+        }
+
+        private static string EscapeJson(string s)
+        {
+            return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
         }
     }
 }

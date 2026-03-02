@@ -46,9 +46,11 @@ class QueryPolicy:
         connection_state,
         query: str,
         mode: str = "auto",
+        runs: Optional[int] = None,
         max_rows: Optional[int] = None,
         verbose: bool = False,
         bypass_cache: bool = False,
+        include_event_counts: bool = False,
     ) -> Dict[str, Any]:
         if not connection_state.is_connected():
             return ErrorHandler.handle_not_connected()

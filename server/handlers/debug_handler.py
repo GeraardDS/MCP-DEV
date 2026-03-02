@@ -554,13 +554,18 @@ def _execute_visual_query(
     field_param_filters: List,
     compact: bool,
     slicers_without_selection: List,
-    execute_query: bool
+    execute_query: bool,
+    trace: bool = False,
+    clear_cache: bool = True,
 ) -> None:
     """Execute DAX query with retry, add results to response.
 
     Also performs relationship analysis, aggregation matching,
     slicer warnings, and anomaly detection. Mutates response
     in-place.
+
+    When trace=True, runs SE/FE timing analysis via NativeTraceRunner
+    before the normal query execution (cold cache first, warm rows second).
     """
     # Add warning if slicers have no selection
     if slicers_without_selection:
@@ -663,6 +668,73 @@ def _execute_visual_query(
                 logger.debug(
                     f"Aggregation analysis skipped: {ae}"
                 )
+
+    # SE/FE trace — runs first (cold cache) so timing is accurate.
+    # If execute_query is also True it runs after on warm cache (fast row fetch).
+    if trace and connection_state.is_connected():
+        try:
+            from core.infrastructure.query_trace import NativeTraceRunner
+            conn_str = (
+                connection_state.connection_manager.connection_string
+            )
+            if not conn_str:
+                response['se_fe_trace'] = {
+                    'error': 'No connection string available'
+                }
+            elif not NativeTraceRunner.is_available():
+                response['se_fe_trace'] = {
+                    'error': (
+                        'DaxExecutor.exe not found. '
+                        'Build: cd core/infrastructure/dax_executor '
+                        '&& dotnet build -c Release'
+                    )
+                }
+            else:
+                runner = NativeTraceRunner(conn_str)
+                trace_result = runner.execute_with_trace(
+                    query_to_execute, clear_cache
+                )
+                if '_error' in trace_result:
+                    response['se_fe_trace'] = {
+                        'error': trace_result['_error']
+                    }
+                else:
+                    perf = {
+                        'total_ms': trace_result.get('total_ms', 0),
+                        'fe_ms': trace_result.get('fe_ms', 0),
+                        'se_ms': trace_result.get('se_ms', 0),
+                        'se_cpu_ms': trace_result.get('se_cpu_ms', 0),
+                        'se_parallelism': trace_result.get(
+                            'se_parallelism', 0.0
+                        ),
+                        'se_queries': trace_result.get('se_queries', 0),
+                        'se_cache_hits': trace_result.get(
+                            'se_cache_hits', 0
+                        ),
+                        'fe_pct': trace_result.get('fe_pct', 0.0),
+                        'se_pct': trace_result.get('se_pct', 0.0),
+                    }
+                    response['se_fe_trace'] = {
+                        'performance': perf,
+                        'se_events': trace_result.get('se_events', []),
+                        'cache_cleared': trace_result.get(
+                            'cache_cleared', False
+                        ),
+                        'summary': (
+                            f"Total: {perf['total_ms']}ms | "
+                            f"FE: {perf['fe_ms']}ms "
+                            f"({perf['fe_pct']}%) | "
+                            f"SE: {perf['se_ms']}ms "
+                            f"({perf['se_pct']}%) | "
+                            f"SE queries: {perf['se_queries']} | "
+                            f"SE cache: {perf['se_cache_hits']}"
+                        ),
+                    }
+        except Exception as te:
+            logger.error(f"SE/FE trace failed: {te}", exc_info=True)
+            response['se_fe_trace'] = {'error': str(te)}
+    elif trace:
+        response['se_fe_trace'] = {'error': 'not_connected'}
 
     # Execute query if requested and connected
     if execute_query and connection_state.is_connected():
@@ -796,6 +868,8 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
         compact = args.get('compact', True)
         execute_query = args.get('execute_query', True)
         include_slicers = args.get('include_slicers', True)
+        trace = args.get('trace', False)
+        clear_cache = args.get('clear_cache', True)
 
         # Get builder — needed for all operations
         builder, error = _get_visual_query_builder()
@@ -865,7 +939,9 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
             query_to_execute, response, builder, result,
             ctx['all_filters'], ctx['data_filters'],
             ctx['field_param_filters'], compact,
-            ctx['slicers_without_selection'], execute_query
+            ctx['slicers_without_selection'], execute_query,
+            trace=trace,
+            clear_cache=clear_cache,
         )
 
         return response
@@ -2446,7 +2522,7 @@ def register_debug_handlers(registry):
     tools = [
         ToolDefinition(
             name="09_Debug_Operations",
-            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze), debug_variable (evaluate single VAR), step_variables (step through all VARs).",
+            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze), debug_variable (evaluate single VAR), step_variables (step through all VARs). Use trace=true on visual to run SE/FE timing analysis with the visual's real filter context and dimensions.",
             handler=handle_debug_operations,
             input_schema={
                 "type": "object",
@@ -2458,8 +2534,10 @@ def register_debug_handlers(registry):
                     "measure_name": {"type": "string"},
                     "table_name": {"type": "string", "description": "Table (analyze)"},
                     "include_slicers": {"type": "boolean"},
-                    "execute_query": {"type": "boolean", "description": "Execute query (visual)"},
+                    "execute_query": {"type": "boolean", "description": "Execute query and return rows (visual)"},
                     "execute_measure": {"type": "boolean", "description": "Execute measure (analyze)"},
+                    "trace": {"type": "boolean", "default": False, "description": "Run SE/FE trace analysis on the visual query (visual). Cold cache by default; combine with execute_query=true to also get row results."},
+                    "clear_cache": {"type": "boolean", "default": True, "description": "Clear VertiPaq cache before trace run for cold-cache timings (visual, requires trace=true)"},
                     "filters": {"type": "array", "items": {"type": "string"}, "description": "Manual DAX filters"},
                     "skip_auto_filters": {"type": "boolean"},
                     "compact": {"type": "boolean"},
