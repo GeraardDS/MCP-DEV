@@ -7,7 +7,14 @@ Provides live DAX measure injection and modification capabilities.
 import logging
 from typing import Dict, Any, Optional, Tuple
 
-from core.dax.dax_utilities import validate_dax_identifier
+
+def _valid_amo_name(name: str) -> bool:
+    """Validate a name for AMO/TMSL operations (table or measure name).
+
+    Unlike DAX identifiers, AMO object names can contain spaces and special
+    characters — they are passed as string properties, not as unquoted DAX tokens.
+    """
+    return bool(name) and len(name.strip()) > 0 and len(name) <= 128 and '\0' not in name
 
 logger = logging.getLogger(__name__)
 
@@ -196,14 +203,14 @@ class DAXInjector:
                 ]
             }
 
-        # Validate identifiers
-        if not validate_dax_identifier(table_name):
+        # Validate identifiers (AMO names allow spaces/special chars)
+        if not _valid_amo_name(table_name):
             return {
                 "success": False,
                 "error": f"Invalid table name: '{table_name}'",
                 "error_type": "invalid_parameters",
             }
-        if not validate_dax_identifier(measure_name):
+        if not _valid_amo_name(measure_name):
             return {
                 "success": False,
                 "error": f"Invalid measure name: '{measure_name}'",
@@ -370,14 +377,14 @@ class DAXInjector:
                 "error_type": "connection_lost"
             }
 
-        # Validate identifiers early
-        if not validate_dax_identifier(table_name):
+        # Validate identifiers early (AMO names allow spaces/special chars)
+        if not _valid_amo_name(table_name):
             return {
                 "success": False,
                 "error": f"Invalid table name: '{table_name}'",
                 "error_type": "invalid_parameters",
             }
-        if not validate_dax_identifier(measure_name):
+        if not _valid_amo_name(measure_name):
             return {
                 "success": False,
                 "error": f"Invalid measure name: '{measure_name}'",
@@ -476,7 +483,7 @@ class DAXInjector:
             ("measure", measure_name),
             ("new measure", new_name),
         ]:
-            if not validate_dax_identifier(name_val):
+            if not _valid_amo_name(name_val):
                 return {
                     "success": False,
                     "error": f"Invalid {name_label} name: "
@@ -587,7 +594,7 @@ class DAXInjector:
             ("measure", measure_name),
             ("target table", target_table),
         ]:
-            if not validate_dax_identifier(name_val):
+            if not _valid_amo_name(name_val):
                 return {
                     "success": False,
                     "error": f"Invalid {name_label} name: "

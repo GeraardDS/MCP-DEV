@@ -2568,6 +2568,428 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
     return response
 
 
+# =============================================================================
+# OPTIMIZE OPERATION — SE/FE trace + DAX analysis + suggestions
+# =============================================================================
+
+def _analyze_se_callbacks(se_events: list) -> dict:
+    """Detect CallbackDataID in SE events — the #1 performance anti-pattern."""
+    callback_queries = []
+    for evt in se_events:
+        q = evt.get('query', '')
+        if 'CallbackDataID' in q or 'PFDATAID' in q:
+            callback_queries.append({
+                'line': evt.get('line'),
+                'duration_ms': evt.get('duration_ms'),
+                'snippet': q[:300]
+            })
+    return {
+        'detected': bool(callback_queries),
+        'count': len(callback_queries),
+        'queries': callback_queries
+    }
+
+
+def _diagnose_timing(perf: dict) -> dict:
+    """Convert raw SE/FE metrics into a human-readable diagnosis."""
+    fe_pct = perf.get('fe_pct', 0)
+    se_queries = perf.get('se_queries', 0)
+    se_ms = perf.get('se_ms', 0)
+    se_par = perf.get('se_parallelism', 0)
+    notes = []
+
+    if fe_pct > 80:
+        profile = 'FE-bound'
+        notes.append(
+            f'Formula Engine consumed {fe_pct}% of total time. '
+            'The FE is single-threaded and uncached — this is the bottleneck. '
+            'Focus on reducing iterators, context transitions, and pushing work to SE.'
+        )
+    elif fe_pct > 50:
+        profile = 'FE-heavy'
+        notes.append(
+            f'Formula Engine consumed {fe_pct}% of time. '
+            'DAX complexity is dominant. Consider simplifying filter arguments and reducing iterator scope.'
+        )
+    elif fe_pct < 20:
+        profile = 'SE-bound'
+        notes.append(
+            f'Storage Engine consumed {100 - fe_pct}% of time. '
+            'Check for large table scans, high-cardinality DISTINCTCOUNT, or missing aggregation tables.'
+        )
+    else:
+        profile = 'balanced'
+        notes.append(
+            f'Good FE/SE balance ({fe_pct}% FE, {100 - fe_pct:.0f}% SE). '
+            'Query performance is likely acceptable at this complexity level.'
+        )
+
+    if se_queries > 256:
+        notes.append(
+            f'CRITICAL: SE query count ({se_queries}) exceeds the datacache limit of 256. '
+            'Cache provides no benefit. Redesign required to reduce SE fan-out.'
+        )
+    elif se_queries > 50:
+        notes.append(
+            f'High SE query count ({se_queries}). Investigate iterator structure — '
+            'repeated sub-expressions should be captured in VAR to avoid re-evaluation.'
+        )
+
+    if se_ms > 20 and se_par < 2.0:
+        notes.append(
+            f'Low SE parallelism ({se_par}x). SE queries are not scaling across CPU cores. '
+            'This can indicate small result sets or FE serialization forcing sequential SE calls.'
+        )
+
+    return {'profile': profile, 'notes': notes}
+
+
+def _build_optimize_suggestions(
+    bpa_result: dict,
+    rewriter_result: dict,
+    callback_info: dict,
+    static_callbacks: dict,
+    perf: dict,
+) -> list:
+    """
+    Merge runtime CallbackDataID findings, static callback detections, BPA issues,
+    and rewriter suggestions into a single prioritized optimization list.
+
+    Priority order:
+      0. Runtime CallbackDataID in SE trace (confirmed, always critical)
+      1. Static callback detections from DAX analysis
+      2. Timing-correlated high/critical BPA issues
+      3. Non-timing-correlated high/critical BPA issues
+      4. Timing-correlated medium BPA issues
+      5. High-confidence rewriter suggestions
+      6. Non-timing-correlated medium/low BPA issues
+      7. Medium-confidence rewriter suggestions
+    """
+    suggestions = []
+    fe_pct = perf.get('fe_pct', 0) if perf else 0
+
+    # --- Source 1: Runtime CallbackDataID in SE trace ---
+    if callback_info.get('detected'):
+        for cb in callback_info.get('queries', []):
+            suggestions.append({
+                'priority': 0,
+                'severity': 'critical',
+                'category': 'callback_elimination',
+                'title': 'CallbackDataID detected in Storage Engine query (runtime)',
+                'description': (
+                    'A CallbackDataID forces the Formula Engine (single-threaded, uncached) '
+                    'to be invoked for every row during SE scan. '
+                    'This can increase query time by 100x–260x compared to a pure SE query. '
+                    f"Triggered in SE event line {cb.get('line')} ({cb.get('duration_ms')}ms). "
+                    'Common causes: ROUND/TRUNC/INT/CEILING/FLOOR inside SUMX, '
+                    'DIVIDE() anywhere, IF() inside iterators, text functions in row context.'
+                ),
+                'code_before': cb.get('snippet', ''),
+                'code_after': (
+                    '-- Pre-group by distinct values to minimize callback invocations:\n'
+                    'SUMX(\n'
+                    '    SUMMARIZE(FactTable, FactTable[ColumnWithLowCardinality]),\n'
+                    '    CALCULATE(SUM(FactTable[Qty])) * callback_function(FactTable[ColumnWithLowCardinality])\n'
+                    ')'
+                ),
+                'estimated_improvement': '10x–260x reduction in SE CPU time',
+                'confidence': 'high',
+                'timing_correlated': True
+            })
+
+    # --- Source 2: Static callback detections from CallbackDetector ---
+    for cb_det in (static_callbacks.get('callback_detections') or []):
+        sev = cb_det.get('severity', 'high')
+        suggestions.append({
+            'priority': 1,
+            'severity': sev,
+            'category': 'callback_elimination',
+            'title': f"Callback risk [{cb_det.get('rule_id')}]: {cb_det.get('description', '')[:80]}",
+            'description': cb_det.get('description', ''),
+            'code_before': cb_det.get('match_text', ''),
+            'code_after': cb_det.get('fix_suggestion', ''),
+            'estimated_improvement': 'Eliminates per-row FE invocation from SE scan',
+            'confidence': 'high',
+            'timing_correlated': fe_pct > 50
+        })
+
+    # --- FE-bound timing context — which BPA categories to boost ---
+    fe_correlated_categories = set()
+    if fe_pct > 50:
+        fe_correlated_categories = {'performance', 'anti_pattern'}
+
+    # --- Source 3: BPA issues ---
+    severity_rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+
+    for issue in (bpa_result.get('issues') or []):
+        sev = issue.get('severity', 'low')
+        cat = issue.get('category', '')
+        is_timing_correlated = (
+            cat in fe_correlated_categories
+            or sev in ('critical', 'high')
+        )
+
+        sev_rank = severity_rank.get(sev, 3)
+        priority_base = sev_rank * 10
+        if is_timing_correlated:
+            priority_base -= 3
+
+        suggestions.append({
+            'priority': 10 + priority_base,
+            'severity': sev,
+            'category': cat,
+            'title': issue.get('title', ''),
+            'description': issue.get('description', ''),
+            'code_before': issue.get('code_example_before'),
+            'code_after': issue.get('code_example_after'),
+            'estimated_improvement': issue.get('estimated_improvement'),
+            'confidence': 'high',
+            'timing_correlated': is_timing_correlated
+        })
+
+    # --- Source 4: Code rewriter transformations ---
+    confidence_rank = {'high': 0, 'medium': 1, 'low': 2}
+    for t in (rewriter_result.get('transformations') or []):
+        conf = t.get('confidence', 'low')
+        if conf == 'low':
+            continue
+        suggestions.append({
+            'priority': 50 + confidence_rank.get(conf, 2),
+            'severity': 'medium' if conf == 'high' else 'low',
+            'category': 'code_rewrite',
+            'title': f"Code rewrite: {t.get('type', 'optimization')}",
+            'description': t.get('explanation', ''),
+            'code_before': t.get('original', ''),
+            'code_after': t.get('transformed', ''),
+            'estimated_improvement': t.get('estimated_improvement'),
+            'confidence': conf,
+            'timing_correlated': False
+        })
+
+    suggestions.sort(key=lambda x: x['priority'])
+    for s in suggestions:
+        s.pop('priority', None)
+    return suggestions
+
+
+def _build_next_steps(
+    optimizations: list,
+    perf: dict,
+    callback_info: dict,
+    static_callbacks: dict,
+) -> list:
+    """Generate 2–4 actionable next steps based on findings."""
+    steps = []
+    fe_pct = perf.get('fe_pct', 0) if perf else 0
+    se_queries = perf.get('se_queries', 0) if perf else 0
+    has_rewrites = any(o.get('category') == 'code_rewrite' for o in optimizations)
+    has_static_callbacks = bool(static_callbacks.get('summary', {}).get('total', 0))
+
+    if callback_info.get('detected'):
+        steps.append(
+            'PRIORITY: Eliminate CallbackDataID — open DAX Studio Server Timings, '
+            'locate the SE query containing CallbackDataID, identify the triggering '
+            'function (ROUND/IF/DIVIDE inside iterator), and restructure using SUMMARIZE '
+            'to pre-group by distinct values.'
+        )
+    elif has_static_callbacks:
+        steps.append(
+            'Callback risk detected in DAX expression. '
+            'Use operation=visual with trace=true on a visual using this measure '
+            'to confirm whether CallbackDataID appears in SE events at runtime.'
+        )
+
+    if fe_pct > 60:
+        steps.append(
+            'FE-bound query: focus on pushing filter predicates to SE. '
+            'Replace FILTER(table, condition) with Boolean expression CALCULATE arguments. '
+            'Use KEEPFILTERS instead of FILTER(VALUES(...), ...).'
+        )
+
+    if se_queries > 50:
+        steps.append(
+            f'High SE query count ({se_queries}): introduce VAR to capture repeated '
+            'sub-expressions (e.g., prior-year CALCULATE blocks used in both numerator '
+            'and denominator of DIVIDE).'
+        )
+
+    if has_rewrites:
+        steps.append(
+            'A recommended_rewrite is available. Test it using '
+            'operation=compare with original_measure and optimized_expression '
+            'to benchmark the improvement.'
+        )
+
+    if not steps:
+        steps.append(
+            'No critical issues detected. This measure has good SE/FE balance. '
+            'Monitor performance if data volume increases significantly.'
+        )
+
+    return steps
+
+
+def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    SE/FE trace + DAX analysis + optimization suggestions for a single measure.
+
+    Accepts a measure name, resolves its expression, runs a cold-cache
+    SE/FE trace, detects anti-patterns (both runtime and static), and
+    returns prioritized optimization suggestions with before/after code examples.
+    """
+    try:
+        measure_name = (args.get('measure_name') or '').strip()
+        table_name = args.get('table_name')
+        clear_cache = args.get('clear_cache', True)
+        compact = args.get('compact', True)
+
+        if not measure_name:
+            return {
+                'success': False,
+                'error': 'measure_name is required for optimize operation',
+                'hint': 'Example: {"operation": "optimize", "measure_name": "Net Asset Value"}'
+            }
+
+        if not connection_state.is_connected():
+            return {
+                'success': False,
+                'error': 'Not connected to Power BI model. Use connect_to_powerbi first.'
+            }
+
+        qe = connection_state.query_executor
+        if not qe:
+            return ErrorHandler.handle_manager_unavailable('query_executor')
+
+        # ── Step 1: Resolve measure expression ───────────────────────────────
+        resolved = _resolve_measure_expression(measure_name, table_name, qe)
+        if not resolved.get('success'):
+            return resolved
+
+        expression = resolved['expression']
+        measure_details = resolved['measure_details']
+        resolved_table = measure_details.get('table_name') or table_name or 'm Measure'
+        expression_source = resolved.get('expression_source', 'unknown')
+
+        # ── Step 2: SE/FE trace ───────────────────────────────────────────────
+        perf: dict = {}
+        se_events: list = []
+        trace_error: Optional[str] = None
+        trace_available = False
+
+        try:
+            from core.infrastructure.query_trace import NativeTraceRunner
+            conn_str = connection_state.connection_manager.connection_string
+
+            if not conn_str:
+                trace_error = 'No connection string available'
+            elif not NativeTraceRunner.is_available():
+                trace_error = 'DaxExecutor.exe not found — DAX analysis will proceed without timing data'
+            else:
+                clean_measure = measure_name.strip('[]')
+                trace_query = f"EVALUATE ROW(\"Value\", '{resolved_table}'[{clean_measure}])"
+
+                runner = NativeTraceRunner(conn_str)
+                tr = runner.execute_with_trace(trace_query, clear_cache=clear_cache)
+
+                if '_error' in tr:
+                    trace_error = tr['_error']
+                else:
+                    perf = {
+                        'total_ms': tr.get('total_ms', 0),
+                        'fe_ms': tr.get('fe_ms', 0),
+                        'se_ms': tr.get('se_ms', 0),
+                        'se_cpu_ms': tr.get('se_cpu_ms', 0),
+                        'se_parallelism': tr.get('se_parallelism', 0.0),
+                        'se_queries': tr.get('se_queries', 0),
+                        'se_cache_hits': tr.get('se_cache_hits', 0),
+                        'fe_pct': tr.get('fe_pct', 0.0),
+                        'se_pct': tr.get('se_pct', 0.0),
+                        'cache_cleared': tr.get('cache_cleared', False),
+                    }
+                    se_events = tr.get('se_events', [])
+                    trace_available = True
+
+        except Exception as te:
+            logger.warning(f'SE/FE trace failed for optimize: {te}')
+            trace_error = str(te)
+
+        # ── Step 3: Runtime SE callback detection ─────────────────────────────
+        callback_info = _analyze_se_callbacks(se_events)
+
+        # ── Step 4: Static callback detection (DAX expression analysis) ───────
+        try:
+            from core.dax.callback_detector import CallbackDetector
+            static_callbacks = CallbackDetector().detect_dict(expression)
+        except Exception as ce:
+            logger.warning(f'Static callback detection failed: {ce}')
+            static_callbacks = {'callback_detections': [], 'summary': {'total': 0}}
+
+        # ── Step 5: Timing diagnosis ──────────────────────────────────────────
+        timing_diagnosis = _diagnose_timing(perf) if trace_available else None
+
+        # ── Step 6: DAX best practices analysis ──────────────────────────────
+        from core.dax.dax_best_practices import DaxBestPracticesAnalyzer
+        bpa_result = DaxBestPracticesAnalyzer().analyze(expression)
+
+        # ── Step 7: Code rewriter ─────────────────────────────────────────────
+        from core.dax.code_rewriter import DaxCodeRewriter
+        rewriter_result = DaxCodeRewriter().rewrite_dax(expression)
+
+        # ── Step 8: Synthesize suggestions ───────────────────────────────────
+        optimizations = _build_optimize_suggestions(
+            bpa_result, rewriter_result, callback_info, static_callbacks, perf
+        )
+
+        # ── Step 9: Next steps ────────────────────────────────────────────────
+        next_steps = _build_next_steps(optimizations, perf, callback_info, static_callbacks)
+
+        # ── Step 10: Build response ───────────────────────────────────────────
+        response: Dict[str, Any] = {
+            'success': True,
+            'measure': {
+                'name': measure_name,
+                'table': resolved_table,
+                'expression': expression,
+                'source': expression_source,
+            },
+            'dax_analysis': {
+                'score': bpa_result.get('overall_score'),
+                'complexity': bpa_result.get('complexity_level'),
+                'total_issues': bpa_result.get('total_issues', 0),
+                'critical': bpa_result.get('critical_issues', 0),
+                'high': bpa_result.get('high_issues', 0),
+                'medium': bpa_result.get('medium_issues', 0),
+                'low': sum(1 for i in bpa_result.get('issues', [])
+                           if i.get('severity') in ('low', 'info')),
+            },
+            'callback_analysis': {
+                'runtime_detected': callback_info.get('detected', False),
+                'runtime_count': callback_info.get('count', 0),
+                'static_total': static_callbacks.get('summary', {}).get('total', 0),
+                'static_critical': static_callbacks.get('summary', {}).get('critical', 0),
+            },
+            'optimizations': optimizations,
+            'next_steps': next_steps,
+        }
+
+        if trace_available:
+            response['timing'] = perf
+            response['timing_diagnosis'] = timing_diagnosis
+            if not compact:
+                response['se_events'] = se_events
+        elif trace_error:
+            response['trace_unavailable'] = trace_error
+
+        if rewriter_result.get('has_changes'):
+            response['recommended_rewrite'] = rewriter_result.get('rewritten_code')
+
+        return _compact_response(response, compact)
+
+    except Exception as e:
+        logger.error(f'Error in handle_optimize_measure: {e}', exc_info=True)
+        return ErrorHandler.handle_unexpected_error('optimize_measure', e)
+
+
 def handle_debug_operations(args: Dict[str, Any]) -> Dict[str, Any]:
     """Dispatch debug operations."""
     operation = args.get('operation', 'visual')
@@ -2580,6 +3002,7 @@ def handle_debug_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         'debug_variable': _handle_debug_variable,
         'step_variables': _handle_step_variables,
         'run_dax': _handle_run_dax,
+        'optimize': handle_optimize_measure,
     }
 
     handler = dispatch.get(operation)
@@ -2615,12 +3038,12 @@ def register_debug_handlers(registry):
     tools = [
         ToolDefinition(
             name="09_Debug_Operations",
-            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze), debug_variable (evaluate single VAR), step_variables (step through all VARs), run_dax (execute raw DEFINE…EVALUATE query). Use trace=true on visual to get SE/FE timing analysis with the visual's real filter context; supply measures[] to override which measures are tested against that context.",
+            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze), debug_variable (evaluate single VAR), step_variables (step through all VARs), run_dax (execute raw DEFINE…EVALUATE query), optimize (measure_name → cold-cache SE/FE trace + static CallbackDataID detection + DAX anti-pattern analysis + prioritized optimization suggestions with before/after code). Use trace=true on visual to get SE/FE timing analysis with the visual's real filter context; supply measures[] to override which measures are tested against that context.",
             handler=handle_debug_operations,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["visual", "compare", "drill", "analyze", "debug_variable", "step_variables", "run_dax"], "default": "visual"},
+                    "operation": {"type": "string", "enum": ["visual", "compare", "drill", "analyze", "debug_variable", "step_variables", "run_dax", "optimize"], "default": "visual"},
                     "query": {"type": "string", "description": "Raw DAX query (DEFINE…EVALUATE) to execute (run_dax)"},
                     "page_name": {"type": "string"},
                     "visual_id": {"type": "string"},
