@@ -680,74 +680,83 @@ def _execute_visual_query(
 
     # SE/FE trace — runs first (cold cache) so timing is accurate.
     # If execute_query is also True it runs after on warm cache (fast row fetch).
-    if trace and connection_state.is_connected():
-        try:
-            from core.infrastructure.query_trace import NativeTraceRunner
-            conn_str = (
-                connection_state.connection_manager.connection_string
-            )
-            if not conn_str:
-                response['se_fe_trace'] = {
-                    'error': 'No connection string available'
-                }
-            elif not NativeTraceRunner.is_available():
-                response['se_fe_trace'] = {
-                    'error': (
-                        'DaxExecutor.exe not found. '
-                        'Build: cd core/infrastructure/dax_executor '
-                        '&& dotnet build -c Release'
-                    )
-                }
-            else:
-                runner = NativeTraceRunner(conn_str)
-                trace_result = runner.execute_with_trace(
-                    query_to_execute, clear_cache
+    conn_status = {'connected': False}
+    if trace:
+        conn_status = connection_state.verify_connection(auto_reconnect=True)
+        if conn_status['connected']:
+            try:
+                from core.infrastructure.query_trace import NativeTraceRunner
+                conn_str = (
+                    connection_state.connection_manager.connection_string
                 )
-                if '_error' in trace_result:
+                if not conn_str:
                     response['se_fe_trace'] = {
-                        'error': trace_result['_error']
+                        'error': 'No connection string available'
+                    }
+                elif not NativeTraceRunner.is_available():
+                    response['se_fe_trace'] = {
+                        'error': (
+                            'DaxExecutor.exe not found. '
+                            'Build: cd core/infrastructure/dax_executor '
+                            '&& dotnet build -c Release'
+                        )
                     }
                 else:
-                    perf = {
-                        'total_ms': trace_result.get('total_ms', 0),
-                        'fe_ms': trace_result.get('fe_ms', 0),
-                        'se_ms': trace_result.get('se_ms', 0),
-                        'se_cpu_ms': trace_result.get('se_cpu_ms', 0),
-                        'se_parallelism': trace_result.get(
-                            'se_parallelism', 0.0
-                        ),
-                        'se_queries': trace_result.get('se_queries', 0),
-                        'se_cache_hits': trace_result.get(
-                            'se_cache_hits', 0
-                        ),
-                        'fe_pct': trace_result.get('fe_pct', 0.0),
-                        'se_pct': trace_result.get('se_pct', 0.0),
-                    }
-                    response['se_fe_trace'] = {
-                        'runner': 'native',
-                        'performance': perf,
-                        'se_events': trace_result.get('se_events', []),
-                        'cache_cleared': trace_result.get(
-                            'cache_cleared', False
-                        ),
-                        'summary': (
-                            f"Total: {perf['total_ms']}ms | "
-                            f"FE: {perf['fe_ms']}ms "
-                            f"({perf['fe_pct']}%) | "
-                            f"SE: {perf['se_ms']}ms "
-                            f"({perf['se_pct']}%) | "
-                            f"SE queries: {perf['se_queries']} | "
-                            f"SE cache: {perf['se_cache_hits']}"
-                        ),
-                    }
-        except Exception as te:
-            logger.error(f"SE/FE trace failed: {te}", exc_info=True)
-            response['se_fe_trace'] = {'error': str(te)}
-    elif trace:
-        response['se_fe_trace'] = {'error': 'not_connected'}
+                    runner = NativeTraceRunner(conn_str)
+                    trace_result = runner.execute_with_trace(
+                        query_to_execute, clear_cache
+                    )
+                    if '_error' in trace_result:
+                        response['se_fe_trace'] = {
+                            'error': trace_result['_error']
+                        }
+                    else:
+                        perf = {
+                            'total_ms': trace_result.get('total_ms', 0),
+                            'fe_ms': trace_result.get('fe_ms', 0),
+                            'se_ms': trace_result.get('se_ms', 0),
+                            'se_cpu_ms': trace_result.get('se_cpu_ms', 0),
+                            'se_parallelism': trace_result.get(
+                                'se_parallelism', 0.0
+                            ),
+                            'se_queries': trace_result.get('se_queries', 0),
+                            'se_cache_hits': trace_result.get(
+                                'se_cache_hits', 0
+                            ),
+                            'fe_pct': trace_result.get('fe_pct', 0.0),
+                            'se_pct': trace_result.get('se_pct', 0.0),
+                        }
+                        response['se_fe_trace'] = {
+                            'runner': 'native',
+                            'performance': perf,
+                            'se_events': trace_result.get('se_events', []),
+                            'cache_cleared': trace_result.get(
+                                'cache_cleared', False
+                            ),
+                            'summary': (
+                                f"Total: {perf['total_ms']}ms | "
+                                f"FE: {perf['fe_ms']}ms "
+                                f"({perf['fe_pct']}%) | "
+                                f"SE: {perf['se_ms']}ms "
+                                f"({perf['se_pct']}%) | "
+                                f"SE queries: {perf['se_queries']} | "
+                                f"SE cache: {perf['se_cache_hits']}"
+                            ),
+                        }
+            except Exception as te:
+                logger.error(f"SE/FE trace failed: {te}", exc_info=True)
+                response['se_fe_trace'] = {'error': str(te)}
+        else:
+            error_msg = 'not_connected'
+            if conn_status.get('error'):
+                error_msg += f" ({conn_status['error']})"
+            response['se_fe_trace'] = {'error': error_msg}
 
     # Execute query if requested and connected
-    if execute_query and connection_state.is_connected():
+    if execute_query:
+        if not conn_status.get('connected'):
+            conn_status = connection_state.verify_connection(auto_reconnect=True)
+    if execute_query and conn_status.get('connected'):
         try:
             qe = connection_state.query_executor
             if qe:
@@ -863,7 +872,20 @@ def _execute_visual_query(
         except Exception as e:
             response['result'] = {'error': str(e)}
     elif execute_query:
-        response['result'] = {'error': 'not_connected'}
+        error_msg = 'not_connected'
+        if conn_status.get('error'):
+            error_msg += f" ({conn_status['error']})"
+        response['result'] = {'error': error_msg}
+
+    # Surface connection loss prominently at top level
+    if (trace or execute_query) and not connection_state.is_connected():
+        response['connection_warning'] = (
+            'Connection to Power BI model was lost. '
+            'Trace and execution results may be missing. '
+            'Use connect_to_powerbi to reconnect.'
+        )
+        if trace and response.get('se_fe_trace', {}).get('error'):
+            response['success'] = False
 
 
 def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1245,29 +1267,44 @@ def handle_set_pbip_path(args: Dict[str, Any]) -> Dict[str, Any]:
         if not os.path.exists(pbip_path):
             return {'success': False, 'error': f'Path does not exist: {pbip_path}'}
 
-        # Validate it looks like a PBIP folder
-        definition_path = os.path.join(pbip_path, 'definition')
-        report_path = os.path.join(pbip_path, 'report.json')
+        # Smart resolution: try to resolve to a valid .Report folder
+        from core.utilities.pbip_utils import resolve_pbip_report_path
+        resolved_path = resolve_pbip_report_path(pbip_path)
 
-        if not os.path.exists(definition_path) and not os.path.exists(report_path):
-            return {
-                'success': False,
-                'error': 'Path does not appear to be a valid PBIP folder. Expected definition/ folder or report.json.'
-            }
+        if resolved_path:
+            effective_path = resolved_path
+        else:
+            # Direct validation (original behavior)
+            definition_path = os.path.join(pbip_path, 'definition')
+            report_json = os.path.join(pbip_path, 'report.json')
+            if not os.path.exists(definition_path) and not os.path.exists(report_json):
+                return {
+                    'success': False,
+                    'error': (
+                        'Path does not appear to be a valid PBIP folder. '
+                        'Expected: .pbip file, .Report folder, or directory '
+                        'containing .pbip files. Got: ' + pbip_path
+                    )
+                }
+            effective_path = pbip_path
 
-        # Set the path
+        # Set the resolved path
         result = connection_state.set_pbip_info(
-            pbip_folder_path=pbip_path,
+            pbip_folder_path=effective_path,
             file_full_path=pbip_path,
             file_type='pbip',
             source='manual'
         )
 
-        return {
+        response = {
             'success': True,
             'pbip_info': result,
-            'message': f'PBIP path set to: {pbip_path}'
+            'message': f'PBIP path set to: {effective_path}'
         }
+        if effective_path != pbip_path:
+            response['resolved_from'] = pbip_path
+            response['resolved_to'] = effective_path
+        return response
 
     except Exception as e:
         logger.error(f"Error in set_pbip_path: {e}", exc_info=True)
@@ -2831,16 +2868,19 @@ def _build_next_steps(
 
 def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
     """
-    SE/FE trace + DAX analysis + optimization suggestions for a single measure.
+    DAX analysis + optimization suggestions for a single measure.
 
-    Accepts a measure name, resolves its expression, runs a cold-cache
-    SE/FE trace, detects anti-patterns (both runtime and static), and
-    returns prioritized optimization suggestions with before/after code examples.
+    Accepts a measure name, resolves its expression, detects anti-patterns
+    (static callback detection, best practices, code rewrites), and returns
+    prioritized optimization suggestions with before/after code examples.
+
+    Optionally accepts SE/FE timing data from a prior visual trace run
+    (operation=visual, trace=true) to inform timing-correlated suggestions.
+    Pass fe_pct, se_queries, total_ms, fe_ms, se_ms, se_cpu_ms, se_cache_hits.
     """
     try:
         measure_name = (args.get('measure_name') or '').strip()
         table_name = args.get('table_name')
-        clear_cache = args.get('clear_cache', True)
         compact = args.get('compact', True)
 
         if not measure_name:
@@ -2870,53 +2910,21 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
         resolved_table = measure_details.get('table_name') or table_name or 'm Measure'
         expression_source = resolved.get('expression_source', 'unknown')
 
-        # ── Step 2: SE/FE trace ───────────────────────────────────────────────
+        # ── Step 2: Build perf dict from optional timing input params ────────
         perf: dict = {}
-        se_events: list = []
-        trace_error: Optional[str] = None
-        trace_available = False
+        timing_provided = False
+        timing_keys = [
+            'total_ms', 'fe_ms', 'se_ms', 'se_cpu_ms',
+            'fe_pct', 'se_pct', 'se_queries', 'se_cache_hits',
+            'se_parallelism',
+        ]
+        for key in timing_keys:
+            val = args.get(key)
+            if val is not None:
+                perf[key] = val
+                timing_provided = True
 
-        try:
-            from core.infrastructure.query_trace import NativeTraceRunner
-            conn_str = connection_state.connection_manager.connection_string
-
-            if not conn_str:
-                trace_error = 'No connection string available'
-            elif not NativeTraceRunner.is_available():
-                trace_error = 'DaxExecutor.exe not found — DAX analysis will proceed without timing data'
-            else:
-                clean_measure = measure_name.strip('[]')
-                trace_query = f"EVALUATE ROW(\"Value\", '{resolved_table}'[{clean_measure}])"
-
-                runner = NativeTraceRunner(conn_str)
-                tr = runner.execute_with_trace(trace_query, clear_cache=clear_cache)
-
-                if '_error' in tr:
-                    trace_error = tr['_error']
-                else:
-                    perf = {
-                        'total_ms': tr.get('total_ms', 0),
-                        'fe_ms': tr.get('fe_ms', 0),
-                        'se_ms': tr.get('se_ms', 0),
-                        'se_cpu_ms': tr.get('se_cpu_ms', 0),
-                        'se_parallelism': tr.get('se_parallelism', 0.0),
-                        'se_queries': tr.get('se_queries', 0),
-                        'se_cache_hits': tr.get('se_cache_hits', 0),
-                        'fe_pct': tr.get('fe_pct', 0.0),
-                        'se_pct': tr.get('se_pct', 0.0),
-                        'cache_cleared': tr.get('cache_cleared', False),
-                    }
-                    se_events = tr.get('se_events', [])
-                    trace_available = True
-
-        except Exception as te:
-            logger.warning(f'SE/FE trace failed for optimize: {te}')
-            trace_error = str(te)
-
-        # ── Step 3: Runtime SE callback detection ─────────────────────────────
-        callback_info = _analyze_se_callbacks(se_events)
-
-        # ── Step 4: Static callback detection (DAX expression analysis) ───────
+        # ── Step 3: Static callback detection (DAX expression analysis) ───────
         try:
             from core.dax.callback_detector import CallbackDetector
             static_callbacks = CallbackDetector().detect_dict(expression)
@@ -2924,26 +2932,28 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning(f'Static callback detection failed: {ce}')
             static_callbacks = {'callback_detections': [], 'summary': {'total': 0}}
 
-        # ── Step 5: Timing diagnosis ──────────────────────────────────────────
-        timing_diagnosis = _diagnose_timing(perf) if trace_available else None
+        # ── Step 4: Timing diagnosis ─────────────────────────────────────────
+        timing_diagnosis = _diagnose_timing(perf) if timing_provided else None
 
-        # ── Step 6: DAX best practices analysis ──────────────────────────────
+        # ── Step 5: DAX best practices analysis ──────────────────────────────
         from core.dax.dax_best_practices import DaxBestPracticesAnalyzer
         bpa_result = DaxBestPracticesAnalyzer().analyze(expression)
 
-        # ── Step 7: Code rewriter ─────────────────────────────────────────────
+        # ── Step 6: Code rewriter ─────────────────────────────────────────────
         from core.dax.code_rewriter import DaxCodeRewriter
         rewriter_result = DaxCodeRewriter().rewrite_dax(expression)
 
-        # ── Step 8: Synthesize suggestions ───────────────────────────────────
+        # ── Step 7: Synthesize suggestions ───────────────────────────────────
+        # No runtime callback_info (that requires a live trace) — pass empty
+        callback_info: dict = {}
         optimizations = _build_optimize_suggestions(
             bpa_result, rewriter_result, callback_info, static_callbacks, perf
         )
 
-        # ── Step 9: Next steps ────────────────────────────────────────────────
+        # ── Step 8: Next steps ────────────────────────────────────────────────
         next_steps = _build_next_steps(optimizations, perf, callback_info, static_callbacks)
 
-        # ── Step 10: Build response ───────────────────────────────────────────
+        # ── Step 9: Build response ───────────────────────────────────────────
         response: Dict[str, Any] = {
             'success': True,
             'measure': {
@@ -2963,8 +2973,6 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
                            if i.get('severity') in ('low', 'info')),
             },
             'callback_analysis': {
-                'runtime_detected': callback_info.get('detected', False),
-                'runtime_count': callback_info.get('count', 0),
                 'static_total': static_callbacks.get('summary', {}).get('total', 0),
                 'static_critical': static_callbacks.get('summary', {}).get('critical', 0),
             },
@@ -2972,13 +2980,15 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
             'next_steps': next_steps,
         }
 
-        if trace_available:
+        if timing_provided:
             response['timing'] = perf
             response['timing_diagnosis'] = timing_diagnosis
-            if not compact:
-                response['se_events'] = se_events
-        elif trace_error:
-            response['trace_unavailable'] = trace_error
+        else:
+            response['timing_hint'] = (
+                'No SE/FE timing provided. Run operation=visual with trace=true '
+                'first, then pass fe_pct, se_queries, etc. to optimize for '
+                'timing-correlated suggestions.'
+            )
 
         if rewriter_result.get('has_changes'):
             response['recommended_rewrite'] = rewriter_result.get('rewritten_code')
@@ -3038,7 +3048,7 @@ def register_debug_handlers(registry):
     tools = [
         ToolDefinition(
             name="09_Debug_Operations",
-            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze), debug_variable (evaluate single VAR), step_variables (step through all VARs), run_dax (execute raw DEFINE…EVALUATE query), optimize (measure_name → cold-cache SE/FE trace + static CallbackDataID detection + DAX anti-pattern analysis + prioritized optimization suggestions with before/after code). Use trace=true on visual to get SE/FE timing analysis with the visual's real filter context; supply measures[] to override which measures are tested against that context.",
+            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze), debug_variable (evaluate single VAR), step_variables (step through all VARs), run_dax (execute raw DEFINE…EVALUATE query), optimize (measure_name → static CallbackDataID detection + DAX anti-pattern analysis + prioritized optimization suggestions with before/after code; pass SE/FE timing from a prior visual trace via fe_pct/se_queries/total_ms/fe_ms/se_ms for timing-correlated suggestions). Use trace=true on visual to get SE/FE timing analysis with the visual's real filter context; supply measures[] to override which measures are tested against that context.",
             handler=handle_debug_operations,
             input_schema={
                 "type": "object",
@@ -3064,7 +3074,16 @@ def register_debug_handlers(registry):
                     "fact_table": {"type": "string", "description": "Fact table (drill)"},
                     "limit": {"type": "integer", "description": "Max rows (drill, default: 100)"},
                     "variable_name": {"type": "string", "description": "Variable name (debug_variable)"},
-                    "max_rows": {"type": "integer", "default": 100, "description": "Max rows (debug_variable/step_variables)"}
+                    "max_rows": {"type": "integer", "default": 100, "description": "Max rows (debug_variable/step_variables)"},
+                    "total_ms": {"type": "number", "description": "Total query time in ms from visual trace (optimize)"},
+                    "fe_ms": {"type": "number", "description": "Formula Engine time in ms from visual trace (optimize)"},
+                    "se_ms": {"type": "number", "description": "Storage Engine time in ms from visual trace (optimize)"},
+                    "se_cpu_ms": {"type": "number", "description": "SE CPU time in ms from visual trace (optimize)"},
+                    "fe_pct": {"type": "number", "description": "FE percentage from visual trace (optimize)"},
+                    "se_pct": {"type": "number", "description": "SE percentage from visual trace (optimize)"},
+                    "se_queries": {"type": "integer", "description": "Number of SE queries from visual trace (optimize)"},
+                    "se_cache_hits": {"type": "integer", "description": "SE cache hits from visual trace (optimize)"},
+                    "se_parallelism": {"type": "number", "description": "SE parallelism ratio from visual trace (optimize)"}
                 },
                 "required": []
             },

@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from core.utilities.json_utils import load_json
 
@@ -76,6 +76,93 @@ def find_definition_folder(pbip_path: str) -> Optional[Path]:
         definition = path / "definition"
         if definition.exists():
             return definition
+
+    return None
+
+
+def resolve_report_folder_from_pbip(pbip_file_path: str) -> Optional[str]:
+    """Resolve a .pbip file path to its matching .Report folder.
+
+    PBIP convention: filename.pbip → filename.Report/ in the same directory.
+    Example: C:/Repo/MyDashboard.pbip → C:/Repo/MyDashboard.Report/
+
+    Falls back to parsing the .pbip JSON for artifact path hints.
+
+    Args:
+        pbip_file_path: Absolute path to a .pbip file
+
+    Returns:
+        Path to the .Report folder if found, or None
+    """
+    path = Path(normalize_path(pbip_file_path))
+
+    if not path.is_file() or path.suffix.lower() != '.pbip':
+        return None
+
+    pbip_dir = path.parent
+    project_name = path.stem
+
+    # Primary: matching .Report folder by name convention
+    report_folder = pbip_dir / f"{project_name}.Report"
+    if report_folder.is_dir():
+        return str(report_folder)
+
+    # Fallback: parse .pbip JSON for artifact path
+    try:
+        pbip_data = load_json(str(path))
+        if isinstance(pbip_data, dict):
+            for artifact in pbip_data.get("artifacts", []):
+                report_info = artifact.get("report", {})
+                report_path = report_info.get("path", "")
+                if report_path:
+                    # Path is relative, e.g. "MyDashboard.Report"
+                    candidate = pbip_dir / report_path
+                    if candidate.is_dir():
+                        return str(candidate)
+    except Exception:
+        pass
+
+    return None
+
+
+def resolve_pbip_report_path(input_path: str) -> Optional[str]:
+    """Resolve any path to a valid PBIP .Report folder.
+
+    Handles:
+    - .pbip file → matching .Report folder
+    - .Report folder → returned as-is
+    - Directory with definition/ → returned as-is
+    - Directory containing .pbip files → .Report from first Report-type .pbip
+
+    Args:
+        input_path: Path to .pbip file, directory, or .Report folder
+
+    Returns:
+        Path to the best .Report folder or valid PBIP folder, or None
+    """
+    path = Path(normalize_path(input_path))
+
+    if not path.exists():
+        return None
+
+    # Case 1: .pbip file
+    if path.is_file() and path.suffix.lower() == '.pbip':
+        return resolve_report_folder_from_pbip(str(path))
+
+    # Case 2: Already a .Report folder
+    if path.is_dir() and path.name.endswith('.Report'):
+        return str(path)
+
+    # Case 3: Has definition/ directly (already a valid PBIP folder)
+    if path.is_dir() and (path / 'definition').is_dir():
+        return str(path)
+
+    # Case 4: Directory containing .pbip files — resolve from those
+    if path.is_dir():
+        for pbip_file in sorted(path.glob('*.pbip')):
+            report_folder = resolve_report_folder_from_pbip(str(pbip_file))
+            if report_folder:
+                return report_folder
 
     return None
 

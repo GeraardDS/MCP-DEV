@@ -794,10 +794,6 @@ class VisualQueryBuilder:
                 }
                 expr = self.converter.convert_slicer_selection(slicer_info)
                 if expr:
-                    # Skip blank-only non-inverted slicers: Power BI treats these as
-                    # "no selection" (show all) at query time and omits the filter.
-                    if not expr.values and expr.has_null_values and not slicer.is_inverted:
-                        continue
                     filter_context.slicer_filters.append(expr)
 
         return visual_info, filter_context
@@ -939,6 +935,67 @@ class VisualQueryBuilder:
             format_string_measures=format_string_measures,
         )
 
+    @staticmethod
+    def _merge_same_column_filters(filters: list) -> list:
+        """Merge multiple filters on the same table+column into one.
+
+        Power BI combines multiple TREATAS filters on the same column.
+        E.g. two filters on 'd Assetinstrument'[Benchmark Purpose Only]
+        with values {FALSE} and {BLANK()} become {FALSE, BLANK()}.
+
+        Only merges standard single-column 'In' filters (non-composite,
+        non-field-parameter). Other filter types are kept as-is.
+        """
+        from collections import OrderedDict
+        from .filter_to_dax import FilterExpression
+
+        merged: OrderedDict[tuple, list] = OrderedDict()
+        non_mergeable: list = []
+
+        for f in filters:
+            if (
+                f.composite_columns
+                or f.composite_tuples is not None
+                or f.condition_type not in ('In',)
+                or getattr(f, 'is_field_parameter', False)
+            ):
+                non_mergeable.append(f)
+                continue
+            key = (f.table, f.column)
+            merged.setdefault(key, []).append(f)
+
+        result: list = []
+        for group in merged.values():
+            if len(group) == 1:
+                result.append(group[0])
+                continue
+            combined_values: list = []
+            combined_has_null = False
+            seen = set()
+            for f in group:
+                for v in (f.values or []):
+                    v_key = str(v)
+                    if v_key not in seen:
+                        seen.add(v_key)
+                        combined_values.append(v)
+                combined_has_null = combined_has_null or f.has_null_values
+
+            base = group[0]
+            result.append(FilterExpression(
+                dax=base.dax,
+                source=base.source,
+                table=base.table,
+                column=base.column,
+                condition_type='In',
+                values=combined_values,
+                original=base.original,
+                is_field_parameter=False,
+                classification=base.classification,
+                has_null_values=combined_has_null,
+            ))
+
+        return result + non_mergeable
+
     def _format_value_for_treatas(self, val: Any) -> str:
         """Format a single value for inclusion in a TREATAS set literal.
 
@@ -1058,6 +1115,9 @@ class VisualQueryBuilder:
 
         # Data filters first, then field parameter filters (matches PBI ordering)
         active_filters = data_filters + field_param_filters
+
+        # Merge filters on the same table+column into a single TREATAS
+        active_filters = self._merge_same_column_filters(active_filters)
 
         # --- 2. Build TREATAS var declarations ---
         # Each filter becomes either:
