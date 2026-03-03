@@ -448,6 +448,283 @@ class _Rule_CB006(_BaseRule):
         return results
 
 
+class _Rule_CB007(_BaseRule):
+    """DIVIDE() inside iterators — forces CallbackDataID.
+
+    DIVIDE() always creates CallbackDataID in SE queries because the
+    division-by-zero check requires FE row-by-row evaluation. The /
+    operator can execute entirely in SE when zero denominators are
+    pre-filtered.
+    """
+
+    rule_id = "CB007"
+    severity = "high"
+
+    _DIVIDE_RE = re.compile(r"\bDIVIDE\s*\(", re.IGNORECASE)
+
+    def check(self, dax: str) -> List[CallbackDetection]:
+        results: List[CallbackDetection] = []
+
+        for m in _ITERATOR_RE.finditer(dax):
+            func_name = m.group(1)
+            paren_pos = m.end() - 1
+            body_start = paren_pos + 1
+            body = extract_function_body(dax, body_start)
+
+            expr_part = _get_expression_arg(body)
+            if expr_part is None:
+                continue
+
+            for inner in self._DIVIDE_RE.finditer(expr_part):
+                abs_pos = m.start()
+                line, _ = get_line_column(dax, abs_pos)
+                snippet = _make_snippet(dax, abs_pos, 80)
+                results.append(
+                    CallbackDetection(
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        description=(
+                            f"DIVIDE() inside {func_name}() creates "
+                            f"CallbackDataID for division-by-zero check"
+                        ),
+                        fix_suggestion=(
+                            "Use VAR to pre-calculate the division result "
+                            "before the iterator, or use the / operator with "
+                            "a pre-filter: CALCULATE(SUMX(T, T[A] / T[B]), T[B] <> 0)"
+                        ),
+                        line=line,
+                        match_text=snippet,
+                    )
+                )
+                break
+
+        return results
+
+
+class _Rule_CB008(_BaseRule):
+    """ROUND/TRUNC/INT/CEILING/FLOOR inside iterators.
+
+    Rounding functions force FE row-by-row evaluation since the SE
+    cannot perform rounding. Pre-group rows using SUMMARIZE to reduce
+    callback invocations.
+    """
+
+    rule_id = "CB008"
+    severity = "high"
+
+    _ROUND_RE = re.compile(
+        r"\b(ROUND|ROUNDUP|ROUNDDOWN|TRUNC|INT|CEILING|FLOOR|MROUND)\s*\(",
+        re.IGNORECASE,
+    )
+
+    def check(self, dax: str) -> List[CallbackDetection]:
+        results: List[CallbackDetection] = []
+
+        for m in _ITERATOR_RE.finditer(dax):
+            func_name = m.group(1)
+            paren_pos = m.end() - 1
+            body_start = paren_pos + 1
+            body = extract_function_body(dax, body_start)
+
+            expr_part = _get_expression_arg(body)
+            if expr_part is None:
+                continue
+
+            for inner in self._ROUND_RE.finditer(expr_part):
+                inner_func = inner.group(1).upper()
+                abs_pos = m.start()
+                line, _ = get_line_column(dax, abs_pos)
+                snippet = _make_snippet(dax, abs_pos, 80)
+                results.append(
+                    CallbackDetection(
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        description=(
+                            f"{inner_func}() inside {func_name}() forces "
+                            f"row-by-row FE evaluation (RoundValueCallback)"
+                        ),
+                        fix_suggestion=(
+                            "Pre-group rows using SUMMARIZE to reduce callback invocations. "
+                            "Instead of SUMX(Sales, Sales[Qty] * ROUND(Sales[Price], 2)), "
+                            "use SUMX(SUMMARIZE(Sales, Sales[Price]), "
+                            "CALCULATE(SUM(Sales[Qty])) * ROUND(Sales[Price], 2))"
+                        ),
+                        line=line,
+                        match_text=snippet,
+                    )
+                )
+                break
+
+        return results
+
+
+class _Rule_CB009(_BaseRule):
+    """String functions inside iterators.
+
+    String operations always force FE row-by-row evaluation since the
+    VertiPaq engine cannot process string manipulation.
+    """
+
+    rule_id = "CB009"
+    severity = "medium"
+
+    _STRING_RE = re.compile(
+        r"\b(LEFT|RIGHT|MID|SUBSTITUTE|REPLACE|CONCATENATE|"
+        r"UPPER|LOWER|TRIM|LEN|FIND|SEARCH|REPT|FORMAT)\s*\(",
+        re.IGNORECASE,
+    )
+
+    def check(self, dax: str) -> List[CallbackDetection]:
+        results: List[CallbackDetection] = []
+
+        for m in _ITERATOR_RE.finditer(dax):
+            func_name = m.group(1)
+            paren_pos = m.end() - 1
+            body_start = paren_pos + 1
+            body = extract_function_body(dax, body_start)
+
+            expr_part = _get_expression_arg(body)
+            if expr_part is None:
+                continue
+
+            for inner in self._STRING_RE.finditer(expr_part):
+                inner_func = inner.group(1).upper()
+                abs_pos = m.start()
+                line, _ = get_line_column(dax, abs_pos)
+                snippet = _make_snippet(dax, abs_pos, 80)
+                results.append(
+                    CallbackDetection(
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        description=(
+                            f"{inner_func}() inside {func_name}() forces "
+                            f"row-by-row FE string evaluation"
+                        ),
+                        fix_suggestion=(
+                            "String operations always force FE row-by-row evaluation. "
+                            "Move string logic to a calculated column in the data model, "
+                            "or pre-compute in a VAR outside the iterator."
+                        ),
+                        line=line,
+                        match_text=snippet,
+                    )
+                )
+                break
+
+        return results
+
+
+class _Rule_CB010(_BaseRule):
+    """SELECTEDVALUE/HASONEVALUE inside iterators.
+
+    These functions are re-evaluated per row but always return the
+    same value within the iterator. Cache the result in a VAR.
+    """
+
+    rule_id = "CB010"
+    severity = "medium"
+
+    _SEL_RE = re.compile(
+        r"\b(SELECTEDVALUE|HASONEVALUE)\s*\(",
+        re.IGNORECASE,
+    )
+
+    def check(self, dax: str) -> List[CallbackDetection]:
+        results: List[CallbackDetection] = []
+
+        for m in _ITERATOR_RE.finditer(dax):
+            func_name = m.group(1)
+            paren_pos = m.end() - 1
+            body_start = paren_pos + 1
+            body = extract_function_body(dax, body_start)
+
+            expr_part = _get_expression_arg(body)
+            if expr_part is None:
+                continue
+
+            for inner in self._SEL_RE.finditer(expr_part):
+                inner_func = inner.group(1).upper()
+                abs_pos = m.start()
+                line, _ = get_line_column(dax, abs_pos)
+                snippet = _make_snippet(dax, abs_pos, 80)
+                results.append(
+                    CallbackDetection(
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        description=(
+                            f"{inner_func}() inside {func_name}() is "
+                            f"re-evaluated per row but returns the same value"
+                        ),
+                        fix_suggestion=(
+                            "Cache the result in a VAR before the iterator: "
+                            "VAR _sel = SELECTEDVALUE(Table[Col]) "
+                            "RETURN SUMX(T, ... _sel ...)"
+                        ),
+                        line=line,
+                        match_text=snippet,
+                    )
+                )
+                break
+
+        return results
+
+
+class _Rule_CB011(_BaseRule):
+    """Complex date functions inside iterators.
+
+    Date intelligence functions create complex filter contexts per row,
+    forcing FE row-by-row evaluation.
+    """
+
+    rule_id = "CB011"
+    severity = "medium"
+
+    _DATE_RE = re.compile(
+        r"\b(DATEADD|DATESYTD|DATESQTD|DATESMTD|DATESBETWEEN|"
+        r"DATESINPERIOD|SAMEPERIODLASTYEAR|PARALLELPERIOD)\s*\(",
+        re.IGNORECASE,
+    )
+
+    def check(self, dax: str) -> List[CallbackDetection]:
+        results: List[CallbackDetection] = []
+
+        for m in _ITERATOR_RE.finditer(dax):
+            func_name = m.group(1)
+            paren_pos = m.end() - 1
+            body_start = paren_pos + 1
+            body = extract_function_body(dax, body_start)
+
+            expr_part = _get_expression_arg(body)
+            if expr_part is None:
+                continue
+
+            for inner in self._DATE_RE.finditer(expr_part):
+                inner_func = inner.group(1).upper()
+                abs_pos = m.start()
+                line, _ = get_line_column(dax, abs_pos)
+                snippet = _make_snippet(dax, abs_pos, 80)
+                results.append(
+                    CallbackDetection(
+                        rule_id=self.rule_id,
+                        severity=self.severity,
+                        description=(
+                            f"{inner_func}() inside {func_name}() creates "
+                            f"complex per-row filter context evaluation"
+                        ),
+                        fix_suggestion=(
+                            "Cache the date range in a VAR before the iterator: "
+                            "VAR _dates = DATEADD(...) "
+                            "RETURN SUMX(T, CALCULATE([M], _dates))"
+                        ),
+                        line=line,
+                        match_text=snippet,
+                    )
+                )
+                break
+
+        return results
+
+
 # ── Helper functions ──────────────────────────────────────────────
 
 
@@ -597,4 +874,9 @@ class CallbackDetector:
             _Rule_CB004(),
             _Rule_CB005(),
             _Rule_CB006(),
+            _Rule_CB007(),
+            _Rule_CB008(),
+            _Rule_CB009(),
+            _Rule_CB010(),
+            _Rule_CB011(),
         ]

@@ -64,6 +64,10 @@ class DaxCodeRewriter:
             current_code = self._optimize_filter_patterns(current_code)
             current_code = self._convert_summarize_to_summarizecolumns(current_code)
             current_code = self._optimize_distinct_values(current_code)
+            current_code = self._rewrite_iterator_to_calculate(current_code)
+            current_code = self._rewrite_filter_to_keepfilters(current_code)
+            current_code = self._rewrite_hasonevalue_to_selectedvalue(current_code)
+            current_code = self._rewrite_callback_reduction(current_code)
 
             # Calculate overall improvement estimate
             has_changes = current_code.strip() != dax_expression.strip()
@@ -483,6 +487,163 @@ class DaxCodeRewriter:
                 "DISTINCT removes blank rows and may be slower."
             ),
             estimated_improvement="5-20% faster, better semantic correctness",
+            confidence="medium"
+        ))
+
+        return dax
+
+    def _rewrite_iterator_to_calculate(self, dax: str) -> str:
+        """Rewrite SUMX(FILTER(Table, cond), expr) to CALCULATE(SUM(expr), cond).
+
+        This is a more targeted version that handles cases not caught by
+        _optimize_filter_patterns (e.g., COUNTX, MAXX, MINX patterns).
+        """
+        pattern = r'(SUMX|AVERAGEX|COUNTX|MAXX|MINX)\s*\(\s*FILTER\s*\(\s*([^,]+)\s*,\s*([^)]+)\)\s*,\s*([^)]+)\)'
+
+        match = re.search(pattern, dax, re.IGNORECASE)
+        if not match:
+            return dax
+
+        iterator_func = match.group(1).upper()
+        table = match.group(2).strip()
+        condition = match.group(3).strip()
+        column_expr = match.group(4).strip()
+
+        agg_map = {
+            'SUMX': 'SUM', 'AVERAGEX': 'AVERAGE', 'COUNTX': 'COUNTROWS',
+            'MAXX': 'MAX', 'MINX': 'MIN',
+        }
+        agg_func = agg_map.get(iterator_func, 'SUM')
+
+        if agg_func == 'COUNTROWS':
+            optimized = f"CALCULATE(COUNTROWS({table}), {condition})"
+        else:
+            optimized = f"CALCULATE({agg_func}({column_expr}), {condition})"
+
+        original_fragment = match.group(0)
+        dax = dax.replace(original_fragment, optimized)
+
+        self.transformations.append(Transformation(
+            transformation_type="iterator_filter_to_calculate",
+            original_code=original_fragment,
+            transformed_code=optimized,
+            explanation=(
+                f"Replaced {iterator_func}(FILTER(...)) with CALCULATE({agg_func}(...)). "
+                "Eliminates materialization of filtered table and row-by-row iteration."
+            ),
+            estimated_improvement="5-10x faster",
+            confidence="high"
+        ))
+
+        return dax
+
+    def _rewrite_filter_to_keepfilters(self, dax: str) -> str:
+        """Rewrite FILTER(VALUES(Col), predicate) to KEEPFILTERS(predicate)."""
+        pattern = (
+            r'FILTER\s*\(\s*VALUES\s*\(\s*([^)]+)\)\s*,\s*'
+            r'(\1\s*(?:=|<>|>|<|>=|<=)\s*[^)]+)\)'
+        )
+
+        match = re.search(pattern, dax, re.IGNORECASE)
+        if not match:
+            # Try simpler pattern: FILTER(VALUES(...), simple_predicate)
+            simple_pattern = r'FILTER\s*\(\s*VALUES\s*\(\s*([^)]+)\)\s*,\s*([^)]+)\)'
+            match = re.search(simple_pattern, dax, re.IGNORECASE)
+            if not match:
+                return dax
+
+        original_fragment = match.group(0)
+        predicate = match.group(2).strip()
+        optimized = f"KEEPFILTERS({predicate})"
+
+        dax = dax.replace(original_fragment, optimized)
+
+        self.transformations.append(Transformation(
+            transformation_type="filter_values_to_keepfilters",
+            original_code=original_fragment,
+            transformed_code=optimized,
+            explanation=(
+                "Replaced FILTER(VALUES(...), predicate) with KEEPFILTERS(predicate). "
+                "KEEPFILTERS intersects with existing filter context without materializing "
+                "a VALUES table."
+            ),
+            estimated_improvement="3-10x faster",
+            confidence="high"
+        ))
+
+        return dax
+
+    def _rewrite_hasonevalue_to_selectedvalue(self, dax: str) -> str:
+        """Rewrite IF(HASONEVALUE(Col), VALUES(Col)) to SELECTEDVALUE(Col)."""
+        # Pattern with optional third argument
+        pattern = (
+            r'IF\s*\(\s*HASONEVALUE\s*\(\s*([^)]+)\)\s*,\s*'
+            r'VALUES\s*\(\s*\1\s*\)'
+            r'(?:\s*,\s*([^)]+))?'
+            r'\s*\)'
+        )
+
+        match = re.search(pattern, dax, re.IGNORECASE)
+        if not match:
+            return dax
+
+        original_fragment = match.group(0)
+        col_ref = match.group(1).strip()
+        alternate = match.group(2)
+
+        if alternate:
+            optimized = f"SELECTEDVALUE({col_ref}, {alternate.strip()})"
+        else:
+            optimized = f"SELECTEDVALUE({col_ref})"
+
+        dax = dax.replace(original_fragment, optimized)
+
+        self.transformations.append(Transformation(
+            transformation_type="hasonevalue_to_selectedvalue",
+            original_code=original_fragment,
+            transformed_code=optimized,
+            explanation=(
+                "Replaced IF(HASONEVALUE(...), VALUES(...)) with SELECTEDVALUE(...). "
+                "SELECTEDVALUE is more readable and the recommended Microsoft pattern."
+            ),
+            estimated_improvement="Cleaner code, slightly faster",
+            confidence="high"
+        ))
+
+        return dax
+
+    def _rewrite_callback_reduction(self, dax: str) -> str:
+        """Suggest SUMMARIZE pre-grouping for iterators with ROUND/DIVIDE."""
+        round_in_iter = re.compile(
+            r'(SUMX|AVERAGEX)\s*\(\s*(\w+)\s*,\s*[^)]*'
+            r'(?:ROUND|DIVIDE|ROUNDUP|ROUNDDOWN|TRUNC)\s*\(',
+            re.IGNORECASE,
+        )
+
+        match = round_in_iter.search(dax)
+        if not match:
+            return dax
+
+        iterator_func = match.group(1).upper()
+        table_name = match.group(2).strip()
+
+        # Don't do an actual rewrite — this is template guidance
+        self.transformations.append(Transformation(
+            transformation_type="callback_reduction_template",
+            original_code=match.group(0)[:120],
+            transformed_code=(
+                f"-- Template: reduce callbacks via pre-grouping\n"
+                f"{iterator_func}(\n"
+                f"    SUMMARIZE({table_name}, {table_name}[LowCardinalityColumn]),\n"
+                f"    CALCULATE(SUM({table_name}[Quantity])) * ROUND({table_name}[LowCardinalityColumn], 2)\n"
+                f")"
+            ),
+            explanation=(
+                "ROUND/DIVIDE inside iterators create CallbackDataID for every row. "
+                "Pre-group using SUMMARIZE on low-cardinality columns to reduce callback count "
+                "from N rows to K distinct values (K << N)."
+            ),
+            estimated_improvement="Proportional to cardinality reduction (K/N)",
             confidence="medium"
         ))
 

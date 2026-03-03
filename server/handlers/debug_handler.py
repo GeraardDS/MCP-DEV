@@ -726,10 +726,11 @@ def _execute_visual_query(
                             'fe_pct': trace_result.get('fe_pct', 0.0),
                             'se_pct': trace_result.get('se_pct', 0.0),
                         }
-                        response['se_fe_trace'] = {
+                        se_events_list = trace_result.get('se_events', [])
+                        trace_response = {
                             'runner': 'native',
                             'performance': perf,
-                            'se_events': trace_result.get('se_events', []),
+                            'se_events': se_events_list,
                             'cache_cleared': trace_result.get(
                                 'cache_cleared', False
                             ),
@@ -743,6 +744,16 @@ def _execute_visual_query(
                                 f"SE cache: {perf['se_cache_hits']}"
                             ),
                         }
+                        # Deep SE event analysis
+                        if se_events_list:
+                            try:
+                                from core.dax.se_event_analyzer import SeEventAnalyzer
+                                trace_response['se_analysis'] = SeEventAnalyzer().analyze(
+                                    se_events_list, perf
+                                )
+                            except Exception:
+                                pass
+                        response['se_fe_trace'] = trace_response
             except Exception as te:
                 logger.error(f"SE/FE trace failed: {te}", exc_info=True)
                 response['se_fe_trace'] = {'error': str(te)}
@@ -2672,11 +2683,34 @@ def _diagnose_timing(perf: dict) -> dict:
             'repeated sub-expressions should be captured in VAR to avoid re-evaluation.'
         )
 
-    if se_ms > 20 and se_par < 2.0:
+    if se_par < 1.0 and se_ms > 20:
         notes.append(
-            f'Low SE parallelism ({se_par}x). SE queries are not scaling across CPU cores. '
-            'This can indicate small result sets or FE serialization forcing sequential SE calls.'
+            f'SE parallelism ({se_par}x) is sequential — single-threaded SE execution.'
         )
+    elif 1.0 <= se_par < 2.0 and se_ms > 50:
+        notes.append(
+            f'SE parallelism ({se_par}x) is limited — not fully utilizing CPU cores. '
+            'This can indicate FE serialization forcing sequential SE calls.'
+        )
+
+    # Absolute time assessment
+    total_ms = perf.get('total_ms', 0)
+    if total_ms < 50:
+        notes.append(f'Fast query ({total_ms}ms) — SE/FE ratios are less meaningful at this speed.')
+    elif total_ms > 2000:
+        notes.append(f'Slow query ({total_ms}ms) — significant optimization opportunity.')
+
+    # SE/FE ratio benchmark (ideal ~20% FE / 80% SE)
+    ideal_fe = 20
+    deviation = abs(fe_pct - ideal_fe)
+    if deviation > 40:
+        notes.append(f'FE% ({fe_pct}%) is {deviation:.0f}% off ideal (20%). Major rebalancing needed.')
+    elif deviation > 20:
+        notes.append(f'FE% ({fe_pct}%) is {deviation:.0f}% off ideal (20%). Room for improvement.')
+
+    # Datacache limit proximity
+    if 200 < se_queries <= 256:
+        notes.append(f'SE queries ({se_queries}) approaching datacache limit of 256. Performance cliff ahead.')
 
     return {'profile': profile, 'notes': notes}
 
@@ -2814,26 +2848,43 @@ def _build_next_steps(
     perf: dict,
     callback_info: dict,
     static_callbacks: dict,
+    context_result: Optional[dict] = None,
+    vertipaq_result: Optional[dict] = None,
+    se_analysis: Optional[dict] = None,
 ) -> list:
-    """Generate 2–4 actionable next steps based on findings."""
+    """Generate 2–5 actionable next steps based on findings."""
     steps = []
     fe_pct = perf.get('fe_pct', 0) if perf else 0
     se_queries = perf.get('se_queries', 0) if perf else 0
     has_rewrites = any(o.get('category') == 'code_rewrite' for o in optimizations)
     has_static_callbacks = bool(static_callbacks.get('summary', {}).get('total', 0))
 
-    if callback_info.get('detected'):
+    # SE event deep analysis guidance (highest priority if confirmed at runtime)
+    if se_analysis:
+        if se_analysis.get('callbacks', {}).get('detected'):
+            cb = se_analysis['callbacks']
+            steps.append(
+                f"Runtime CallbackDataID confirmed ({cb['total_count']} occurrences in SE events). "
+                "This is the #1 priority — eliminate callbacks via SUMMARIZE pre-grouping."
+            )
+        fusion = se_analysis.get('fusion_opportunities', {})
+        if fusion.get('vertical_breaks', 0) > 2:
+            steps.append(
+                f"Vertical fusion broken ({fusion['vertical_breaks']} SE queries could be fused). "
+                "Check for IF/SWITCH returning different measures — restructure to CALCULATE pattern."
+            )
+
+    if callback_info.get('detected') and not (se_analysis and se_analysis.get('callbacks', {}).get('detected')):
         steps.append(
             'PRIORITY: Eliminate CallbackDataID — open DAX Studio Server Timings, '
             'locate the SE query containing CallbackDataID, identify the triggering '
             'function (ROUND/IF/DIVIDE inside iterator), and restructure using SUMMARIZE '
             'to pre-group by distinct values.'
         )
-    elif has_static_callbacks:
+    elif has_static_callbacks and not (se_analysis and se_analysis.get('callbacks', {}).get('detected')):
         steps.append(
             'Callback risk detected in DAX expression. '
-            'Use operation=visual with trace=true on a visual using this measure '
-            'to confirm whether CallbackDataID appears in SE events at runtime.'
+            'Pass se_events from the visual trace to optimize for deep runtime confirmation.'
         )
 
     if fe_pct > 60:
@@ -2848,6 +2899,25 @@ def _build_next_steps(
             f'High SE query count ({se_queries}): introduce VAR to capture repeated '
             'sub-expressions (e.g., prior-year CALCULATE blocks used in both numerator '
             'and denominator of DIVIDE).'
+        )
+
+    # Context transition guidance
+    if context_result and context_result.get('max_nesting_level', 0) > 3:
+        steps.append(
+            f"Deep CALCULATE nesting detected (depth {context_result['max_nesting_level']}). "
+            "Flatten nested CALCULATE into single CALCULATE with multiple filter arguments."
+        )
+
+    # VertiPaq cardinality guidance
+    if vertipaq_result and vertipaq_result.get('high_cardinality_columns'):
+        high_card = vertipaq_result['high_cardinality_columns']
+        col_names = ', '.join(
+            c if isinstance(c, str) else c.get('column', str(c))
+            for c in high_card[:3]
+        )
+        steps.append(
+            f"High-cardinality columns in DAX: {col_names}. "
+            "If these appear in iterators, reduce scope using SUMMARIZE or filter to subset."
         )
 
     if has_rewrites:
@@ -2871,12 +2941,13 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
     DAX analysis + optimization suggestions for a single measure.
 
     Accepts a measure name, resolves its expression, detects anti-patterns
-    (static callback detection, best practices, code rewrites), and returns
-    prioritized optimization suggestions with before/after code examples.
+    (static callback detection, context transitions, VertiPaq cardinality,
+    best practices, code rewrites), and returns prioritized optimization
+    suggestions with before/after code examples.
 
-    Optionally accepts SE/FE timing data from a prior visual trace run
-    (operation=visual, trace=true) to inform timing-correlated suggestions.
-    Pass fe_pct, se_queries, total_ms, fe_ms, se_ms, se_cpu_ms, se_cache_hits.
+    REQUIRES SE/FE timing data from a prior visual trace run
+    (operation=visual, trace=true). Pass fe_pct, se_queries, total_ms,
+    fe_ms, se_ms. Optionally pass se_events for deep SE analysis.
     """
     try:
         measure_name = (args.get('measure_name') or '').strip()
@@ -2910,7 +2981,7 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
         resolved_table = measure_details.get('table_name') or table_name or 'm Measure'
         expression_source = resolved.get('expression_source', 'unknown')
 
-        # ── Step 2: Build perf dict from optional timing input params ────────
+        # ── Step 2: Build perf dict from timing input params (REQUIRED) ─────
         perf: dict = {}
         timing_provided = False
         timing_keys = [
@@ -2924,6 +2995,17 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
                 perf[key] = val
                 timing_provided = True
 
+        if not timing_provided:
+            return {
+                'success': False,
+                'error': 'SE/FE timing data is required. Run operation=visual with trace=true first, '
+                         'then pass fe_pct, se_queries, total_ms, fe_ms, se_ms to optimize.',
+                'hint': 'Example: {"operation": "optimize", "measure_name": "Total Sales", '
+                        '"fe_pct": 75.2, "se_queries": 42, "total_ms": 1500, "fe_ms": 1130, "se_ms": 370}'
+            }
+
+        se_events_input = args.get('se_events', [])
+
         # ── Step 3: Static callback detection (DAX expression analysis) ───────
         try:
             from core.dax.callback_detector import CallbackDetector
@@ -2932,36 +3014,102 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning(f'Static callback detection failed: {ce}')
             static_callbacks = {'callback_detections': [], 'summary': {'total': 0}}
 
-        # ── Step 4: Timing diagnosis ─────────────────────────────────────────
-        timing_diagnosis = _diagnose_timing(perf) if timing_provided else None
+        # ── Step 4: Context transition analysis ──────────────────────────────
+        context_result = None
+        try:
+            from core.dax.context_analyzer import DaxContextAnalyzer
+            ctx = DaxContextAnalyzer().analyze_context_transitions(expression)
+            context_result = {
+                'complexity_score': ctx.complexity_score,
+                'max_nesting_level': ctx.max_nesting_level,
+                'transition_count': len(ctx.transitions),
+                'transitions': [
+                    {'type': t.type.value, 'location': t.location,
+                     'function': t.function, 'nesting': t.nested_level}
+                    for t in ctx.transitions[:10]
+                ],
+                'warnings': [
+                    {'severity': w.severity, 'message': w.message}
+                    for w in ctx.warnings
+                ],
+            }
+        except Exception as ce:
+            logger.warning(f'Context analysis failed: {ce}')
 
-        # ── Step 5: DAX best practices analysis ──────────────────────────────
+        # ── Step 5: VertiPaq column analysis ─────────────────────────────────
+        vertipaq_result = None
+        try:
+            from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
+            vpaq = VertiPaqAnalyzer(connection_state)
+            vertipaq_result = vpaq.analyze_dax_columns(expression)
+        except Exception as ve:
+            logger.warning(f'VertiPaq analysis failed: {ve}')
+
+        # ── Step 6: Timing diagnosis ─────────────────────────────────────────
+        timing_diagnosis = _diagnose_timing(perf)
+
+        # ── Step 7: DAX best practices analysis ──────────────────────────────
         from core.dax.dax_best_practices import DaxBestPracticesAnalyzer
-        bpa_result = DaxBestPracticesAnalyzer().analyze(expression)
+        bpa_result = DaxBestPracticesAnalyzer().analyze(
+            expression,
+            context_analysis=context_result,
+            vertipaq_analysis=vertipaq_result,
+        )
 
-        # ── Step 6: Code rewriter ─────────────────────────────────────────────
+        # ── Step 8: Code rewriter ─────────────────────────────────────────────
         from core.dax.code_rewriter import DaxCodeRewriter
         rewriter_result = DaxCodeRewriter().rewrite_dax(expression)
 
-        # ── Step 7: Synthesize suggestions ───────────────────────────────────
+        # ── Step 9: SE event deep analysis ───────────────────────────────────
+        se_analysis = None
+        if se_events_input:
+            try:
+                from core.dax.se_event_analyzer import SeEventAnalyzer
+                se_analysis = SeEventAnalyzer().analyze(se_events_input, perf)
+            except Exception as se_err:
+                logger.warning(f'SE event analysis failed: {se_err}')
+
+        # ── Step 10: Synthesize suggestions ──────────────────────────────────
         # No runtime callback_info (that requires a live trace) — pass empty
         callback_info: dict = {}
         optimizations = _build_optimize_suggestions(
             bpa_result, rewriter_result, callback_info, static_callbacks, perf
         )
 
-        # ── Step 8: Next steps ────────────────────────────────────────────────
-        next_steps = _build_next_steps(optimizations, perf, callback_info, static_callbacks)
+        # ── Step 11: Next steps ──────────────────────────────────────────────
+        next_steps = _build_next_steps(
+            optimizations, perf, callback_info, static_callbacks,
+            context_result=context_result,
+            vertipaq_result=vertipaq_result,
+            se_analysis=se_analysis,
+        )
 
-        # ── Step 9: Build response ───────────────────────────────────────────
+        # ── Step 12: Build tl;dr ─────────────────────────────────────────────
+        tl_dr_parts = []
+        if static_callbacks.get('summary', {}).get('critical', 0):
+            tl_dr_parts.append(f"{static_callbacks['summary']['critical']} critical callback patterns")
+        if bpa_result.get('critical_issues', 0):
+            tl_dr_parts.append(f"{bpa_result['critical_issues']} critical DAX anti-patterns")
+        fe_pct_val = perf.get('fe_pct', 0)
+        if fe_pct_val > 60:
+            tl_dr_parts.append(f"FE-bound at {fe_pct_val}%")
+        if tl_dr_parts:
+            tl_dr = f"Key issues: {'; '.join(tl_dr_parts)}. See optimizations for fixes."
+        else:
+            tl_dr = "No critical issues. Measure has acceptable performance characteristics."
+
+        # ── Step 13: Build response ──────────────────────────────────────────
         response: Dict[str, Any] = {
             'success': True,
+            'tl_dr': tl_dr,
             'measure': {
                 'name': measure_name,
                 'table': resolved_table,
                 'expression': expression,
                 'source': expression_source,
             },
+            'timing': perf,
+            'timing_diagnosis': timing_diagnosis,
             'dax_analysis': {
                 'score': bpa_result.get('overall_score'),
                 'complexity': bpa_result.get('complexity_level'),
@@ -2980,18 +3128,31 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
             'next_steps': next_steps,
         }
 
-        if timing_provided:
-            response['timing'] = perf
-            response['timing_diagnosis'] = timing_diagnosis
-        else:
-            response['timing_hint'] = (
-                'No SE/FE timing provided. Run operation=visual with trace=true '
-                'first, then pass fe_pct, se_queries, etc. to optimize for '
-                'timing-correlated suggestions.'
-            )
+        if context_result:
+            response['context_analysis'] = context_result
+        if vertipaq_result and vertipaq_result.get('success'):
+            response['vertipaq_analysis'] = vertipaq_result
+        if se_analysis:
+            response['se_analysis'] = se_analysis
 
         if rewriter_result.get('has_changes'):
             response['recommended_rewrite'] = rewriter_result.get('rewritten_code')
+
+        # ── Compact mode: trim verbose sections ──────────────────────────────
+        if compact:
+            if len(optimizations) > 5:
+                response['optimizations'] = optimizations[:5]
+            if context_result and 'context_analysis' in response:
+                response['context_analysis'] = {
+                    'complexity_score': context_result.get('complexity_score'),
+                    'max_nesting_level': context_result.get('max_nesting_level'),
+                    'transition_count': context_result.get('transition_count'),
+                }
+            if se_analysis and 'se_analysis' in response:
+                response['se_analysis'] = {
+                    k: v for k, v in se_analysis.items()
+                    if v and v != {} and v != [] and v != {'detected': False, 'total_count': 0}
+                }
 
         return _compact_response(response, compact)
 
@@ -3048,7 +3209,7 @@ def register_debug_handlers(registry):
     tools = [
         ToolDefinition(
             name="09_Debug_Operations",
-            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze), debug_variable (evaluate single VAR), step_variables (step through all VARs), run_dax (execute raw DEFINE…EVALUATE query), optimize (measure_name → static CallbackDataID detection + DAX anti-pattern analysis + prioritized optimization suggestions with before/after code; pass SE/FE timing from a prior visual trace via fe_pct/se_queries/total_ms/fe_ms/se_ms for timing-correlated suggestions). Use trace=true on visual to get SE/FE timing analysis with the visual's real filter context; supply measures[] to override which measures are tested against that context.",
+            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze), debug_variable (evaluate single VAR), step_variables (step through all VARs), run_dax (execute raw DEFINE...EVALUATE query), optimize (measure_name + SE/FE timing from prior visual trace → static CallbackDataID detection + context transition analysis + VertiPaq column cardinality + DAX anti-pattern analysis + prioritized optimization suggestions with before/after code. REQUIRES timing params: run visual with trace=true first, then pass fe_pct, se_queries, total_ms, fe_ms, se_ms. Optionally pass se_events for deep SE analysis.). Use trace=true on visual to get SE/FE timing analysis with the visual's real filter context; supply measures[] to override which measures are tested against that context.",
             handler=handle_debug_operations,
             input_schema={
                 "type": "object",
@@ -3075,15 +3236,16 @@ def register_debug_handlers(registry):
                     "limit": {"type": "integer", "description": "Max rows (drill, default: 100)"},
                     "variable_name": {"type": "string", "description": "Variable name (debug_variable)"},
                     "max_rows": {"type": "integer", "default": 100, "description": "Max rows (debug_variable/step_variables)"},
-                    "total_ms": {"type": "number", "description": "Total query time in ms from visual trace (optimize)"},
-                    "fe_ms": {"type": "number", "description": "Formula Engine time in ms from visual trace (optimize)"},
-                    "se_ms": {"type": "number", "description": "Storage Engine time in ms from visual trace (optimize)"},
-                    "se_cpu_ms": {"type": "number", "description": "SE CPU time in ms from visual trace (optimize)"},
-                    "fe_pct": {"type": "number", "description": "FE percentage from visual trace (optimize)"},
-                    "se_pct": {"type": "number", "description": "SE percentage from visual trace (optimize)"},
-                    "se_queries": {"type": "integer", "description": "Number of SE queries from visual trace (optimize)"},
-                    "se_cache_hits": {"type": "integer", "description": "SE cache hits from visual trace (optimize)"},
-                    "se_parallelism": {"type": "number", "description": "SE parallelism ratio from visual trace (optimize)"}
+                    "total_ms": {"type": "number", "description": "Total query time ms from visual trace (optimize, required)"},
+                    "fe_ms": {"type": "number", "description": "Formula Engine time ms (optimize, required)"},
+                    "se_ms": {"type": "number", "description": "Storage Engine time ms (optimize, required)"},
+                    "se_cpu_ms": {"type": "number", "description": "SE CPU time ms (optimize)"},
+                    "fe_pct": {"type": "number", "description": "FE % of total time (optimize, required)"},
+                    "se_pct": {"type": "number", "description": "SE % of total time (optimize)"},
+                    "se_queries": {"type": "integer", "description": "Number of SE queries (optimize, required)"},
+                    "se_cache_hits": {"type": "integer", "description": "SE cache hits (optimize)"},
+                    "se_parallelism": {"type": "number", "description": "SE parallelism ratio from visual trace (optimize)"},
+                    "se_events": {"type": "array", "items": {"type": "object"}, "description": "SE event list from visual trace (optimize, optional for deep SE analysis)"}
                 },
                 "required": []
             },

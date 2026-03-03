@@ -178,7 +178,15 @@ class DaxBestPracticesAnalyzer:
             'calculate_filter_boolean': self._check_calculate_filter_boolean,
             'iferror_iserror': self._check_iferror_iserror,
             'addcolumns_in_measure': self._check_addcolumns,
-            'if_iterator': self._check_if_in_iterator
+            'if_iterator': self._check_if_in_iterator,
+            'filter_bare_table': self._check_filter_bare_table,
+            'selectedvalue_over_hasonevalue': self._check_selectedvalue_over_hasonevalue,
+            'keepfilters_opportunity': self._check_keepfilters_opportunity,
+            'var_defeating_shortcircuit': self._check_var_defeating_shortcircuit,
+            'count_vs_countrows': self._check_count_vs_countrows,
+            'all_table_vs_column': self._check_all_table_vs_column,
+            'addcolumns_summarize': self._check_addcolumns_summarize,
+            'divide_in_iterator': self._check_divide_in_iterator,
         }
 
     # =============================================================================
@@ -678,6 +686,267 @@ class DaxBestPracticesAnalyzer:
         return issues
 
     # =============================================================================
+    # EXTENDED PERFORMANCE CHECKS (v10)
+    # =============================================================================
+
+    def _check_filter_bare_table(self, dax: str) -> List[DaxIssue]:
+        """Check for FILTER(BareTable, ...) — 117x performance difference."""
+        issues = []
+        pattern = (
+            r"FILTER\s*\(\s*"
+            r"(?!ALL\b|VALUES\b|DISTINCT\b|ALLSELECTED\b|KEEPFILTERS\b|"
+            r"CALCULATETABLE\b|TOPN\b|SUMMARIZE\b|ADDCOLUMNS\b|SELECTCOLUMNS\b|"
+            r"GENERATE\b|UNION\b|INTERSECT\b|EXCEPT\b|FILTER\b|DATATABLE\b|"
+            r"GENERATESERIES\b)"
+            r"(?:'[^']+'\s*,|[A-Za-z_]\w*\s*,)"
+        )
+
+        for match in re.finditer(pattern, dax, re.IGNORECASE):
+            self.articles_referenced.add('sqlbi_filter_columns')
+            issues.append(DaxIssue(
+                title="FILTER on Bare Table Reference (Critical Performance Impact)",
+                description=(
+                    "FILTER(Table, condition) iterates the entire expanded table including all "
+                    "related tables via relationships. This can be 10-117x slower than using a "
+                    "Boolean filter expression directly in CALCULATE."
+                ),
+                severity=IssueSeverity.CRITICAL,
+                category=IssueCategory.PERFORMANCE,
+                code_example_before="CALCULATE([Sales], FILTER(Sales, Sales[Amount] > 100))",
+                code_example_after="CALCULATE([Sales], Sales[Amount] > 100)",
+                estimated_improvement="10-100x faster (filters expanded table including all related tables)",
+                article_reference={
+                    'title': 'Filter columns, not tables in DAX (SQLBI)',
+                    'url': 'https://www.sqlbi.com/articles/filter-columns-not-tables-in-dax/',
+                    'source': 'SQLBI'
+                },
+                location=f"Position {match.start()}"
+            ))
+
+        return issues
+
+    def _check_selectedvalue_over_hasonevalue(self, dax: str) -> List[DaxIssue]:
+        """Check for IF(HASONEVALUE(...), VALUES(...)) pattern."""
+        issues = []
+        pattern = r'IF\s*\(\s*HASONEVALUE\s*\([^)]+\)\s*,\s*VALUES\s*\('
+
+        for match in re.finditer(pattern, dax, re.IGNORECASE):
+            self.articles_referenced.add('ms_selectedvalue')
+            issues.append(DaxIssue(
+                title="Use SELECTEDVALUE Instead of IF(HASONEVALUE(), VALUES())",
+                description=(
+                    "The IF(HASONEVALUE(Col), VALUES(Col)) pattern can be simplified to "
+                    "SELECTEDVALUE(Col), which is more readable and slightly more efficient."
+                ),
+                severity=IssueSeverity.MEDIUM,
+                category=IssueCategory.BEST_PRACTICE,
+                code_example_before="IF(HASONEVALUE(Table[Col]), VALUES(Table[Col]))",
+                code_example_after="SELECTEDVALUE(Table[Col])",
+                article_reference={
+                    'title': 'Use SELECTEDVALUE instead of VALUES (Microsoft Learn)',
+                    'url': 'https://learn.microsoft.com/en-us/dax/best-practices/dax-selectedvalue',
+                    'source': 'Microsoft Learn'
+                },
+                location=f"Position {match.start()}"
+            ))
+
+        return issues
+
+    def _check_keepfilters_opportunity(self, dax: str) -> List[DaxIssue]:
+        """Check for FILTER(VALUES(...), ...) that could use KEEPFILTERS."""
+        issues = []
+        pattern = r'FILTER\s*\(\s*VALUES\s*\(\s*[^)]+\)\s*,'
+
+        for match in re.finditer(pattern, dax, re.IGNORECASE):
+            self.articles_referenced.add('sqlbi_keepfilters')
+            issues.append(DaxIssue(
+                title="FILTER(VALUES()) Can Be Replaced with KEEPFILTERS",
+                description=(
+                    "FILTER(VALUES(Col), predicate) iterates all visible values. "
+                    "KEEPFILTERS(predicate) achieves the same result more efficiently by "
+                    "intersecting with the existing filter context."
+                ),
+                severity=IssueSeverity.MEDIUM,
+                category=IssueCategory.PERFORMANCE,
+                code_example_before='CALCULATE([M], FILTER(VALUES(Table[Col]), Table[Col] = "X"))',
+                code_example_after='CALCULATE([M], KEEPFILTERS(Table[Col] = "X"))',
+                article_reference={
+                    'title': 'Using KEEPFILTERS in DAX (SQLBI)',
+                    'url': 'https://www.sqlbi.com/articles/using-keepfilters-in-dax/',
+                    'source': 'SQLBI'
+                },
+                location=f"Position {match.start()}"
+            ))
+
+        return issues
+
+    def _check_var_defeating_shortcircuit(self, dax: str) -> List[DaxIssue]:
+        """Check for VARs with expensive operations before IF/SWITCH."""
+        issues = []
+        # Look for VAR ... = CALCULATE/SUMX/... followed by IF or SWITCH
+        expensive_ops = r'(CALCULATE|SUMX|AVERAGEX|COUNTX|MAXX|MINX)'
+        var_pattern = re.compile(
+            rf'\bVAR\s+\w+\s*=\s*{expensive_ops}\s*\(',
+            re.IGNORECASE,
+        )
+
+        var_matches = list(var_pattern.finditer(dax))
+        if len(var_matches) >= 2:
+            # Check if IF or SWITCH follows the VAR block
+            if_switch = re.search(r'\b(IF|SWITCH)\s*\(', dax, re.IGNORECASE)
+            if if_switch and if_switch.start() > var_matches[-1].start():
+                self.articles_referenced.add('sqlbi_var_shortcircuit')
+                issues.append(DaxIssue(
+                    title="VARs May Defeat Short-Circuit Evaluation",
+                    description=(
+                        "Multiple VAR definitions with expensive operations (CALCULATE, SUMX, etc.) "
+                        "before IF/SWITCH forces eager evaluation of all branches. If only one branch "
+                        "is used, ~50% of computation is wasted."
+                    ),
+                    severity=IssueSeverity.HIGH,
+                    category=IssueCategory.PERFORMANCE,
+                    code_example_before=(
+                        "VAR _sales = CALCULATE([Sales], ...)\n"
+                        "VAR _salesLY = CALCULATE([Sales LY], ...)\n"
+                        "RETURN IF(condition, _sales, _salesLY)"
+                    ),
+                    code_example_after=(
+                        "IF(condition,\n"
+                        "    CALCULATE([Sales], ...),\n"
+                        "    CALCULATE([Sales LY], ...)\n"
+                        ")"
+                    ),
+                    estimated_improvement="50% faster when one branch is unused",
+                    article_reference={
+                        'title': 'Optimizing IF and SWITCH using variables (SQLBI)',
+                        'url': 'https://www.sqlbi.com/articles/optimizing-if-and-switch-expressions-using-variables/',
+                        'source': 'SQLBI'
+                    },
+                    location=f"Found {len(var_matches)} expensive VARs before IF/SWITCH"
+                ))
+
+        return issues
+
+    def _check_count_vs_countrows(self, dax: str) -> List[DaxIssue]:
+        """Check for COUNT(Column) that should be COUNTROWS(Table)."""
+        issues = []
+        pattern = r'\bCOUNT\s*\(\s*[^)]*\['
+
+        for match in re.finditer(pattern, dax, re.IGNORECASE):
+            # Exclude COUNTROWS, COUNTA, COUNTAX, COUNTBLANK, COUNTX
+            prefix = dax[max(0, match.start() - 5):match.start()]
+            if re.search(r'(ROWS|A|AX|BLANK|X)\s*$', prefix, re.IGNORECASE):
+                continue
+            issues.append(DaxIssue(
+                title="COUNT(Column) Can Be Simplified to COUNTROWS",
+                description=(
+                    "COUNT(Table[Column]) counts non-blank values in a column. "
+                    "If you're counting rows, COUNTROWS(Table) is clearer and marginally faster."
+                ),
+                severity=IssueSeverity.LOW,
+                category=IssueCategory.BEST_PRACTICE,
+                code_example_before="COUNT(Sales[OrderID])",
+                code_example_after="COUNTROWS(Sales)",
+                location=f"Position {match.start()}"
+            ))
+
+        return issues
+
+    def _check_all_table_vs_column(self, dax: str) -> List[DaxIssue]:
+        """Check for ALL(Table) that should specify columns."""
+        issues = []
+        pattern = r'\bALL\s*\(\s*(?:\'[^\']+\'|[A-Za-z_]\w*)\s*\)'
+
+        for match in re.finditer(pattern, dax, re.IGNORECASE):
+            # Only flag if the expression also references specific columns from that table
+            table_match = re.search(r"ALL\s*\(\s*(?:'([^']+)'|([A-Za-z_]\w*))\s*\)", match.group(), re.IGNORECASE)
+            if table_match:
+                table_name = table_match.group(1) or table_match.group(2)
+                # Check if any column from this table is referenced in the expression
+                col_ref = re.search(
+                    rf"(?:'{re.escape(table_name)}'|{re.escape(table_name)})\s*\[\w+\]",
+                    dax, re.IGNORECASE
+                )
+                if col_ref:
+                    issues.append(DaxIssue(
+                        title="ALL(Table) Removes All Filters — Consider ALL(Table[Col])",
+                        description=(
+                            f"ALL({table_name}) removes filters from ALL columns in the table. "
+                            "If you only need to remove specific column filters, use "
+                            "ALL(Table[Col1], Table[Col2]) to preserve other filter context."
+                        ),
+                        severity=IssueSeverity.MEDIUM,
+                        category=IssueCategory.PERFORMANCE,
+                        code_example_before=f"CALCULATE([M], ALL({table_name}))",
+                        code_example_after=f"CALCULATE([M], ALL({table_name}[Region], {table_name}[Category]))",
+                        location=f"Position {match.start()}"
+                    ))
+
+        return issues
+
+    def _check_addcolumns_summarize(self, dax: str) -> List[DaxIssue]:
+        """Check for ADDCOLUMNS(SUMMARIZE(...)) that should use SUMMARIZECOLUMNS."""
+        issues = []
+        pattern = r'\bADDCOLUMNS\s*\(\s*SUMMARIZE\s*\('
+
+        for match in re.finditer(pattern, dax, re.IGNORECASE):
+            self.articles_referenced.add('sqlbi_summarizecolumns')
+            issues.append(DaxIssue(
+                title="ADDCOLUMNS(SUMMARIZE()) Should Use SUMMARIZECOLUMNS",
+                description=(
+                    "ADDCOLUMNS(SUMMARIZE(Table, Cols), ...) can be replaced with "
+                    "SUMMARIZECOLUMNS(Cols, ...) which produces optimal query plans "
+                    "and is significantly faster."
+                ),
+                severity=IssueSeverity.MEDIUM,
+                category=IssueCategory.PERFORMANCE,
+                code_example_before='ADDCOLUMNS(SUMMARIZE(Sales, Sales[Product]), "Total", [Total Sales])',
+                code_example_after='SUMMARIZECOLUMNS(Sales[Product], "Total", [Total Sales])',
+                estimated_improvement="2-5x faster — SUMMARIZECOLUMNS produces optimal query plans",
+                article_reference={
+                    'title': 'Introducing SUMMARIZECOLUMNS (SQLBI)',
+                    'url': 'https://www.sqlbi.com/articles/introducing-summarizecolumns/',
+                    'source': 'SQLBI'
+                },
+                location=f"Position {match.start()}"
+            ))
+
+        return issues
+
+    def _check_divide_in_iterator(self, dax: str) -> List[DaxIssue]:
+        """Check for DIVIDE() inside iterator body."""
+        issues = []
+        iterator_pattern = r'\b(SUMX|AVERAGEX|COUNTX|MAXX|MINX)\s*\('
+
+        for match in re.finditer(iterator_pattern, dax, re.IGNORECASE):
+            # Get the full body after the iterator opening
+            rest = dax[match.end():]
+            # Simple check: look for DIVIDE in the next ~500 chars (within the iterator)
+            if re.search(r'\bDIVIDE\s*\(', rest[:500], re.IGNORECASE):
+                self.articles_referenced.add('sqlbi_divide_performance')
+                issues.append(DaxIssue(
+                    title="DIVIDE() in Iterator Creates CallbackDataID",
+                    description=(
+                        "DIVIDE() inside an iterator always creates CallbackDataID in SE queries "
+                        "because the division-by-zero check requires FE row-by-row evaluation. "
+                        "The / operator can execute entirely in SE when zero denominators are pre-filtered."
+                    ),
+                    severity=IssueSeverity.HIGH,
+                    category=IssueCategory.PERFORMANCE,
+                    code_example_before="SUMX(Sales, DIVIDE(Sales[Revenue], Sales[Cost]))",
+                    code_example_after="CALCULATE(SUMX(Sales, Sales[Revenue] / Sales[Cost]), Sales[Cost] <> 0)",
+                    estimated_improvement="DIVIDE always creates CallbackDataID. / operator can execute in SE.",
+                    article_reference={
+                        'title': 'DIVIDE performance (SQLBI)',
+                        'url': 'https://www.sqlbi.com/articles/divide-performance/',
+                        'source': 'SQLBI'
+                    },
+                    location=f"Position {match.start()}"
+                ))
+
+        return issues
+
+    # =============================================================================
     # CONTEXT AND VERTIPAQ ANALYSIS
     # =============================================================================
 
@@ -873,6 +1142,36 @@ class DaxBestPracticesAnalyzer:
                 'title': 'Standard Time-Related Calculations',
                 'url': 'https://www.daxpatterns.com/standard-time-related-calculations/',
                 'source': 'DAX Patterns'
+            },
+            'sqlbi_filter_columns': {
+                'title': 'Filter columns, not tables in DAX',
+                'url': 'https://www.sqlbi.com/articles/filter-columns-not-tables-in-dax/',
+                'source': 'SQLBI'
+            },
+            'ms_selectedvalue': {
+                'title': 'Use SELECTEDVALUE instead of VALUES',
+                'url': 'https://learn.microsoft.com/en-us/dax/best-practices/dax-selectedvalue',
+                'source': 'Microsoft Learn'
+            },
+            'sqlbi_keepfilters': {
+                'title': 'Using KEEPFILTERS in DAX',
+                'url': 'https://www.sqlbi.com/articles/using-keepfilters-in-dax/',
+                'source': 'SQLBI'
+            },
+            'sqlbi_var_shortcircuit': {
+                'title': 'Optimizing IF and SWITCH using variables',
+                'url': 'https://www.sqlbi.com/articles/optimizing-if-and-switch-expressions-using-variables/',
+                'source': 'SQLBI'
+            },
+            'sqlbi_summarizecolumns': {
+                'title': 'Introducing SUMMARIZECOLUMNS',
+                'url': 'https://www.sqlbi.com/articles/introducing-summarizecolumns/',
+                'source': 'SQLBI'
+            },
+            'sqlbi_divide_performance': {
+                'title': 'DIVIDE performance',
+                'url': 'https://www.sqlbi.com/articles/divide-performance/',
+                'source': 'SQLBI'
             }
         }
 
