@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DaxExecutor")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6ad57a9efe60633abf2110ee830a110d5f339c59")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9a5cddf15551e8c8539d119689f087171c37a9a8")]
 [assembly: System.Reflection.AssemblyProductAttribute("DaxExecutor")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DaxExecutor")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

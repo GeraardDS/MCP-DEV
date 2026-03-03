@@ -15,6 +15,7 @@
 // ============================================================================
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Data;
@@ -144,7 +145,7 @@ namespace DaxExecutor
             string datasetName,
             bool clearCache = true)
         {
-            var collectedEvents = new List<TraceEvent>();
+            var collectedEvents = new ConcurrentBag<TraceEvent>();
             var queryStartTime = DateTime.UtcNow;
             var queryEndTime = DateTime.UtcNow;
                 
@@ -377,7 +378,7 @@ namespace DaxExecutor
                     }
                 }
 
-                var timings = DaxStudioServerTimings.Calculate(collectedEvents, queryStartTime, queryEndTime, columnIdToNameMap, tableIdToNameMap);
+                var timings = DaxStudioServerTimings.Calculate(collectedEvents.ToList(), queryStartTime, queryEndTime, columnIdToNameMap, tableIdToNameMap);
 
                 // Trace-only output: performance metrics and SE event details (no row data)
                 var resultDict = new Dictionary<string, object>

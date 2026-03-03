@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "c:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\DaxExecutor.csproj": {}
+    "C:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\DaxExecutor.csproj": {}
   },
   "projects": {
-    "c:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\DaxExecutor.csproj": {
+    "C:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\DaxExecutor.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "c:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\DaxExecutor.csproj",
+        "projectUniqueName": "C:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\DaxExecutor.csproj",
         "projectName": "DaxExecutor",
-        "projectPath": "c:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\DaxExecutor.csproj",
+        "projectPath": "C:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\DaxExecutor.csproj",
         "packagesPath": "C:\\Users\\bjorn.braet\\.nuget\\packages\\",
-        "outputPath": "c:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\obj\\",
+        "outputPath": "C:\\Users\\bjorn.braet\\powerbi-mcp-servers\\MCP-PowerBi-Finvision\\core\\infrastructure\\dax_executor\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\bjorn.braet\\AppData\\Roaming\\NuGet\\NuGet.Config"
