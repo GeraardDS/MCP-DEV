@@ -68,6 +68,10 @@ class ConnectionState:
         self._table_mapping_timestamp: Optional[float] = None
         self._table_mapping_ttl: int = config.get('performance.table_mapping_cache_ttl', 600)  # 10 minutes default
 
+        # Last trace result cache (auto-passed to optimize)
+        self._last_trace_result: Optional[Dict[str, Any]] = None
+        self._last_trace_timestamp: Optional[float] = None
+
         # Intelligent analysis components (lazy loaded only when needed)
         self.context_tracker = None
         self.suggestion_engine = None
@@ -461,6 +465,10 @@ class ConnectionState:
         self._table_name_by_id = None
         self._table_mapping_timestamp = None
 
+        # Clear trace result cache
+        self._last_trace_result = None
+        self._last_trace_timestamp = None
+
         # Clear PBIP path information
         self._pbip_folder_path = None
         self._file_full_path = None
@@ -598,6 +606,22 @@ class ConnectionState:
 
     def list_perf_baselines(self) -> Dict[str, Any]:
         return {'success': True, 'baselines': {k: v for k, v in self._perf_baselines.items()}}
+
+    # ---- Trace result cache (auto-passed to optimize) ----
+    def store_trace_result(self, trace_data: Dict[str, Any]) -> None:
+        """Cache trace result for auto-retrieval by optimize."""
+        import time
+        self._last_trace_result = trace_data
+        self._last_trace_timestamp = time.time()
+
+    def get_cached_trace_result(self, max_age_seconds: int = 300) -> Optional[Dict[str, Any]]:
+        """Get cached trace result if still fresh (default 5 min TTL)."""
+        if self._last_trace_result is None or self._last_trace_timestamp is None:
+            return None
+        import time
+        if time.time() - self._last_trace_timestamp > max_age_seconds:
+            return None
+        return self._last_trace_result
 
     # ---- Context helpers ----
     def set_context(self, data: Dict[str, Any]) -> Dict[str, Any]:

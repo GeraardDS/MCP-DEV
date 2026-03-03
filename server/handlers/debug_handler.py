@@ -754,6 +754,8 @@ def _execute_visual_query(
                             except Exception:
                                 pass
                         response['se_fe_trace'] = trace_response
+                        # Cache for auto-retrieval by optimize
+                        connection_state.store_trace_result(trace_response)
             except Exception as te:
                 logger.error(f"SE/FE trace failed: {te}", exc_info=True)
                 response['se_fe_trace'] = {'error': str(te)}
@@ -2594,6 +2596,8 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
                             f"SE cache: {perf['se_cache_hits']}"
                         ),
                     }
+                    # Cache for auto-retrieval by optimize
+                    connection_state.store_trace_result(response['se_fe_trace'])
         except Exception as te:
             logger.error(f"SE/FE trace failed: {te}", exc_info=True)
             response['se_fe_trace'] = {'error': str(te)}
@@ -2981,9 +2985,10 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
         resolved_table = measure_details.get('table_name') or table_name or 'm Measure'
         expression_source = resolved.get('expression_source', 'unknown')
 
-        # ── Step 2: Build perf dict from timing input params (REQUIRED) ─────
+        # ── Step 2: Build perf dict from timing input params or cached trace ──
         perf: dict = {}
         timing_provided = False
+        timing_source = 'explicit_params'
         timing_keys = [
             'total_ms', 'fe_ms', 'se_ms', 'se_cpu_ms',
             'fe_pct', 'se_pct', 'se_queries', 'se_cache_hits',
@@ -2995,6 +3000,24 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
                 perf[key] = val
                 timing_provided = True
 
+        se_events_input = args.get('se_events', [])
+
+        # Auto-retrieve from last trace run if no explicit timing provided
+        if not timing_provided:
+            cached = connection_state.get_cached_trace_result()
+            if cached and cached.get('performance'):
+                cached_perf = cached['performance']
+                for key in timing_keys:
+                    val = cached_perf.get(key)
+                    if val is not None:
+                        perf[key] = val
+                        timing_provided = True
+                if timing_provided:
+                    timing_source = 'cached_trace'
+                    # Also grab SE events from cache if not explicitly provided
+                    if not se_events_input:
+                        se_events_input = cached.get('se_events', [])
+
         if not timing_provided:
             return {
                 'success': False,
@@ -3003,8 +3026,6 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
                 'hint': 'Example: {"operation": "optimize", "measure_name": "Total Sales", '
                         '"fe_pct": 75.2, "se_queries": 42, "total_ms": 1500, "fe_ms": 1130, "se_ms": 370}'
             }
-
-        se_events_input = args.get('se_events', [])
 
         # ── Step 3: Static callback detection (DAX expression analysis) ───────
         try:
@@ -3109,6 +3130,7 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
                 'source': expression_source,
             },
             'timing': perf,
+            'timing_source': timing_source,
             'timing_diagnosis': timing_diagnosis,
             'dax_analysis': {
                 'score': bpa_result.get('overall_score'),

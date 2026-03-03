@@ -62,14 +62,17 @@ def handle_run_dax_trace(args: Dict[str, Any]) -> Dict[str, Any]:
             f"SE cache: {perf['se_cache_hits']}"
         )
 
-        return {
-            'success': True,
+        trace_data = {
             'runner': 'native',
             'performance': perf,
             'se_events': result.get('se_events', []),
             'cache_cleared': result.get('cache_cleared', False),
             'summary': summary,
         }
+        # Cache for auto-retrieval by optimize
+        connection_state.store_trace_result(trace_data)
+
+        return {'success': True, **trace_data}
 
     except ImportError:
         return {'success': False, 'error': 'NativeTraceRunner not available. Ensure core/infrastructure/query_trace.py exists.'}
