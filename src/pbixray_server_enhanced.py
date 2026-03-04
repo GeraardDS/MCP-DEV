@@ -276,7 +276,60 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
             from server.middleware import compact_keys
             result = compact_keys(result)
 
-        return [TextContent(type="text", text=json.dumps(result, separators=(',', ':')))]
+        # Final serialization
+        final_text = json.dumps(result, separators=(',', ':'))
+
+        # Spill large outputs to file to avoid Claude Code's <persisted-output> behavior
+        # Claude Code persists tool results >50K chars to disk, forcing an extra Read round-trip.
+        # Instead, we proactively save full output to a file and return a compact summary inline.
+        SPILL_THRESHOLD = 40000  # chars — stay under Claude Code's ~50K persistence threshold
+        if len(final_text) > SPILL_THRESHOLD:
+            try:
+                from datetime import datetime
+                spill_dir = os.path.join(parent_dir, 'output')
+                os.makedirs(spill_dir, exist_ok=True)
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                safe_name = name.replace(' ', '_')[:30]
+                spill_path = os.path.join(spill_dir, f'{safe_name}_{timestamp}.json')
+                with open(spill_path, 'w', encoding='utf-8') as f:
+                    f.write(final_text)
+
+                # Build compact inline summary from the result
+                summary_parts = {
+                    'ok': result.get('ok', result.get('success', True)),
+                    '_full_output': spill_path,
+                    '_full_output_size': f'{len(final_text) / 1024:.1f}KB',
+                    '_note': 'Full output saved to file. Use Read tool to access if needed.',
+                }
+
+                # Preserve key scalar fields from the result
+                for key in ['ms', 'execution_time_ms', 'total', 'total_count',
+                            'total_ms', 'fe_ms', 'se_ms', 'fe_pct', 'se_pct',
+                            'se_queries', 'query', 'message', 'measure',
+                            'table', 'page_name', 'visual_id']:
+                    if key in result and not isinstance(result[key], (dict, list)):
+                        summary_parts[key] = result[key]
+
+                # Include top-level summary/analysis strings (truncated)
+                for key in ['summary', 'analysis', 'formatted_output', 'optimization_summary']:
+                    if key in result and isinstance(result[key], str):
+                        val = result[key]
+                        if len(val) > 5000:
+                            summary_parts[key] = val[:5000] + '... [truncated, see full output file]'
+                        else:
+                            summary_parts[key] = val
+
+                # Include short lists (< 10 items)
+                for key, val in result.items():
+                    if isinstance(val, list) and 0 < len(val) <= 10 and key not in summary_parts:
+                        summary_parts[key] = val
+
+                final_text = json.dumps(summary_parts, separators=(',', ':'))
+            except Exception as e:
+                logger.warning(f"Failed to spill large output to file: {e}")
+                # Fall through with original final_text
+
+        return [TextContent(type="text", text=final_text)]
 
     except Exception as e:
         logger.error(f"Error in {name}: {e}", exc_info=True)

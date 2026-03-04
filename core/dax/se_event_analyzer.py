@@ -31,6 +31,9 @@ _AGG_FUNC_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Table reference pattern in xmSQL: 'TableName'[Column]
+_TABLE_REF_RE = re.compile(r"'([^']+)'\[", re.IGNORECASE)
+
 
 class SeEventAnalyzer:
     """Deep analysis of Storage Engine trace events from visual trace."""
@@ -202,11 +205,12 @@ class SeEventAnalyzer:
     def _detect_fusion_opportunities(self, se_events: list) -> dict:
         """Detect vertical and horizontal fusion breaks.
 
-        Vertical: Multiple SE queries with same filter context but different aggregations.
+        Vertical: Multiple SE queries with same filter context but different aggregations,
+                  referencing the same set of tables.
         Horizontal: SE queries differing only in one column predicate value.
         """
         # Normalize each query by stripping aggregation to get filter context signature
-        signatures: Dict[str, list] = {}
+        signatures: Dict[tuple, list] = {}
         predicate_groups: Dict[str, list] = {}
 
         for idx, evt in enumerate(se_events):
@@ -214,8 +218,11 @@ class SeEventAnalyzer:
             if not query:
                 continue
 
-            # Vertical fusion: strip aggregation function to get signature
-            signature = _AGG_FUNC_RE.sub('AGG(', query.strip())
+            # Vertical fusion: strip aggregation AND include table references
+            # to avoid false positives from queries on different tables
+            agg_stripped = _AGG_FUNC_RE.sub('AGG(', query.strip())
+            tables_in_query = frozenset(_TABLE_REF_RE.findall(query.strip()))
+            signature = (agg_stripped, tables_in_query)
             signatures.setdefault(signature, []).append(idx)
 
             # Horizontal fusion: normalize column predicate values
@@ -298,7 +305,8 @@ class SeEventAnalyzer:
     def _analyze_row_ratio(self, se_events: list) -> dict:
         """Compute duration_ms / rows ratio to identify per-row FE overhead.
 
-        High ratio (>0.01 ms/row) with callback presence = confirmed per-row FE cost.
+        Uses scaled thresholds: small scans have higher acceptable overhead,
+        large scans flag even small per-row cost since it compounds.
         """
         queries_with_high_ratio = 0
         worst_ratio = 0.0
@@ -313,7 +321,15 @@ class SeEventAnalyzer:
                 continue
 
             ratio = duration / rows
-            if ratio > 0.01:
+            # Scale threshold with row count: small scans have normal overhead,
+            # large scans should flag even minor per-row cost
+            if rows < 1_000:
+                threshold = 0.05
+            elif rows < 100_000:
+                threshold = 0.01
+            else:
+                threshold = 0.005
+            if ratio > threshold:
                 queries_with_high_ratio += 1
                 if ratio > worst_ratio:
                     worst_ratio = ratio

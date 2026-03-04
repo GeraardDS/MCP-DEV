@@ -88,6 +88,48 @@ def _compact_filter_context(filter_breakdown: Dict, compact: bool = True) -> Dic
     return result
 
 
+def _build_trace_response(trace_result: dict) -> dict:
+    """Build standardized trace response from NativeTraceRunner result.
+
+    Extracts perf metrics, builds summary string, and runs deep SE event
+    analysis.  Used by both _execute_visual_query and _handle_run_dax to
+    avoid duplicating the mapping logic.
+    """
+    perf = {
+        'total_ms': trace_result.get('total_ms', 0),
+        'fe_ms': trace_result.get('fe_ms', 0),
+        'se_ms': trace_result.get('se_ms', 0),
+        'se_cpu_ms': trace_result.get('se_cpu_ms', 0),
+        'se_parallelism': trace_result.get('se_parallelism', 0.0),
+        'se_queries': trace_result.get('se_queries', 0),
+        'se_cache_hits': trace_result.get('se_cache_hits', 0),
+        'fe_pct': trace_result.get('fe_pct', 0.0),
+        'se_pct': trace_result.get('se_pct', 0.0),
+    }
+    se_events_list = trace_result.get('se_events', [])
+    response = {
+        'runner': 'native',
+        'performance': perf,
+        'se_events': se_events_list,
+        'cache_cleared': trace_result.get('cache_cleared', False),
+        'summary': (
+            f"Total: {perf['total_ms']}ms | "
+            f"FE: {perf['fe_ms']}ms ({perf['fe_pct']}%) | "
+            f"SE: {perf['se_ms']}ms ({perf['se_pct']}%) | "
+            f"SE queries: {perf['se_queries']} | "
+            f"SE cache: {perf['se_cache_hits']}"
+        ),
+    }
+    # Deep SE event analysis
+    if se_events_list:
+        try:
+            from core.dax.se_event_analyzer import SeEventAnalyzer
+            response['se_analysis'] = SeEventAnalyzer().analyze(se_events_list, perf)
+        except Exception:
+            pass
+    return response
+
+
 def _check_pbip_freshness(pbip_folder: str, threshold_minutes: int = PBIP_FRESHNESS_THRESHOLD_MINUTES) -> Optional[Dict[str, Any]]:
     """
     Check if PBIP files have been modified recently.
@@ -711,48 +753,7 @@ def _execute_visual_query(
                             'error': trace_result['_error']
                         }
                     else:
-                        perf = {
-                            'total_ms': trace_result.get('total_ms', 0),
-                            'fe_ms': trace_result.get('fe_ms', 0),
-                            'se_ms': trace_result.get('se_ms', 0),
-                            'se_cpu_ms': trace_result.get('se_cpu_ms', 0),
-                            'se_parallelism': trace_result.get(
-                                'se_parallelism', 0.0
-                            ),
-                            'se_queries': trace_result.get('se_queries', 0),
-                            'se_cache_hits': trace_result.get(
-                                'se_cache_hits', 0
-                            ),
-                            'fe_pct': trace_result.get('fe_pct', 0.0),
-                            'se_pct': trace_result.get('se_pct', 0.0),
-                        }
-                        se_events_list = trace_result.get('se_events', [])
-                        trace_response = {
-                            'runner': 'native',
-                            'performance': perf,
-                            'se_events': se_events_list,
-                            'cache_cleared': trace_result.get(
-                                'cache_cleared', False
-                            ),
-                            'summary': (
-                                f"Total: {perf['total_ms']}ms | "
-                                f"FE: {perf['fe_ms']}ms "
-                                f"({perf['fe_pct']}%) | "
-                                f"SE: {perf['se_ms']}ms "
-                                f"({perf['se_pct']}%) | "
-                                f"SE queries: {perf['se_queries']} | "
-                                f"SE cache: {perf['se_cache_hits']}"
-                            ),
-                        }
-                        # Deep SE event analysis
-                        if se_events_list:
-                            try:
-                                from core.dax.se_event_analyzer import SeEventAnalyzer
-                                trace_response['se_analysis'] = SeEventAnalyzer().analyze(
-                                    se_events_list, perf
-                                )
-                            except Exception:
-                                pass
+                        trace_response = _build_trace_response(trace_result)
                         response['se_fe_trace'] = trace_response
                         # Cache for auto-retrieval by optimize
                         connection_state.store_trace_result(trace_response)
@@ -2572,32 +2573,10 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
                 if '_error' in trace_result:
                     response['se_fe_trace'] = {'error': trace_result['_error']}
                 else:
-                    perf = {
-                        'total_ms': trace_result.get('total_ms', 0),
-                        'fe_ms': trace_result.get('fe_ms', 0),
-                        'se_ms': trace_result.get('se_ms', 0),
-                        'se_cpu_ms': trace_result.get('se_cpu_ms', 0),
-                        'se_parallelism': trace_result.get('se_parallelism', 0.0),
-                        'se_queries': trace_result.get('se_queries', 0),
-                        'se_cache_hits': trace_result.get('se_cache_hits', 0),
-                        'fe_pct': trace_result.get('fe_pct', 0.0),
-                        'se_pct': trace_result.get('se_pct', 0.0),
-                    }
-                    response['se_fe_trace'] = {
-                        'runner': 'native',
-                        'performance': perf,
-                        'se_events': trace_result.get('se_events', []),
-                        'cache_cleared': trace_result.get('cache_cleared', False),
-                        'summary': (
-                            f"Total: {perf['total_ms']}ms | "
-                            f"FE: {perf['fe_ms']}ms ({perf['fe_pct']}%) | "
-                            f"SE: {perf['se_ms']}ms ({perf['se_pct']}%) | "
-                            f"SE queries: {perf['se_queries']} | "
-                            f"SE cache: {perf['se_cache_hits']}"
-                        ),
-                    }
+                    trace_response = _build_trace_response(trace_result)
+                    response['se_fe_trace'] = trace_response
                     # Cache for auto-retrieval by optimize
-                    connection_state.store_trace_result(response['se_fe_trace'])
+                    connection_state.store_trace_result(trace_response)
         except Exception as te:
             logger.error(f"SE/FE trace failed: {te}", exc_info=True)
             response['se_fe_trace'] = {'error': str(te)}
@@ -2623,24 +2602,6 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
 # =============================================================================
 # OPTIMIZE OPERATION — SE/FE trace + DAX analysis + suggestions
 # =============================================================================
-
-def _analyze_se_callbacks(se_events: list) -> dict:
-    """Detect CallbackDataID in SE events — the #1 performance anti-pattern."""
-    callback_queries = []
-    for evt in se_events:
-        q = evt.get('query', '')
-        if 'CallbackDataID' in q or 'PFDATAID' in q:
-            callback_queries.append({
-                'line': evt.get('line'),
-                'duration_ms': evt.get('duration_ms'),
-                'snippet': q[:300]
-            })
-    return {
-        'detected': bool(callback_queries),
-        'count': len(callback_queries),
-        'queries': callback_queries
-    }
-
 
 def _diagnose_timing(perf: dict) -> dict:
     """Convert raw SE/FE metrics into a human-readable diagnosis."""
@@ -2696,6 +2657,21 @@ def _diagnose_timing(perf: dict) -> dict:
             f'SE parallelism ({se_par}x) is limited — not fully utilizing CPU cores. '
             'This can indicate FE serialization forcing sequential SE calls.'
         )
+
+    # SE CPU utilization analysis
+    se_cpu = perf.get('se_cpu_ms', 0)
+    if se_ms > 50 and se_cpu > 0:
+        cpu_ratio = se_cpu / se_ms
+        if cpu_ratio > 3.0:
+            notes.append(
+                f'SE CPU time ({se_cpu}ms) is {cpu_ratio:.1f}x wall time ({se_ms}ms) — '
+                'heavy parallel CPU computation. Check for DISTINCTCOUNT or complex aggregations.'
+            )
+        elif cpu_ratio < 0.3 and se_ms > 100:
+            notes.append(
+                f'SE CPU time ({se_cpu}ms) is only {cpu_ratio:.0%} of wall time ({se_ms}ms) — '
+                'possible I/O wait or lock contention.'
+            )
 
     # Absolute time assessment
     total_ms = perf.get('total_ms', 0)
@@ -2842,6 +2818,26 @@ def _build_optimize_suggestions(
         })
 
     suggestions.sort(key=lambda x: x['priority'])
+
+    # Deduplicate: if two suggestions have very similar titles, keep higher priority
+    import re as _re
+    _DEDUP_STRIP_RE = _re.compile(r'\[cb\d+\]:\s*|callback risk\s*', _re.IGNORECASE)
+    _DEDUP_CLEAN_RE = _re.compile(r'[^a-z0-9 ]')
+    _DEDUP_NOISE = {'code', 'rewrite', 'detected', 'found', 'risk', 'pattern'}
+    seen_sigs: set = set()
+    deduped: list = []
+    for s in suggestions:
+        title_key = _DEDUP_STRIP_RE.sub('', s.get('title', '')).lower().strip()
+        title_key = _DEDUP_CLEAN_RE.sub('', title_key)
+        words = [w for w in title_key.split() if len(w) > 3 and w not in _DEDUP_NOISE]
+        sig = ' '.join(sorted(words[:5]))
+        if sig and sig in seen_sigs:
+            continue
+        if sig:
+            seen_sigs.add(sig)
+        deduped.append(s)
+    suggestions = deduped
+
     for s in suggestions:
         s.pop('priority', None)
     return suggestions
@@ -3091,8 +3087,23 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
                 logger.warning(f'SE event analysis failed: {se_err}')
 
         # ── Step 10: Synthesize suggestions ──────────────────────────────────
-        # No runtime callback_info (that requires a live trace) — pass empty
+        # Extract runtime callback info from SE analysis (if available)
         callback_info: dict = {}
+        if se_analysis and se_analysis.get('callbacks', {}).get('detected'):
+            cb_data = se_analysis['callbacks']
+            callback_info = {
+                'detected': True,
+                'count': cb_data.get('total_count', 0),
+                'queries': [
+                    {
+                        'line': q.get('line'),
+                        'duration_ms': q.get('duration_ms'),
+                        'snippet': q.get('snippet', '')
+                    }
+                    for cb_type_list in cb_data.get('by_type', {}).values()
+                    for q in cb_type_list
+                ]
+            }
         optimizations = _build_optimize_suggestions(
             bpa_result, rewriter_result, callback_info, static_callbacks, perf
         )
