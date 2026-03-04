@@ -165,6 +165,7 @@ class VisualInfo:
     filters: List[Dict] = field(default_factory=list)
     sort_columns: List[str] = field(default_factory=list)
     object_measures: List[Tuple[str, str]] = field(default_factory=list)
+    scalar_measures: List[Tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -1045,7 +1046,7 @@ class VisualQueryBuilder:
         # For backward compatibility, use first measure as the target
         target_measure = target_measures[0]
 
-        # Include object-level measures (data labels, reference lines, dynamic titles)
+        # Include grouped object measures (data labels, conditional formatting)
         # These are measures bound to visual formatting properties, not in queryState
         object_measure_table_map: Dict[str, str] = {}
         if visual_info.object_measures:
@@ -1055,6 +1056,17 @@ class VisualQueryBuilder:
                     target_measures.append(ref)
                     if entity:
                         object_measure_table_map[prop] = entity
+
+        # Scalar object measures (titles, axis bounds, reference lines) go in second EVALUATE
+        scalar_measure_refs: List[str] = []
+        scalar_measure_table_map: Dict[str, str] = {}
+        if visual_info.scalar_measures:
+            for entity, prop in visual_info.scalar_measures:
+                ref = f"[{prop}]"
+                if ref not in target_measures and ref not in scalar_measure_refs:
+                    scalar_measure_refs.append(ref)
+                    if entity:
+                        scalar_measure_table_map[prop] = entity
 
         # Fetch actual measure expressions from the model (needed for table-qualified
         # refs, format-string detection, and the expanded query)
@@ -1085,15 +1097,45 @@ class VisualQueryBuilder:
             except Exception:
                 pass
 
-            if conn_str and measure_definitions:
-                format_string_measures = self._detect_format_string_measures_via_tom(
-                    [m.name for m in measure_definitions], conn_str
-                )
+            # Detect format strings for main measures
+            all_measure_names = [m.name for m in measure_definitions]
+            # Also include scalar measures in format string detection
+            scalar_measure_names = [ref.strip("[]") for ref in scalar_measure_refs]
+            all_detect_names = all_measure_names + scalar_measure_names
 
-            if not format_string_measures:
-                format_string_measures = self._detect_dynamic_format_string_measures(
+            if conn_str and all_detect_names:
+                all_format_strings = self._detect_format_string_measures_via_tom(
+                    all_detect_names, conn_str
+                )
+            else:
+                all_format_strings = []
+
+            if not all_format_strings and measure_definitions:
+                all_format_strings = self._detect_dynamic_format_string_measures(
                     measure_definitions
                 )
+
+            # Split format strings: scalar measure companions go to second EVALUATE
+            scalar_fs_set = {f"[{n}]" for n in scalar_measure_names}
+            scalar_format_string_measures: List[str] = []
+            for fs_ref in all_format_strings:
+                # Check if this format string belongs to a scalar measure
+                # e.g. 'm Measure'[_WF6-Minimum FormatString] -> [WF6-Minimum]
+                try:
+                    fs_name = fs_ref.split("[")[1].rstrip("]")
+                    # Strip leading underscore and trailing ' FormatString'
+                    base = fs_name.lstrip("_")
+                    if base.endswith(" FormatString"):
+                        base = base[: -len(" FormatString")]
+                    if f"[{base}]" in scalar_fs_set:
+                        scalar_format_string_measures.append(fs_ref)
+                    else:
+                        format_string_measures.append(fs_ref)
+                except (IndexError, AttributeError):
+                    format_string_measures.append(fs_ref)
+
+            # Merge scalar measure table map into main for format string resolution
+            measure_table_map.update(scalar_measure_table_map)
 
             # Build expanded query with actual measure DAX
             if measure_definitions:
@@ -1116,6 +1158,9 @@ class VisualQueryBuilder:
             include_grand_total=include_grand_total,
             row_limit=row_limit,
             format_string_measures=format_string_measures,
+            scalar_measures=scalar_measure_refs,
+            scalar_format_string_measures=scalar_format_string_measures,
+            scalar_measure_table_map=scalar_measure_table_map,
         )
 
         # Build filter breakdown for documentation
@@ -1299,6 +1344,9 @@ class VisualQueryBuilder:
         include_grand_total: bool = False,
         row_limit: int = 502,
         format_string_measures: Optional[List[str]] = None,
+        scalar_measures: Optional[List[str]] = None,
+        scalar_format_string_measures: Optional[List[str]] = None,
+        scalar_measure_table_map: Optional[Dict[str, str]] = None,
     ) -> str:
         """
         Build a DAX query that reproduces the visual's data.
@@ -1470,9 +1518,46 @@ class VisualQueryBuilder:
         order_by = ", ".join(order_by_parts)
 
         define_block = "\n".join(define_lines)
-        return (
+        query = (
             f"DEFINE\n{define_block}\n\n" f"EVALUATE __DS0PrimaryWindowed\n" f"ORDER BY {order_by}"
         )
+
+        # --- 6. Second EVALUATE block for scalar measures (titles, axis bounds, ref lines) ---
+        # PBI generates a separate EVALUATE with no group-by columns; all scalar measures
+        # and their format strings are wrapped in IGNORE() inside SUMMARIZECOLUMNS.
+        effective_scalar = scalar_measures or []
+        effective_scalar_fs = scalar_format_string_measures or []
+        sc_table_map = scalar_measure_table_map or {}
+
+        if effective_scalar:
+            sc2_args: List[str] = []
+            # Filter table references (shared from DEFINE)
+            for var_name, _ in treatas_vars:
+                sc2_args.append(f"        {var_name}")
+            # Scalar measures — all wrapped in IGNORE()
+            for m in effective_scalar:
+                m_name = m.strip("[]")
+                alias = _sanitize_alias(m_name)
+                if m_name in sc_table_map:
+                    m_ref = f"'{sc_table_map[m_name]}'[{m_name}]"
+                elif measure_table_map and m_name in measure_table_map:
+                    m_ref = f"'{measure_table_map[m_name]}'[{m_name}]"
+                else:
+                    m_ref = m
+                sc2_args.append(f'        "{alias}", IGNORE({m_ref})')
+            # Scalar format string measures
+            for fs_ref in effective_scalar_fs:
+                try:
+                    fs_name = fs_ref.split("[")[1].rstrip("]")
+                    fs_alias = "v_" + _sanitize_alias(fs_name)
+                except (IndexError, AttributeError):
+                    fs_alias = "v_FormatString"
+                sc2_args.append(f'        "{fs_alias}", IGNORE({fs_ref})')
+
+            sc2_body = ",\n".join(sc2_args)
+            query += f"\n\nEVALUATE\n    SUMMARIZECOLUMNS(\n{sc2_body}\n    )"
+
+        return query
 
     def _build_expanded_dax_query(
         self,
@@ -2279,16 +2364,48 @@ TOPN(
 
         # Extract measures from visual objects (data labels, conditional formatting,
         # reference lines, dynamic titles, axis min/max, etc.)
+        # Classify as scalar (no group-by needed, second EVALUATE) vs grouped (main query).
+        #
+        # Scalar contexts: visualContainerObjects (title, subtitle), vcObjects (title),
+        #   and objects keys for axis bounds / reference lines.
+        # Grouped contexts: objects keys for data labels, conditional formatting.
+        SCALAR_OBJECT_KEYS = {
+            "categoryAxis",
+            "valueAxis",
+            "xAxis",
+            "yAxis",
+            "y1Axis",
+            "y2Axis",
+            "referenceLine",
+            "constantLine",
+            "percentileLine",
+        }
         query_measure_names = set(measures)  # [MeasureName] refs already collected
-        object_measures_set: set = set()
-        for section_key in ("objects", "visualContainerObjects", "vcObjects"):
+        grouped_measures_set: set = set()
+        scalar_measures_set: set = set()
+
+        # visualContainerObjects & vcObjects → always scalar (titles, subtitles)
+        for section_key in ("visualContainerObjects", "vcObjects"):
             section = visual.get(section_key, {})
             if section:
-                _walk_for_measure_refs(section, object_measures_set)
+                _walk_for_measure_refs(section, scalar_measures_set)
+
+        # objects → classify per key
+        objects_section = visual.get("objects", {})
+        if objects_section:
+            for key, value in objects_section.items():
+                target = scalar_measures_set if key in SCALAR_OBJECT_KEYS else grouped_measures_set
+                _walk_for_measure_refs(value, target)
+
         # Filter out measures already in queryState projections
         object_measure_list = [
             (entity, prop)
-            for entity, prop in object_measures_set
+            for entity, prop in grouped_measures_set
+            if f"[{prop}]" not in query_measure_names
+        ]
+        scalar_measure_list = [
+            (entity, prop)
+            for entity, prop in scalar_measures_set
             if f"[{prop}]" not in query_measure_names
         ]
 
@@ -2313,6 +2430,7 @@ TOPN(
             columns=columns,
             filters=filters,
             object_measures=object_measure_list,
+            scalar_measures=scalar_measure_list,
         )
 
     def _get_report_filters(self) -> List[Dict]:
