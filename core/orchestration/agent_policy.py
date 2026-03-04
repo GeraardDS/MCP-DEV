@@ -407,25 +407,6 @@ class AgentPolicy:
                 plan.append({'action': a, 'status': 'unknown'})
         return {'success': True, 'plan': plan}
 
-    def set_performance_trace(self, connection_state, enabled: bool) -> Dict[str, Any]:
-        """Set performance trace."""
-        from core.validation.error_handler import ErrorHandler
-        perf = connection_state.performance_analyzer
-        if not perf:
-            return ErrorHandler.handle_manager_unavailable('performance_analyzer')
-        if enabled:
-            ok = perf.connect_amo()
-            if not ok:
-                return {'success': False, 'error': 'AMO not available'}
-            qe = connection_state.query_executor
-            if not qe:
-                return ErrorHandler.handle_manager_unavailable('query_executor')
-            started = perf.start_session_trace(qe)
-            return {'success': bool(started), 'trace_active': perf.trace_active}
-        else:
-            perf.stop_session_trace()
-            return {'success': True, 'trace_active': False}
-
     def format_dax(self, expression: str) -> Dict[str, Any]:
         """Format DAX expression."""
         if expression is None:

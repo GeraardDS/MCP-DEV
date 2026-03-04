@@ -14,9 +14,6 @@
     "max_query_timeout": 60,
     "default_top_n": 1000,
     "enable_trace_logging": false,
-    "trace_mode": "full",
-    "trace_init_retries": 2,
-    "trace_init_backoff_ms": 150,
     "table_mapping_cache_ttl": 600,
     "batch_row_counting": true,
     "dependency_cache_ttl": 600
@@ -165,18 +162,15 @@
     "analyze_queries_batch": 180,
     "export_tmdl": 60,
     "generate_documentation": 60,
-    "profile_query_detailed": 120,
-    "batch_profile_queries": 300,
-    "compare_query_performance": 180,
     "analyze_query_plan": 90
   },
-  "performance_tracing": {
-    "default_runs": 3,
-    "default_clear_cache": true,
-    "trace_backend_preference": ["amo", "xmla"],
-    "event_timeout_seconds": 30,
-    "max_batch_queries": 20,
-    "auto_export_html": false,
-    "export_directory": "./exports/performance"
-  }
+  "debug": {
+    "pbip_freshness_minutes": 5,
+    "vqb_cache_ttl_seconds": 300,
+    "filter_truncation_chars": 50,
+    "variable_truncation_chars": 100,
+    "proximity_distance_chars": 50,
+    "max_measures_shown": 3,
+    "max_query_result_rows": 100
+  },
 }

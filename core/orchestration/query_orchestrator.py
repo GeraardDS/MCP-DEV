@@ -88,19 +88,11 @@ class QueryOrchestrator(BaseOrchestrator):
             return {"success": False, "error": "Provide at least two non-empty candidates", "error_type": "invalid_input"}
 
         query_executor = connection_state.query_executor
-        perf = connection_state.performance_analyzer
-        r = self._get_default_perf_runs(runs)
 
         def run_bench(q: str) -> Dict[str, Any]:
             q = q or ""
-            if perf:
-                res = perf.analyze_query(query_executor, q, r, True)
-                summary = res.get("summary") or {}
-                avg_ms = summary.get("avg_execution_ms") or 0
-                return {"success": bool(res.get("success")), "execution_time_ms": avg_ms, "raw": res}
-            else:
-                res = query_executor.validate_and_execute_dax(q, 0)
-                return {"success": bool(res.get("success")), "execution_time_ms": res.get("execution_time_ms", 0), "raw": res}
+            res = query_executor.validate_and_execute_dax(q, 0)
+            return {"success": bool(res.get("success")), "execution_time_ms": res.get("execution_time_ms", 0), "raw": res}
 
         results: List[Dict[str, Any]] = []
         for idx, cand in enumerate(candidates):

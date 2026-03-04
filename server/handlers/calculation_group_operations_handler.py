@@ -29,25 +29,14 @@ def register_calculation_group_operations_handler(registry):
                 "operation": {
                     "type": "string",
                     "enum": ["list", "create", "delete", "list_items"],
-                    "description": (
-                        "Operation to perform (MUST USE ALL OPERATIONS - don't skip CRUD!):\n"
-                        "• 'list' - List all calculation groups\n"
-                        "• 'list_items' - List calculation items in a group (requires: group_name)\n"
-                        "• 'create' - CREATE new calculation group (requires: group_name, items; optional: description, precedence)\n"
-                        "• 'delete' - DELETE calculation group (requires: group_name)"
-                    )
                 },
                 "group_name": {
                     "type": "string",
-                    "description": "Calculation group name (required for most operations)"
-                },
-                "new_name": {
-                    "type": "string",
-                    "description": "New group name (required for: rename)"
+                    "description": "Group name (required except list)"
                 },
                 "items": {
                     "type": "array",
-                    "description": "Calculation items (for create operation)",
+                    "description": "Calculation items (create)",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -59,20 +48,11 @@ def register_calculation_group_operations_handler(registry):
                 },
                 "description": {
                     "type": "string",
-                    "description": "Group description (optional for: create, update)"
+                    "description": "Group description (create)"
                 },
                 "precedence": {
                     "type": "integer",
-                    "description": "Precedence value (optional for: create - auto-assigned if not provided)"
-                },
-                "item_name": {
-                    "type": "string",
-                    "description": "Calculation item name (required for: update_item, delete_item)"
-                },
-                "item_order": {
-                    "type": "array",
-                    "description": "Array of item names in desired order (required for: reorder_items)",
-                    "items": {"type": "string"}
+                    "description": "Precedence value (create)"
                 }
             },
             "required": ["operation"]

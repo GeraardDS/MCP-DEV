@@ -29,35 +29,6 @@ def register_role_operations_handler(registry):
                 "operation": {
                     "type": "string",
                     "enum": ["list"],
-                    "description": (
-                        "Operation to perform:\n"
-                        "• 'list' - List all security roles (RLS/OLS)\n"
-                        "Note: Additional operations (create, update, delete, rename, create_permission, etc.) will be available when implemented."
-                    )
-                },
-                "role_name": {
-                    "type": "string",
-                    "description": "Role name (required for most operations)"
-                },
-                "new_name": {
-                    "type": "string",
-                    "description": "New role name (required for: rename)"
-                },
-                "definition": {
-                    "type": "object",
-                    "description": "Role definition (required for: create, update)"
-                },
-                "permission": {
-                    "type": "object",
-                    "description": "Permission definition (required for: create_permission, update_permission)",
-                    "properties": {
-                        "table_name": {"type": "string"},
-                        "filter_expression": {"type": "string"}
-                    }
-                },
-                "table_name": {
-                    "type": "string",
-                    "description": "Table name (required for: delete_permission, test_role)"
                 }
             },
             "required": ["operation"]

@@ -14,11 +14,67 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple, Any
 from enum import Enum
 
+from core.dax.dax_utilities import (
+    normalize_dax,
+    extract_function_body,
+    extract_variables,
+    get_line_column,
+)
+from core.config.config_manager import config as global_config
+
 logger = logging.getLogger(__name__)
+
+# --- Pre-compiled regex patterns ---
+
+# Measure reference: [MeasureName]
+_MEASURE_REF_RE = re.compile(r"\[([^\]]+)\]")
+
+# Bracket expression (non-capturing, for has-measure check)
+_BRACKET_EXPR_RE = re.compile(r"\[[^\]]+\]")
+
+# Table with column: Table[Column] or 'Table Name'[Column]
+_TABLE_COL_RE = re.compile(r"'?([A-Za-z0-9_\s]+)'?\[([A-Za-z0-9_\s]+)\]")
+
+# Table name at start of body: 'TableName'[ or TableName[
+_TABLE_NAME_BRACKET_RE = re.compile(r"^\s*'?([A-Za-z0-9_\s]+)'?\s*\[")
+
+# Table name at start followed by comma or paren
+_TABLE_NAME_SIMPLE_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_]*)\s*[,)]")
+
+# SUMMARIZE function call
+_SUMMARIZE_RE = re.compile(r"\bSUMMARIZE\s*\(", re.IGNORECASE)
+
+# Pre-compiled patterns for CALCULATE/CALCULATETABLE
+_CALCULATE_PATTERNS = {
+    name: re.compile(rf"\b{name}\s*\(", re.IGNORECASE) for name in ("CALCULATE", "CALCULATETABLE")
+}
+
+# Pre-compiled patterns for iterator functions
+_ITERATOR_PATTERNS = {
+    name: re.compile(rf"\b{name}\s*\(", re.IGNORECASE)
+    for name in (
+        "SUMX",
+        "AVERAGEX",
+        "MINX",
+        "MAXX",
+        "COUNTX",
+        "FILTER",
+        "ADDCOLUMNS",
+        "SELECTCOLUMNS",
+        "RANKX",
+        "CONCATENATEX",
+        "PRODUCTX",
+        "STDEVX.S",
+        "STDEVX.P",
+        "VARX.S",
+        "VARX.P",
+    )
+}
 
 
 class TransitionType(Enum):
     """Type of context transition"""
+
     EXPLICIT_CALCULATE = "explicit_calculate"
     IMPLICIT_MEASURE = "implicit_measure"
     ITERATOR = "iterator"
@@ -27,6 +83,7 @@ class TransitionType(Enum):
 
 class PerformanceImpact(Enum):
     """Performance impact level"""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -35,6 +92,7 @@ class PerformanceImpact(Enum):
 @dataclass
 class ContextTransition:
     """Represents a detected context transition"""
+
     location: int  # Character position in DAX
     line: int  # Line number
     column: int  # Column position
@@ -55,6 +113,7 @@ class ContextTransition:
 @dataclass
 class PerformanceWarning:
     """Performance warning for context transitions"""
+
     location: int
     severity: str  # "warning", "error"
     message: str
@@ -64,6 +123,7 @@ class PerformanceWarning:
 @dataclass
 class ContextFlowExplanation:
     """Complete explanation of context flow in DAX expression"""
+
     transitions: List[ContextTransition]
     warnings: List[PerformanceWarning]
     summary: str
@@ -117,10 +177,21 @@ class DaxContextAnalyzer:
 
     # Iterator functions that create row context
     ITERATOR_FUNCTIONS = {
-        "SUMX", "AVERAGEX", "MINX", "MAXX", "COUNTX",
-        "FILTER", "ADDCOLUMNS", "SELECTCOLUMNS",
-        "RANKX", "CONCATENATEX", "PRODUCTX",
-        "STDEVX.S", "STDEVX.P", "VARX.S", "VARX.P",
+        "SUMX",
+        "AVERAGEX",
+        "MINX",
+        "MAXX",
+        "COUNTX",
+        "FILTER",
+        "ADDCOLUMNS",
+        "SELECTCOLUMNS",
+        "RANKX",
+        "CONCATENATEX",
+        "PRODUCTX",
+        "STDEVX.S",
+        "STDEVX.P",
+        "VARX.S",
+        "VARX.P",
     }
 
     # Functions that cause explicit context transition
@@ -136,7 +207,12 @@ class DaxContextAnalyzer:
         self.config = config or {}
         self.max_expression_length = self.config.get("max_expression_length", 50000)
         self.nested_calculate_limit = self.config.get("nested_calculate_limit", 10)
-        self.variables = {}  # Track VAR variables: {name: definition}
+        # Read truncation settings from local config or global
+        self.filter_truncation_chars = self.config.get(
+            "filter_truncation_chars",
+            global_config.get("debug.filter_truncation_chars", 50),
+        )
+        self.variables = {}  # Track VAR variables
 
     def analyze_context_transitions(
         self,
@@ -167,6 +243,10 @@ class DaxContextAnalyzer:
             # Normalize expression (remove comments)
             normalized = self._normalize_dax(dax_expression)
 
+            # Store for nesting level calculation
+            self._last_normalized = normalized
+            self._last_raw_dax = dax_expression
+
             # Extract variables
             self.variables = self._extract_variables(normalized)
 
@@ -181,9 +261,7 @@ class DaxContextAnalyzer:
             transitions.extend(measure_transitions)
 
             # Detect iterator transitions
-            iterator_transitions = self._detect_iterator_transitions(
-                normalized, reference_index
-            )
+            iterator_transitions = self._detect_iterator_transitions(normalized, reference_index)
             transitions.extend(iterator_transitions)
 
             # Sort by location
@@ -225,7 +303,7 @@ class DaxContextAnalyzer:
                         location=0,
                         severity="error",
                         message=f"Analysis failed: {str(e)}",
-                        suggestion="Check DAX syntax and try again"
+                        suggestion="Check DAX syntax and try again",
                     )
                 ],
                 summary="Analysis failed",
@@ -235,13 +313,7 @@ class DaxContextAnalyzer:
 
     def _normalize_dax(self, dax: str) -> str:
         """Normalize DAX expression (remove comments, extra whitespace)"""
-        # Remove single-line comments
-        dax = re.sub(r"//.*?$", "", dax, flags=re.MULTILINE)
-
-        # Remove multi-line comments
-        dax = re.sub(r"/\*.*?\*/", "", dax, flags=re.DOTALL)
-
-        return dax
+        return normalize_dax(dax)
 
     def _extract_variables(self, dax: str) -> Dict[str, str]:
         """
@@ -250,38 +322,7 @@ class DaxContextAnalyzer:
         Returns:
             Dict mapping variable names to their definitions (truncated)
         """
-        variables = {}
-
-        # Pattern to match VAR declarations: VAR VariableName = expression
-        var_pattern = r'\bVAR\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*'
-
-        for match in re.finditer(var_pattern, dax, re.IGNORECASE):
-            var_name = match.group(1)
-            start_pos = match.end()
-
-            # Extract the variable definition (until next VAR or RETURN)
-            # Look for next VAR or RETURN keyword
-            remaining = dax[start_pos:]
-            next_var = re.search(r'\bVAR\s+', remaining, re.IGNORECASE)
-            next_return = re.search(r'\bRETURN\b', remaining, re.IGNORECASE)
-
-            end_pos = len(remaining)
-            if next_var and next_return:
-                end_pos = min(next_var.start(), next_return.start())
-            elif next_var:
-                end_pos = next_var.start()
-            elif next_return:
-                end_pos = next_return.start()
-
-            definition = remaining[:end_pos].strip()
-
-            # Truncate long definitions
-            if len(definition) > 100:
-                definition = definition[:100] + "..."
-
-            variables[var_name] = definition
-
-        return variables
+        return extract_variables(dax)
 
     def _detect_calculate_transitions(self, dax: str) -> List[ContextTransition]:
         """Detect explicit CALCULATE/CALCULATETABLE transitions"""
@@ -289,9 +330,9 @@ class DaxContextAnalyzer:
 
         for func_name in self.CALCULATE_FUNCTIONS:
             # Find all occurrences of CALCULATE/CALCULATETABLE
-            pattern = rf"\b{func_name}\s*\("
+            compiled = _CALCULATE_PATTERNS[func_name]
 
-            for match in re.finditer(pattern, dax, re.IGNORECASE):
+            for match in compiled.finditer(dax):
                 location = match.start()
                 line, column = self._get_line_column(dax, location)
 
@@ -304,7 +345,11 @@ class DaxContextAnalyzer:
                     location=location,
                     line=line,
                     column=column,
-                    type=TransitionType.EXPLICIT_CALCULATE if func_name == "CALCULATE" else TransitionType.CALCULATETABLE,
+                    type=(
+                        TransitionType.EXPLICIT_CALCULATE
+                        if func_name == "CALCULATE"
+                        else TransitionType.CALCULATETABLE
+                    ),
                     function=func_name,
                     filter_context_after=filter_args,
                     explanation=f"{func_name} creates a new filter context by transitioning from row context (if any) to filter context. Any existing filter context is modified by the filter arguments.",
@@ -322,28 +367,28 @@ class DaxContextAnalyzer:
         filters = []
         depth = 0
         current_arg = ""
+        trunc = self.filter_truncation_chars
 
         for char in body:
-            if char == '(':
+            if char == "(":
                 depth += 1
                 current_arg += char
-            elif char == ')':
+            elif char == ")":
                 depth -= 1
                 current_arg += char
-            elif char == ',' and depth == 0:
-                # Found a top-level comma - this separates arguments
+            elif char == "," and depth == 0:
+                # Top-level comma separates arguments
                 arg = current_arg.strip()
-                if arg and not arg.startswith('['):  # Skip the first argument (expression)
-                    # Extract just the filter description (first 50 chars)
-                    filters.append(arg[:50] + "..." if len(arg) > 50 else arg)
+                if arg and not arg.startswith("["):
+                    filters.append(arg[:trunc] + "..." if len(arg) > trunc else arg)
                 current_arg = ""
             else:
                 current_arg += char
 
         # Add the last argument
         arg = current_arg.strip()
-        if arg and filters:  # Only add if we already have filters (skip first arg)
-            filters.append(arg[:50] + "..." if len(arg) > 50 else arg)
+        if arg and filters:
+            filters.append(arg[:trunc] + "..." if len(arg) > trunc else arg)
 
         return filters
 
@@ -356,16 +401,14 @@ class DaxContextAnalyzer:
         transitions = []
 
         # Pattern to match measure references: [MeasureName]
-        measure_pattern = r"\[([^\]]+)\]"
-
-        for match in re.finditer(measure_pattern, dax):
+        for match in _MEASURE_REF_RE.finditer(dax):
             measure_name = match.group(1)
             location = match.start()
             line, column = self._get_line_column(dax, location)
 
             # Check if this is likely a measure (not a column reference)
             # Heuristic: measures are typically referenced alone, not with table prefix
-            context_before = dax[max(0, location - 10):location]
+            context_before = dax[max(0, location - 10) : location]
             if "'" not in context_before and "[" not in context_before:
                 # Likely a measure reference
                 transition = ContextTransition(
@@ -393,9 +436,9 @@ class DaxContextAnalyzer:
         transitions = []
 
         for func_name in self.ITERATOR_FUNCTIONS:
-            pattern = rf"\b{func_name}\s*\("
+            compiled = _ITERATOR_PATTERNS[func_name]
 
-            for match in re.finditer(pattern, dax, re.IGNORECASE):
+            for match in compiled.finditer(dax):
                 location = match.start()
                 line, column = self._get_line_column(dax, location)
 
@@ -404,7 +447,7 @@ class DaxContextAnalyzer:
                 start = match.end()
                 body = self._extract_function_body(dax, start)
 
-                has_measure_refs = bool(re.search(r"\[[^\]]+\]", body))
+                has_measure_refs = bool(_BRACKET_EXPR_RE.search(body))
 
                 # Extract table name and columns from the first argument
                 table_name, columns = self._extract_table_and_columns(body)
@@ -437,12 +480,12 @@ class DaxContextAnalyzer:
         # - TableName -> TableName
 
         # First, try to match table with column: Table[Column] or 'Table'[Column]
-        match = re.search(r"^\s*'?([A-Za-z0-9_\s]+)'?\s*\[", body)
+        match = _TABLE_NAME_BRACKET_RE.search(body)
         if match:
             return match.group(1).strip()
 
         # Second, try to match just a table name at the start
-        match = re.search(r"^\s*([A-Za-z][A-Za-z0-9_]*)\s*[,)]", body)
+        match = _TABLE_NAME_SIMPLE_RE.search(body)
         if match:
             table_name = match.group(1).strip()
             # Exclude DAX functions (they're usually uppercase)
@@ -467,9 +510,7 @@ class DaxContextAnalyzer:
         # - [Column] (standalone column in same table)
 
         # Extract table with column: Table[Column] or 'Table'[Column]
-        table_col_pattern = r"'?([A-Za-z0-9_\s]+)'?\[([A-Za-z0-9_\s]+)\]"
-
-        for match in re.finditer(table_col_pattern, body):
+        for match in _TABLE_COL_RE.finditer(body):
             potential_table = match.group(1).strip()
             column = match.group(2).strip()
 
@@ -488,34 +529,101 @@ class DaxContextAnalyzer:
         return table_name, columns
 
     def _extract_function_body(self, dax: str, start: int) -> str:
-        """Extract function body (simplified parenthesis matching)"""
-        depth = 1
-        end = start
+        """Extract function body with string-literal-aware paren matching"""
+        return extract_function_body(dax, start)
 
-        while end < len(dax) and depth > 0:
-            if dax[end] == "(":
-                depth += 1
-            elif dax[end] == ")":
-                depth -= 1
-            end += 1
+    def _calculate_nesting_levels(
+        self,
+        transitions: List[ContextTransition],
+    ) -> None:
+        """
+        Calculate nesting level for each transition.
 
-        return dax[start:end - 1]
+        For each CALCULATE/CALCULATETABLE transition, compute its scope
+        (the body of that CALCULATE call) using extract_function_body.
+        Then for every transition, count how many CALCULATE scopes
+        contain its position. This gives accurate nesting depth even
+        for sibling CALCULATEs like ``CALCULATE(X) + CALCULATE(Y)``
+        where the second should have nesting=0, not 1.
+        """
+        # Pre-compute scope (start, end) for each CALCULATE transition
+        # We need access to the normalized DAX to compute scopes.
+        # Transitions store their location in the normalized DAX, and
+        # analyze_context_transitions stores it in self._last_normalized.
+        normalized = getattr(self, "_last_normalized", None)
 
-    def _calculate_nesting_levels(self, transitions: List[ContextTransition]) -> None:
-        """Calculate nesting level for each transition"""
-        # Simplified: count CALCULATE nesting by counting open CALCULATEs before each transition
-        for i, transition in enumerate(transitions):
-            # Count CALCULATE functions before this that haven't closed
-            nesting = 0
-            for j in range(i):
-                if transitions[j].type in {TransitionType.EXPLICIT_CALCULATE, TransitionType.CALCULATETABLE}:
-                    nesting += 1
+        calc_types = {
+            TransitionType.EXPLICIT_CALCULATE,
+            TransitionType.CALCULATETABLE,
+        }
 
-            transition.nested_level = nesting
+        # Build list of (scope_start, scope_end) for CALCULATE transitions
+        calc_scopes: list = []
+        for t in transitions:
+            if t.type not in calc_types:
+                continue
+
+            if normalized is None:
+                # Fallback: can't compute scopes without the DAX text
+                break
+
+            # t.location points to the start of "CALCULATE(" in the DAX.
+            # Find the opening paren after the function name.
+            paren_pos = normalized.find("(", t.location)
+            if paren_pos == -1:
+                continue
+
+            # extract_function_body expects position after the "("
+            body_start = paren_pos + 1
+            body = extract_function_body(normalized, body_start)
+            # scope_end is body_start + len(body) (exclusive)
+            scope_end = body_start + len(body)
+            calc_scopes.append((body_start, scope_end))
+
+        if calc_scopes:
+            # For each transition, count how many CALCULATE scopes
+            # contain its position.
+            for transition in transitions:
+                nesting = 0
+                for scope_start, scope_end in calc_scopes:
+                    if scope_start <= transition.location < scope_end:
+                        nesting += 1
+                transition.nested_level = nesting
+        else:
+            # Fallback: no scopes computed (e.g. no normalized DAX).
+            # Use paren-depth tracking to determine which prior CALCULATEs
+            # are still open (enclosing) at each transition's position.
+            # Fixes bug where CALCULATE(X) + CALCULATE(Y) gave Y nesting=1
+            # when it should be 0 (sibling, not nested).
+            raw_dax = getattr(self, "_last_raw_dax", None) or ""
+            for transition in transitions:
+                nesting = 0
+                pos = transition.location
+                for prior_t in transitions:
+                    if prior_t is transition:
+                        break
+                    if prior_t.type not in calc_types:
+                        continue
+                    # Track paren depth from prior CALCULATE to current pos
+                    paren_start = raw_dax.find("(", prior_t.location)
+                    if paren_start == -1 or paren_start >= pos:
+                        continue
+                    depth = 0
+                    still_open = True
+                    for ch in raw_dax[paren_start:pos]:
+                        if ch == "(":
+                            depth += 1
+                        elif ch == ")":
+                            depth -= 1
+                            if depth <= 0:
+                                still_open = False
+                                break
+                    if still_open and depth > 0:
+                        nesting += 1
+                transition.nested_level = nesting
 
     def _detect_performance_issues(
-        self,
-        transitions: List[ContextTransition]
+        self, transitions: List[ContextTransition]
     ) -> List[PerformanceWarning]:
         """Detect performance issues from context transitions"""
         warnings = []
@@ -528,14 +636,16 @@ class DaxContextAnalyzer:
                     location=0,
                     severity="warning",
                     message=f"Excessive CALCULATE nesting detected (depth: {max_nesting})",
-                    suggestion="Consider refactoring into intermediate variables or measures"
+                    suggestion="Consider refactoring into intermediate variables or measures",
                 )
             )
 
         # Check for iterator + measure combinations
         iterator_with_measures = [
-            t for t in transitions
-            if t.type == TransitionType.ITERATOR and t.performance_impact == PerformanceImpact.MEDIUM
+            t
+            for t in transitions
+            if t.type == TransitionType.ITERATOR
+            and t.performance_impact == PerformanceImpact.MEDIUM
         ]
 
         if len(iterator_with_measures) > 5:
@@ -544,7 +654,7 @@ class DaxContextAnalyzer:
                     location=0,
                     severity="warning",
                     message=f"Multiple iterators with measure references ({len(iterator_with_measures)} detected)",
-                    suggestion="Each measure reference in an iterator causes context transition per row. Consider pre-calculating values or using variables."
+                    suggestion="Each measure reference in an iterator causes context transition per row. Consider pre-calculating values or using variables.",
                 )
             )
 
@@ -571,9 +681,7 @@ class DaxContextAnalyzer:
         return min(score, 100)
 
     def _generate_summary(
-        self,
-        transitions: List[ContextTransition],
-        warnings: List[PerformanceWarning]
+        self, transitions: List[ContextTransition], warnings: List[PerformanceWarning]
     ) -> str:
         """Generate human-readable summary"""
         if not transitions:
@@ -583,9 +691,7 @@ class DaxContextAnalyzer:
         implicit = sum(1 for t in transitions if t.type == TransitionType.IMPLICIT_MEASURE)
         iterators = sum(1 for t in transitions if t.type == TransitionType.ITERATOR)
 
-        summary_parts = [
-            f"Detected {len(transitions)} context transition(s):"
-        ]
+        summary_parts = [f"Detected {len(transitions)} context transition(s):"]
 
         if explicit > 0:
             summary_parts.append(f"  • {explicit} explicit CALCULATE/CALCULATETABLE")
@@ -603,10 +709,7 @@ class DaxContextAnalyzer:
 
     def _get_line_column(self, text: str, position: int) -> Tuple[int, int]:
         """Get line and column number from character position"""
-        lines = text[:position].split("\n")
-        line = len(lines)
-        column = len(lines[-1]) + 1
-        return line, column
+        return get_line_column(text, position)
 
     def detect_dax_anti_patterns(self, dax_expression: str) -> Dict[str, Any]:
         """
@@ -625,37 +728,31 @@ class DaxContextAnalyzer:
             research_provider = DaxResearchProvider(enable_online_research=False)
             results = research_provider.get_optimization_guidance(
                 query=dax_expression,
-                performance_data=None  # No performance data needed for pattern detection
+                performance_data=None,  # No performance data needed for pattern detection
             )
 
             # Extract pattern-based information
-            pattern_matches = results.get('pattern_matches', {})
-            articles = results.get('articles', [])
+            pattern_matches = results.get("pattern_matches", {})
+            articles = results.get("articles", [])
 
             # Get pattern-based recommendations
-            all_recommendations = results.get('recommendations', [])
+            all_recommendations = results.get("recommendations", [])
             pattern_recommendations = all_recommendations
 
             return {
-                'success': True,
-                'patterns_detected': len(pattern_matches),
-                'pattern_matches': pattern_matches,
-                'articles': articles,
-                'recommendations': pattern_recommendations
+                "success": True,
+                "patterns_detected": len(pattern_matches),
+                "pattern_matches": pattern_matches,
+                "articles": articles,
+                "recommendations": pattern_recommendations,
             }
 
         except ImportError:
             logger.warning("DaxResearchProvider not available for anti-pattern detection")
-            return {
-                'success': False,
-                'error': 'Pattern detection not available'
-            }
+            return {"success": False, "error": "Pattern detection not available"}
         except Exception as e:
             logger.error(f"Error detecting anti-patterns: {e}", exc_info=True)
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     def detect_summarize_patterns(self, dax_expression: str) -> Dict[str, Any]:
         """
@@ -663,25 +760,21 @@ class DaxContextAnalyzer:
 
         Returns suggestions to upgrade to SUMMARIZECOLUMNS for better performance
         """
-        summarize_pattern = r'\bSUMMARIZE\s*\('
-        summarize_matches = list(re.finditer(summarize_pattern, dax_expression, re.IGNORECASE))
+        summarize_matches = list(_SUMMARIZE_RE.finditer(dax_expression))
 
         if not summarize_matches:
-            return {
-                'has_summarize': False,
-                'recommendation': None
-            }
+            return {"has_summarize": False, "recommendation": None}
 
         return {
-            'has_summarize': True,
-            'occurrences': len(summarize_matches),
-            'severity': 'medium',
-            'recommendation': (
+            "has_summarize": True,
+            "occurrences": len(summarize_matches),
+            "severity": "medium",
+            "recommendation": (
                 f"Found {len(summarize_matches)} SUMMARIZE function(s). "
                 "SUMMARIZECOLUMNS is newer and more optimized (2-10x faster). "
                 "Consider converting SUMMARIZE to SUMMARIZECOLUMNS for better performance."
             ),
-            'example_conversion': """
+            "example_conversion": """
 -- BEFORE (SUMMARIZE):
 SUMMARIZE(
     Sales,
@@ -694,10 +787,12 @@ SUMMARIZECOLUMNS(
     Sales[ProductID],
     "Total", [Total Sales]
 )
-"""
+""",
         }
 
-    def format_dax_with_annotations(self, dax_expression: str, transitions: List[ContextTransition]) -> str:
+    def format_dax_with_annotations(
+        self, dax_expression: str, transitions: List[ContextTransition]
+    ) -> str:
         """
         Format DAX code with inline visual annotations showing where context transitions occur
 
@@ -712,7 +807,7 @@ SUMMARIZECOLUMNS(
             return dax_expression
 
         # Split DAX into lines
-        lines = dax_expression.split('\n')
+        lines = dax_expression.split("\n")
 
         # Group transitions by line number
         transitions_by_line = {}
@@ -740,14 +835,20 @@ SUMMARIZECOLUMNS(
             else:
                 impact = "🟢"
 
-            transitions_by_line[line_num].append({
-                'number': i,
-                'emoji': emoji,
-                'type': type_label,
-                'impact': impact,
-                'function': transition.function,
-                'explanation': transition.explanation[:80] + "..." if len(transition.explanation) > 80 else transition.explanation
-            })
+            transitions_by_line[line_num].append(
+                {
+                    "number": i,
+                    "emoji": emoji,
+                    "type": type_label,
+                    "impact": impact,
+                    "function": transition.function,
+                    "explanation": (
+                        transition.explanation[:80] + "..."
+                        if len(transition.explanation) > 80
+                        else transition.explanation
+                    ),
+                }
+            )
 
         # Build annotated code
         annotated_lines = []
@@ -760,7 +861,7 @@ SUMMARIZECOLUMNS(
                     annotation = f"    {trans_info['emoji']} {trans_info['impact']} Transition #{trans_info['number']} ({trans_info['type']}): {trans_info['function']}"
                     annotated_lines.append(annotation)
 
-        return '\n'.join(annotated_lines)
+        return "\n".join(annotated_lines)
 
     def explain_context_flow(self, dax_expression: str) -> str:
         """
@@ -781,9 +882,7 @@ SUMMARIZECOLUMNS(
             explanation_parts.append("=" * 50)
 
             for i, transition in enumerate(analysis.transitions, 1):
-                explanation_parts.append(
-                    f"\n{i}. Line {transition.line}, Col {transition.column}:"
-                )
+                explanation_parts.append(f"\n{i}. Line {transition.line}, Col {transition.column}:")
                 explanation_parts.append(f"   Function: {transition.function}")
                 explanation_parts.append(f"   Type: {transition.type.value}")
                 explanation_parts.append(f"   {transition.explanation}")

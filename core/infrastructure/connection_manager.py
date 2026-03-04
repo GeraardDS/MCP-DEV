@@ -127,9 +127,13 @@ class PowerBIDesktopDetector:
                                     # Determine file type and derive PBIP folder
                                     if '.pbip' in arg.lower():
                                         file_type = 'pbip'
-                                        # PBIP folder is the parent directory of the .pbip file
-                                        # e.g., C:\Projects\MyReport.Report\MyReport.pbip -> C:\Projects\MyReport.Report
-                                        pbip_folder_path = os.path.dirname(arg)
+                                        # Resolve to matching .Report folder (not just parent dir)
+                                        from core.utilities.pbip_utils import resolve_report_folder_from_pbip
+                                        resolved = resolve_report_folder_from_pbip(arg)
+                                        if resolved:
+                                            pbip_folder_path = resolved
+                                        else:
+                                            pbip_folder_path = os.path.dirname(arg)
                                         logger.info(f"Found PBIP project for port {port}: {db_name}, folder: {pbip_folder_path}")
                                     else:
                                         file_type = 'pbix'
@@ -146,7 +150,9 @@ class PowerBIDesktopDetector:
                                     db_name = os.path.basename(file_full_path)
                                     if '.pbip' in file_full_path.lower():
                                         file_type = 'pbip'
-                                        pbip_folder_path = os.path.dirname(file_full_path)
+                                        from core.utilities.pbip_utils import resolve_report_folder_from_pbip
+                                        resolved = resolve_report_folder_from_pbip(file_full_path)
+                                        pbip_folder_path = resolved if resolved else os.path.dirname(file_full_path)
                                     else:
                                         file_type = 'pbix'
                                     logger.info(f"Found Power BI file for port {port}: {db_name} (regex)")

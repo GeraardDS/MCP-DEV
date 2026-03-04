@@ -997,7 +997,7 @@ def register_slicer_operations_handler(registry):
 
     tool = ToolDefinition(
         name="07_Slicer_Operations",
-        description="[PBIP] Configure Power BI slicer settings and visual interactions - list slicers, configure single-select, list/set cross-filtering interactions between visuals",
+        description="Configure slicer settings and visual interactions - list, single-select, cross-filtering.",
         handler=handle_slicer_operations,
         input_schema=TOOL_SCHEMAS.get('slicer_operations', {}),
         category="pbip",

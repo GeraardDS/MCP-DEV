@@ -95,7 +95,7 @@ def register_connection_handlers(registry):
     tools = [
         ToolDefinition(
             name="01_Detect_PBI_Instances",
-            description="[01_Connection] Detect running Power BI Desktop instances",
+            description="Detect running Power BI Desktop instances",
             handler=handle_detect_powerbi_desktop,
             input_schema={
                 "type": "object",
@@ -107,7 +107,7 @@ def register_connection_handlers(registry):
         ),
         ToolDefinition(
             name="01_Connect_To_Instance",
-            description="[01_Connection] Connect to Power BI Desktop (auto-detect or specify model_index)",
+            description="Connect to Power BI Desktop (auto-detect or specify model_index)",
             handler=handle_connect_to_powerbi,
             input_schema={
                 "type": "object",

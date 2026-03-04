@@ -16,29 +16,13 @@ AMOServer = None
 AdomdCommand = None
 
 try:
-    import clr
-    import os
+    from core.infrastructure.dll_paths import (
+        load_amo_assemblies,
+        load_adomd_assembly,
+    )
 
-    # Find DLL folder
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(script_dir)  # server
-    root_dir = os.path.dirname(parent_dir)     # root
-    dll_folder = os.path.join(root_dir, "lib", "dotnet")
-
-    # Load AMO DLLs
-    core_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Core.dll")
-    amo_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.dll")
-    tabular_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.Tabular.dll")
-    adomd_dll = os.path.join(dll_folder, "Microsoft.AnalysisServices.AdomdClient.dll")
-
-    if os.path.exists(core_dll):
-        clr.AddReference(core_dll)
-    if os.path.exists(amo_dll):
-        clr.AddReference(amo_dll)
-    if os.path.exists(tabular_dll):
-        clr.AddReference(tabular_dll)
-    if os.path.exists(adomd_dll):
-        clr.AddReference(adomd_dll)
+    load_amo_assemblies()
+    load_adomd_assembly()
 
     from Microsoft.AnalysisServices.Tabular import Server as AMOServer
     from Microsoft.AnalysisServices.AdomdClient import AdomdCommand
@@ -702,47 +686,42 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
         if analysis_mode == 'all':
             # Run all modes: analyze, debug, and report
             from core.dax import DaxContextAnalyzer, DaxContextDebugger
+            from core.dax.analysis_pipeline import (
+                run_context_analysis, run_vertipaq_analysis,
+                run_best_practices, run_call_tree,
+            )
             analyzer = DaxContextAnalyzer()
             debugger = DaxContextDebugger()
 
-            # Run analyze mode
-            result_analyze = analyzer.analyze_context_transitions(expression)
+            # Run analyze mode (shared pipeline - returns raw object + dict)
+            result_analyze, _ = run_context_analysis(expression)
+            if result_analyze is None:
+                # Fallback: create minimal result for downstream consumers
+                result_analyze = analyzer.analyze_context_transitions(expression)
             anti_patterns = analyzer.detect_dax_anti_patterns(expression)
+
+            # Run static analysis rules engine
+            rules_analysis = None
+            try:
+                from core.dax.dax_rules_engine import DaxRulesEngine
+                rules_analysis = DaxRulesEngine().analyze(expression)
+            except Exception as e:
+                logger.warning(f"Rules engine analysis not available: {e}")
 
             # Generate annotated DAX code for visual display
             annotated_dax = analyzer.format_dax_with_annotations(expression, result_analyze.transitions)
 
-            # Get VertiPaq analysis for comprehensive optimization
-            vertipaq_analysis = None
-            try:
-                from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
-                vertipaq = VertiPaqAnalyzer(connection_state)
-                vertipaq_analysis = vertipaq.analyze_dax_columns(expression)
-                if not vertipaq_analysis.get('success'):
-                    logger.warning(f"VertiPaq analysis failed: {vertipaq_analysis.get('error', 'Unknown error')}")
-            except Exception as e:
-                logger.warning(f"VertiPaq analysis not available: {e}")
-
-            # Run comprehensive best practices analysis
-            best_practices_result = None
-            try:
-                from core.dax.dax_best_practices import DaxBestPracticesAnalyzer
-                bp_analyzer = DaxBestPracticesAnalyzer()
-                best_practices_result = bp_analyzer.analyze(
-                    dax_expression=expression,
-                    context_analysis=result_analyze.to_dict() if hasattr(result_analyze, 'to_dict') else result_analyze,
-                    vertipaq_analysis=vertipaq_analysis
-                )
-                logger.info(f"Best practices analysis: {best_practices_result.get('total_issues', 0)} issues found")
-            except Exception as e:
-                logger.warning(f"Best practices analysis not available: {e}")
+            # VertiPaq + best practices (shared pipeline)
+            vertipaq_analysis = run_vertipaq_analysis(expression, connection_state)
+            context_dict = result_analyze.to_dict() if hasattr(result_analyze, 'to_dict') else result_analyze
+            best_practices_result = run_best_practices(expression, context_dict, vertipaq_analysis)
 
             improvements = debugger.generate_improved_dax(
                 dax_expression=expression,
                 context_analysis=result_analyze,
                 anti_patterns=anti_patterns,
                 vertipaq_analysis=vertipaq_analysis,
-                connection_state=connection_state  # Pass for output validation
+                connection_state=connection_state
             )
 
             # Run debug mode
@@ -766,55 +745,9 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     for step in steps
                 ]
 
-            # NOTE: We DO NOT generate the full report in 'all' mode to avoid duplication
-            # The report duplicates all structured data (context_analysis, anti_patterns, improvements, vertipaq, call_tree)
-            # and also re-runs some expensive analyses (context analysis, anti-patterns)
-            # If user wants a formatted text report, they should use analysis_mode='report'
-            # result_report = debugger.generate_debug_report(...)  # REMOVED to eliminate duplication
-
-            # Get call tree analysis
-            call_tree_data = None
-            total_iterations = 0
-            try:
-                from core.dax.call_tree_builder import CallTreeBuilder
-
-                call_tree_builder = CallTreeBuilder()
-                if connection_state:
-                    try:
-                        from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
-                        vertipaq = VertiPaqAnalyzer(connection_state)
-                        call_tree_builder.vertipaq_analyzer = vertipaq
-                    except Exception:
-                        pass
-
-                call_tree = call_tree_builder.build_call_tree(expression)
-                tree_viz = call_tree_builder.visualize_tree(call_tree)
-
-                # Calculate total iterations
-                def count_iterations(node):
-                    total = node.estimated_iterations or 0
-                    for child in node.children:
-                        total += count_iterations(child)
-                    return total
-
-                total_iterations = count_iterations(call_tree)
-
-                call_tree_data = {
-                    'visualization': tree_viz,
-                    'total_iterations': total_iterations,
-                    'performance_warning': (
-                        'CRITICAL: Over 1 million iterations - severe performance impact!' if total_iterations >= 1_000_000
-                        else 'WARNING: Over 100,000 iterations - consider optimization' if total_iterations >= 100_000
-                        else None
-                    ),
-                    'formatting_note': 'Display this visualization in a ```text code block to preserve the tree structure and box-drawing characters. The visualization includes its own integrated legend.'
-                }
-
-            except Exception as e:
-                logger.warning(f"Call tree analysis failed: {e}")
-                call_tree_data = {
-                    'error': f"Call tree could not be generated: {str(e)}"
-                }
+            # Call tree analysis (shared pipeline)
+            call_tree_data = run_call_tree(expression, connection_state)
+            total_iterations = call_tree_data.get('total_iterations', 0) if call_tree_data else 0
 
             # Combine all articles from various sources
             all_articles = []
@@ -898,7 +831,9 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     'improvements_available': improvements.get('has_improvements', False),
                     'improvements_count': improvements.get('improvements_count', 0),
                     'best_practices_score': best_practices_result.get('overall_score', 0) if best_practices_result else None,
-                    'best_practices_issues': best_practices_result.get('total_issues', 0) if best_practices_result else 0
+                    'best_practices_issues': best_practices_result.get('total_issues', 0) if best_practices_result else 0,
+                    'health_score': rules_analysis.get('health_score') if rules_analysis else None,
+                    'static_analysis_issues': rules_analysis.get('issue_count', 0) if rules_analysis else 0
                 },
                 'context_analysis': {
                     'summary': result_analyze.summary,
@@ -925,6 +860,7 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     'articles': anti_patterns.get('articles', []),
                     'error': anti_patterns.get('error') if not anti_patterns.get('success') else None
                 },
+                'static_analysis': rules_analysis if rules_analysis else {'note': 'Static analysis not available'},
                 'improvements': {
                     'has_improvements': improvements.get('has_improvements', False),
                     'summary': improvements.get('summary', 'No improvements suggested'),
@@ -986,6 +922,15 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
 
             # Add anti-pattern detection
             anti_patterns = analyzer.detect_dax_anti_patterns(expression)
+
+            # Run static analysis rules engine
+            rules_analysis = None
+            try:
+                from core.dax.dax_rules_engine import DaxRulesEngine
+                rules_engine = DaxRulesEngine()
+                rules_analysis = rules_engine.analyze(expression)
+            except Exception as e:
+                logger.warning(f"Rules engine analysis not available: {e}")
 
             # Get VertiPaq analysis for comprehensive optimization
             vertipaq_analysis = None
@@ -1109,6 +1054,9 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                 'articles': anti_patterns.get('articles', []),
                 'error': anti_patterns.get('error') if not anti_patterns.get('success') else None
             }
+
+            # Include static analysis (rules engine)
+            response['static_analysis'] = rules_analysis if rules_analysis else {'note': 'Static analysis not available'}
 
             # Include VertiPaq analysis
             response['vertipaq_analysis'] = vertipaq_analysis if vertipaq_analysis and vertipaq_analysis.get('success') else {
@@ -1271,6 +1219,14 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                 result_analyze = analyzer.analyze_context_transitions(expression)
                 anti_patterns = analyzer.detect_dax_anti_patterns(expression)
 
+                # Run static analysis rules engine
+                try:
+                    from core.dax.dax_rules_engine import DaxRulesEngine
+                    rules_engine = DaxRulesEngine()
+                    response['static_analysis'] = rules_engine.analyze(expression)
+                except Exception as rules_err:
+                    logger.warning(f"Rules engine not available in report mode: {rules_err}")
+
                 from core.dax import DaxContextDebugger
                 debugger_temp = DaxContextDebugger()
 
@@ -1342,7 +1298,7 @@ def register_dax_handlers(registry):
     tools = [
         ToolDefinition(
             name="05_DAX_Intelligence",
-            description="DAX analysis: context transitions, anti-patterns, VertiPaq, call tree, optimized code. Smart measure finder. Modes: all|analyze|debug|report",
+            description="DAX analysis: context transitions, anti-patterns, VertiPaq, call tree, optimized code.",
             handler=handle_dax_intelligence,
             input_schema=TOOL_SCHEMAS.get('dax_intelligence', {}),
             category="dax",

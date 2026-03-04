@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ColumnMetrics:
     """Metrics for a single column"""
+
     table_name: str
     column_name: str
     cardinality: int
@@ -56,6 +57,7 @@ class ColumnMetrics:
 @dataclass
 class DataTypeOptimization:
     """Data type optimization suggestion"""
+
     column: str
     current_type: str
     suggested_type: str
@@ -67,6 +69,7 @@ class DataTypeOptimization:
 @dataclass
 class CardinalityImpact:
     """Impact assessment for high-cardinality columns"""
+
     column: str
     cardinality: int
     size_bytes: int
@@ -134,11 +137,11 @@ class VertiPaqAnalyzer:
 
             result = qe.execute_dmv_query(dmv_query)
 
-            if not result.get('success'):
+            if not result.get("success"):
                 logger.error(f"DMV query failed: {result.get('error', 'Unknown error')}")
                 return False
 
-            if not result.get('data'):
+            if not result.get("data"):
                 logger.warning("DMV query returned no data")
                 return False
 
@@ -146,38 +149,40 @@ class VertiPaqAnalyzer:
             self._column_cache.clear()
             skipped_columns = 0
 
-            for row in result['data']:
-                table_name = row.get('TableName', '')
-                column_name = row.get('ColumnName', '')
-                column_type = row.get('ColumnType', 'BASIC_DATA')
+            for row in result["data"]:
+                table_name = row.get("TableName", "")
+                column_name = row.get("ColumnName", "")
+                column_type = row.get("ColumnType", "BASIC_DATA")
 
                 # Skip internal/system columns (RowNumber columns)
-                if column_type == 'ROWNUM' or column_name.startswith('RowNumber-'):
+                if column_type == "ROWNUM" or column_name.startswith("RowNumber-"):
                     skipped_columns += 1
                     continue
 
                 # Add column type info to encoding for better visibility
-                encoding = row.get('Encoding', 'unknown')
-                if column_type == 'CALCULATED':
+                encoding = row.get("Encoding", "unknown")
+                if column_type == "CALCULATED":
                     encoding = f"{encoding} (Calculated Column)"
-                elif column_type == 'UNKNOWN':
+                elif column_type == "UNKNOWN":
                     encoding = f"{encoding} (Type Unknown)"
 
                 metrics = ColumnMetrics(
                     table_name=table_name,
                     column_name=column_name,
-                    cardinality=int(row.get('Cardinality', 0)),
-                    size_bytes=int(row.get('SizeBytes', 0)),
-                    data_type=row.get('DataType', 'unknown'),
+                    cardinality=int(row.get("Cardinality", 0)),
+                    size_bytes=int(row.get("SizeBytes", 0)),
+                    data_type=row.get("DataType", "unknown"),
                     encoding=encoding,
-                    dictionary_size_bytes=int(row.get('DictionarySizeBytes', 0)),
-                    hierarchy_size_bytes=int(row.get('HierarchySizeBytes', 0))
+                    dictionary_size_bytes=int(row.get("DictionarySizeBytes", 0)),
+                    hierarchy_size_bytes=int(row.get("HierarchySizeBytes", 0)),
                 )
 
                 self._column_cache[metrics.full_name] = metrics
 
             self._cache_loaded = True
-            logger.info(f"Loaded metrics for {len(self._column_cache)} columns (skipped {skipped_columns} internal columns)")
+            logger.info(
+                f"Loaded metrics for {len(self._column_cache)} columns (skipped {skipped_columns} internal columns)"
+            )
             return True
 
         except Exception as e:
@@ -198,7 +203,9 @@ class VertiPaqAnalyzer:
         if not self._cache_loaded:
             cache_success = self.load_column_metrics()
             if not cache_success:
-                logger.warning(f"Failed to load DMV cache, will attempt direct calculation for {column_ref}")
+                logger.warning(
+                    f"Failed to load DMV cache, will attempt direct calculation for {column_ref}"
+                )
 
         # Normalize column reference
         normalized = self._normalize_column_ref(column_ref)
@@ -214,11 +221,15 @@ class VertiPaqAnalyzer:
         # If not in cache, log available columns for debugging
         if self._cache_loaded and len(self._column_cache) > 0:
             # Log a few similar column names to help diagnose
-            similar_cols = [k for k in self._column_cache.keys() if normalized.split('[')[0] in k]
+            similar_cols = [k for k in self._column_cache.keys() if normalized.split("[")[0] in k]
             if similar_cols:
-                logger.debug(f"Column {normalized} not found. Similar columns in cache: {similar_cols[:5]}")
+                logger.debug(
+                    f"Column {normalized} not found. Similar columns in cache: {similar_cols[:5]}"
+                )
             else:
-                logger.debug(f"Column {normalized} not found. Cache has {len(self._column_cache)} columns")
+                logger.debug(
+                    f"Column {normalized} not found. Cache has {len(self._column_cache)} columns"
+                )
 
         # Try to calculate cardinality directly using DAX
         logger.debug(f"Column {normalized} not in cache, attempting fallback calculation")
@@ -226,9 +237,13 @@ class VertiPaqAnalyzer:
         if cached:
             # Add to cache for future use
             self._column_cache[normalized] = cached
-            logger.info(f"Successfully calculated metrics for {normalized} using DAX fallback: cardinality={cached.cardinality:,}")
+            logger.info(
+                f"Successfully calculated metrics for {normalized} using DAX fallback: cardinality={cached.cardinality:,}"
+            )
         else:
-            logger.warning(f"Could not retrieve metrics for {normalized} from either DMV or DAX calculation")
+            logger.warning(
+                f"Could not retrieve metrics for {normalized} from either DMV or DAX calculation"
+            )
 
         return cached
 
@@ -249,7 +264,9 @@ class VertiPaqAnalyzer:
                 if cache_loaded:
                     logger.info("VertiPaq metrics loaded from DMV")
                 else:
-                    logger.warning("VertiPaq metrics not available from DMV - will use fallback calculation")
+                    logger.warning(
+                        "VertiPaq metrics not available from DMV - will use fallback calculation"
+                    )
 
             # Extract column references from DAX
             column_refs = self._extract_column_references(dax_expression)
@@ -263,7 +280,7 @@ class VertiPaqAnalyzer:
                     "total_size_mb": 0.0,
                     "high_cardinality_columns": [],
                     "optimizations": [],
-                    "note": "No column references found in DAX expression (might be using only measures)"
+                    "note": "No column references found in DAX expression (might be using only measures)",
                 }
 
             # Get metrics for each column
@@ -295,7 +312,7 @@ class VertiPaqAnalyzer:
                         "usage_context": usage_context,
                         "performance_impact": impact.performance_impact,
                         "recommendation": impact.recommendation,
-                        "metrics_source": "dmv" if self._cache_loaded else "calculated"
+                        "metrics_source": "dmv" if self._cache_loaded else "calculated",
                     }
 
                     total_cardinality += metrics.cardinality
@@ -309,7 +326,7 @@ class VertiPaqAnalyzer:
                     column_analysis[col_ref] = {
                         "status": "metrics_unavailable",
                         "message": "No metrics available",
-                        "note": "This might be a measure, calculated column, or the column doesn't exist in the model"
+                        "note": "This might be a measure, calculated column, or the column doesn't exist in the model",
                     }
 
             # Get optimization suggestions
@@ -325,7 +342,7 @@ class VertiPaqAnalyzer:
                 "total_size_mb": round(total_size_bytes / (1024 * 1024), 2),
                 "high_cardinality_columns": high_cardinality_columns,
                 "optimizations": optimizations,
-                "data_source": "dmv" if self._cache_loaded else "calculated"
+                "data_source": "dmv" if self._cache_loaded else "calculated",
             }
 
             # Add warning if no metrics were available
@@ -341,11 +358,7 @@ class VertiPaqAnalyzer:
 
         except Exception as e:
             logger.error(f"Error analyzing DAX columns: {e}", exc_info=True)
-            return {
-                "success": False,
-                "error": str(e),
-                "columns_analyzed": 0
-            }
+            return {"success": False, "error": str(e), "columns_analyzed": 0}
 
     def _extract_column_references(self, dax: str) -> Set[str]:
         """Extract column references from DAX expression"""
@@ -401,7 +414,9 @@ class VertiPaqAnalyzer:
 
             # Build DAX query to calculate cardinality
             # Use quotes around table name if it contains spaces or special characters
-            table_ref = f"'{table_name}'" if ' ' in table_name or not table_name.isalnum() else table_name
+            table_ref = (
+                f"'{table_name}'" if " " in table_name or not table_name.isalnum() else table_name
+            )
 
             dax_query = f"""
             EVALUATE
@@ -414,13 +429,15 @@ class VertiPaqAnalyzer:
             logger.debug(f"Executing fallback DAX query for {column_ref}")
             result = qe.validate_and_execute_dax(dax_query, top_n=1)
 
-            if result.get('success') and result.get('data'):
-                data = result['data']
+            if result.get("success") and result.get("data"):
+                data = result["data"]
                 if len(data) > 0:
-                    cardinality = int(data[0].get('Cardinality', 0))
-                    total_rows = int(data[0].get('TotalRows', 0))
+                    cardinality = int(data[0].get("Cardinality", 0))
+                    total_rows = int(data[0].get("TotalRows", 0))
 
-                    logger.info(f"Calculated cardinality for {column_ref}: {cardinality:,} (table has {total_rows:,} rows)")
+                    logger.info(
+                        f"Calculated cardinality for {column_ref}: {cardinality:,} (table has {total_rows:,} rows)"
+                    )
 
                     # Create metrics object with calculated cardinality
                     # Note: Size estimation is approximate without DMV data
@@ -434,12 +451,12 @@ class VertiPaqAnalyzer:
                         data_type="unknown",  # Can't determine without DMV
                         encoding="calculated",
                         dictionary_size_bytes=0,
-                        hierarchy_size_bytes=0
+                        hierarchy_size_bytes=0,
                     )
                 else:
                     logger.debug(f"DAX query returned no data for {column_ref}")
             else:
-                error_msg = result.get('error', 'Unknown error')
+                error_msg = result.get("error", "Unknown error")
                 logger.debug(f"Failed to calculate cardinality for {column_ref}: {error_msg}")
 
             return None
@@ -479,7 +496,7 @@ class VertiPaqAnalyzer:
         pos = dax.find(column_ref)
         if pos == -1:
             # Try without table name
-            col_name_match = re.search(r'\[([^\]]+)\]', column_ref)
+            col_name_match = re.search(r"\[([^\]]+)\]", column_ref)
             if col_name_match:
                 col_name = col_name_match.group(0)
                 pos = dax.find(col_name)
@@ -488,12 +505,18 @@ class VertiPaqAnalyzer:
             return "unknown"
 
         # Look for context around the column
-        context_before = dax[max(0, pos - 50):pos].upper()
+        context_before = dax[max(0, pos - 50) : pos].upper()
 
         # Check for iterator functions
         iterator_functions = [
-            "SUMX", "AVERAGEX", "MINX", "MAXX", "COUNTX",
-            "FILTER", "ADDCOLUMNS", "SELECTCOLUMNS"
+            "SUMX",
+            "AVERAGEX",
+            "MINX",
+            "MAXX",
+            "COUNTX",
+            "FILTER",
+            "ADDCOLUMNS",
+            "SELECTCOLUMNS",
         ]
 
         for func in iterator_functions:
@@ -511,9 +534,7 @@ class VertiPaqAnalyzer:
         return "general"
 
     def _assess_column_impact(
-        self,
-        metrics: ColumnMetrics,
-        usage_context: str
+        self, metrics: ColumnMetrics, usage_context: str
     ) -> CardinalityImpact:
         """Assess performance impact of column usage"""
 
@@ -551,7 +572,9 @@ class VertiPaqAnalyzer:
 
         # Check data type optimization opportunities
         if metrics.data_type == "String" and cardinality < 1000:
-            recommendation += " Consider converting to integer type with lookup table for better compression."
+            recommendation += (
+                " Consider converting to integer type with lookup table for better compression."
+            )
 
         return CardinalityImpact(
             column=metrics.full_name,
@@ -559,13 +582,11 @@ class VertiPaqAnalyzer:
             size_bytes=metrics.size_bytes,
             usage_context=usage_context,
             performance_impact=performance_impact,
-            recommendation=recommendation
+            recommendation=recommendation,
         )
 
     def _get_optimization_suggestions(
-        self,
-        column_analysis: Dict[str, Any],
-        dax_expression: str
+        self, column_analysis: Dict[str, Any], dax_expression: str
     ) -> List[Dict[str, Any]]:
         """Get optimization suggestions based on column analysis"""
         suggestions = []
@@ -575,31 +596,105 @@ class VertiPaqAnalyzer:
                 impact = analysis["performance_impact"]
 
                 if impact in ["critical", "high"]:
-                    suggestions.append({
-                        "column": col_ref,
-                        "severity": impact,
-                        "issue": f"High cardinality ({analysis['cardinality']:,}) in {analysis['usage_context']} context",
-                        "recommendation": analysis["recommendation"],
-                        "data_type": analysis.get("data_type", "unknown"),
-                        "size_mb": analysis.get("size_mb", 0)
-                    })
+                    suggestions.append(
+                        {
+                            "column": col_ref,
+                            "severity": impact,
+                            "issue": f"High cardinality ({analysis['cardinality']:,}) in {analysis['usage_context']} context",
+                            "recommendation": analysis["recommendation"],
+                            "data_type": analysis.get("data_type", "unknown"),
+                            "size_mb": analysis.get("size_mb", 0),
+                        }
+                    )
 
         # Check for string columns that could be optimized
         for col_ref, analysis in column_analysis.items():
             if isinstance(analysis, dict) and analysis.get("data_type") == "String":
                 cardinality = analysis.get("cardinality", 0)
                 if cardinality < 1000:
-                    suggestions.append({
+                    suggestions.append(
+                        {
+                            "column": col_ref,
+                            "severity": "medium",
+                            "issue": "String column with low cardinality",
+                            "recommendation": (
+                                f"Convert to integer type with lookup table. "
+                                f"Current: {analysis.get('size_mb', 0):.2f} MB, "
+                                f"Estimated savings: {analysis.get('size_mb', 0) * 0.7:.2f} MB"
+                            ),
+                            "optimization_type": "data_type",
+                        }
+                    )
+
+        # Encoding-aware suggestions
+        for col_ref, analysis in column_analysis.items():
+            if not isinstance(analysis, dict):
+                continue
+            encoding = (analysis.get("encoding") or "").upper()
+            cardinality = analysis.get("cardinality", 0)
+            size_mb = analysis.get("size_mb", 0)
+
+            # Hash-encoded column with very high cardinality
+            if "HASH" in encoding and cardinality > 500_000:
+                suggestions.append(
+                    {
+                        "column": col_ref,
+                        "severity": "critical",
+                        "issue": (
+                            f"Hash-encoded column with {cardinality:,} distinct values — "
+                            f"hash encoding is expensive at high cardinality"
+                        ),
+                        "recommendation": (
+                            "Review column necessity. Consider splitting into "
+                            "multiple lower-cardinality columns, or remove if unused. "
+                            "Hash encoding at this cardinality causes significant memory "
+                            "and query overhead."
+                        ),
+                        "optimization_type": "encoding",
+                    }
+                )
+            # Numeric column with hash encoding — could benefit from value encoding
+            elif "HASH" in encoding and analysis.get("data_type") in (
+                "Int64",
+                "Double",
+                "Decimal",
+                "Currency",
+            ):
+                suggestions.append(
+                    {
                         "column": col_ref,
                         "severity": "medium",
-                        "issue": "String column with low cardinality",
-                        "recommendation": (
-                            f"Convert to integer type with lookup table. "
-                            f"Current: {analysis.get('size_mb', 0):.2f} MB, "
-                            f"Estimated savings: {analysis.get('size_mb', 0) * 0.7:.2f} MB"
+                        "issue": (
+                            f"Numeric column using hash encoding ({cardinality:,} distinct values)"
                         ),
-                        "optimization_type": "data_type"
-                    })
+                        "recommendation": (
+                            "Reduce distinct values to enable value encoding. "
+                            "Value encoding is more efficient for numeric columns — "
+                            "consider rounding, binning, or removing unnecessary precision."
+                        ),
+                        "optimization_type": "encoding",
+                    }
+                )
+
+            # Very high cardinality + large size — column splitting opportunity
+            if cardinality > 1_000_000 and size_mb > 50:
+                suggestions.append(
+                    {
+                        "column": col_ref,
+                        "severity": "high",
+                        "issue": (
+                            f"Column has {cardinality:,} distinct values and "
+                            f"{size_mb:.1f} MB — candidate for column splitting"
+                        ),
+                        "recommendation": (
+                            "Split into multiple columns with lower cardinality. "
+                            "Per SQLBI research, splitting a high-cardinality column "
+                            "can reduce memory by 93%+. Example: split a datetime "
+                            "column into separate date and time columns."
+                        ),
+                        "optimization_type": "column_splitting",
+                    }
+                )
 
         return suggestions
 
@@ -615,21 +710,14 @@ class VertiPaqAnalyzer:
         total_size_bytes = sum(m.size_bytes for m in self._column_cache.values())
 
         # Categorize by cardinality
-        cardinality_distribution = {
-            "low": 0,
-            "medium": 0,
-            "high": 0,
-            "very_high": 0
-        }
+        cardinality_distribution = {"low": 0, "medium": 0, "high": 0, "very_high": 0}
 
         for metrics in self._column_cache.values():
             cardinality_distribution[metrics.cardinality_level] += 1
 
         # Top 10 largest columns
         largest_columns = sorted(
-            self._column_cache.values(),
-            key=lambda m: m.size_bytes,
-            reverse=True
+            self._column_cache.values(), key=lambda m: m.size_bytes, reverse=True
         )[:10]
 
         return {
@@ -641,8 +729,8 @@ class VertiPaqAnalyzer:
                     "column": m.full_name,
                     "size_mb": round(m.size_mb, 2),
                     "cardinality": m.cardinality,
-                    "data_type": m.data_type
+                    "data_type": m.data_type,
                 }
                 for m in largest_columns
-            ]
+            ],
         }

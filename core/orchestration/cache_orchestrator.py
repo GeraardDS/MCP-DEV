@@ -16,7 +16,6 @@ class CacheOrchestrator(BaseOrchestrator):
         if not connection_state.is_connected():
             return ErrorHandler.handle_not_connected()
         executor = connection_state.query_executor
-        perf = connection_state.performance_analyzer
         if not executor:
             return ErrorHandler.handle_manager_unavailable('query_executor')
 
@@ -25,9 +24,6 @@ class CacheOrchestrator(BaseOrchestrator):
         if clear_cache:
             try:
                 executor.flush_cache()
-                if perf:
-                    # Best-effort engine cache clear
-                    perf._clear_cache(executor)
             except Exception:
                 pass
         for q in queries or []:

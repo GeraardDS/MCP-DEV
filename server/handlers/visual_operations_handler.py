@@ -1609,56 +1609,137 @@ def _op_update_visual_config(args: Dict[str, Any], definition_path: Path) -> Dic
     return result
 
 
+def _resolve_definition_path(pbip_path: str) -> Dict[str, Any]:
+    """Resolve and validate the definition path from a PBIP path.
+
+    Returns a dict with 'path' on success or 'error' on failure.
+    """
+    definition_path = _find_definition_folder(pbip_path)
+    if not definition_path:
+        return {
+            'error': (
+                f'Could not find definition folder in: {pbip_path}.'
+                ' Ensure path points to a valid PBIP project.'
+            )
+        }
+    return {'path': definition_path}
+
+
 def handle_visual_operations(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle visual editing operations - dispatches to per-operation functions."""
+    """Dispatch for visual list, position, and config operations."""
     operation = args.get('operation', 'list')
     pbip_path = args.get('pbip_path')
 
     if not pbip_path:
         return {
             'success': False,
-            'error': 'pbip_path parameter is required - path to PBIP project, .Report folder, or definition folder'
+            'error': (
+                'pbip_path parameter is required'
+                ' - path to PBIP project, .Report folder,'
+                ' or definition folder'
+            ),
         }
 
-    # Find definition folder
-    definition_path = _find_definition_folder(pbip_path)
-    if not definition_path:
+    resolved = _resolve_definition_path(pbip_path)
+    if 'error' in resolved:
+        return {'success': False, 'error': resolved['error']}
+    definition_path = resolved['path']
+
+    ops = {
+        'list': _op_list,
+        'update_position': _op_update_position,
+        'update_visual_config': _op_update_visual_config,
+    }
+    op_func = ops.get(operation)
+    if not op_func:
+        valid = ", ".join(ops)
         return {
             'success': False,
-            'error': f'Could not find definition folder in: {pbip_path}. Ensure path points to a valid PBIP project.'
+            'error': (
+                f'Unknown operation: {operation}.'
+                f' Valid: {valid}'
+            ),
+        }
+    return op_func(args, definition_path)
+
+
+def handle_visual_sync(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch for visual sync operations."""
+    operation = args.get('operation')
+    pbip_path = args.get('pbip_path')
+
+    if not pbip_path:
+        return {
+            'success': False,
+            'error': (
+                'pbip_path parameter is required'
+                ' - path to PBIP project, .Report folder,'
+                ' or definition folder'
+            ),
         }
 
-    if operation == 'list':
-        return _op_list(args, definition_path)
-    elif operation == 'update_position':
-        return _op_update_position(args, definition_path)
-    elif operation == 'replace_measure':
-        return _op_replace_measure(args, definition_path)
-    elif operation == 'sync_visual':
-        return _op_sync_visual(args, definition_path)
-    elif operation == 'sync_column_widths':
-        return _op_sync_column_widths(args, definition_path)
-    elif operation == 'update_visual_config':
-        return _op_update_visual_config(args, definition_path)
+    if not operation:
+        return {
+            'success': False,
+            'error': 'operation parameter is required',
+        }
 
-    return {
-        'success': False,
-        'error': f'Unknown operation: {operation}. Valid operations: list, update_position, replace_measure, sync_visual, sync_column_widths, update_visual_config'
+    resolved = _resolve_definition_path(pbip_path)
+    if 'error' in resolved:
+        return {'success': False, 'error': resolved['error']}
+    definition_path = resolved['path']
+
+    ops = {
+        'replace_measure': _op_replace_measure,
+        'sync_visual': _op_sync_visual,
+        'sync_column_widths': _op_sync_column_widths,
     }
+    op_func = ops.get(operation)
+    if not op_func:
+        valid = ", ".join(ops)
+        return {
+            'success': False,
+            'error': (
+                f'Unknown operation: {operation}.'
+                f' Valid: {valid}'
+            ),
+        }
+    return op_func(args, definition_path)
 
 
 def register_visual_operations_handler(registry):
-    """Register visual operations handler"""
+    """Register visual operations handler (list, position, config)."""
     from server.tool_schemas import TOOL_SCHEMAS
 
     tool = ToolDefinition(
         name="08_Visual_Operations",
-        description="[PBIP] Edit Power BI visual properties - list visuals, resize/reposition visuals, replace measures, sync visuals across pages, sync column widths between matrices",
+        description=(
+            "Edit visual properties: list,"
+            " resize/reposition, update_visual_config."
+        ),
         handler=handle_visual_operations,
         input_schema=TOOL_SCHEMAS.get('visual_operations', {}),
-        category="pbip",
-        sort_order=74  # 08 = PBIP Analysis
+        category="docs",
+        sort_order=80,
     )
     registry.register(tool)
-
     logger.info("Registered visual_operations handler")
+
+
+def register_visual_sync_handler(registry):
+    """Register visual sync handler (replace, sync)."""
+    from server.tool_schemas import TOOL_SCHEMAS
+
+    tool = ToolDefinition(
+        name="08_Visual_Sync",
+        description=(
+            "Sync and replace visuals: replace_measure,"
+            " sync_visual, sync_column_widths."
+        ),
+        handler=handle_visual_sync,
+        input_schema=TOOL_SCHEMAS.get('visual_sync', {}),
+        category="docs",
+        sort_order=81,
+    )
+    registry.register(tool)
+    logger.info("Registered visual_sync handler")

@@ -283,7 +283,7 @@ def register_tmdl_operations_handler(registry):
 
     tool = ToolDefinition(
         name="02_TMDL_Operations",
-        description="TMDL automation: export, find_replace (with regex), bulk_rename (with reference updates), generate_script, migrate_measures (copy measures between models with display folder filtering).",
+        description="TMDL automation: export, find/replace, bulk rename, script generation, measure migration.",
         handler=handle_tmdl_operations,
         input_schema={
             "type": "object",
@@ -291,50 +291,42 @@ def register_tmdl_operations_handler(registry):
                 "operation": {
                     "type": "string",
                     "enum": ["export", "find_replace", "bulk_rename", "generate_script", "migrate_measures"],
-                    "description": (
-                        "Operation to perform:\n"
-                        "• 'export' - Export full TMDL definition to file\n"
-                        "• 'find_replace' - Find and replace in TMDL files with regex\n"
-                        "• 'bulk_rename' - Bulk rename objects with reference updates\n"
-                        "• 'generate_script' - Generate TMDL script from definition\n"
-                        "• 'migrate_measures' - Copy measures between TMDL files with display folder filtering"
-                    )
                 },
                 "output_dir": {
                     "type": "string",
-                    "description": "Output directory for export operation (optional)"
+                    "description": "Output directory"
                 },
                 "tmdl_path": {
                     "type": "string",
-                    "description": "Path to TMDL export folder (required for: find_replace, bulk_rename)"
+                    "description": "TMDL export folder"
                 },
                 "pattern": {
                     "type": "string",
-                    "description": "Pattern to find (required for: find_replace)"
+                    "description": "Find pattern"
                 },
                 "replacement": {
                     "type": "string",
-                    "description": "Replacement text (required for: find_replace)"
+                    "description": "Replacement text"
                 },
                 "dry_run": {
                     "type": "boolean",
-                    "description": "Preview changes without applying (optional for: find_replace, bulk_rename, default: true)"
+                    "description": "Preview only (default: true)"
                 },
                 "regex": {
                     "type": "boolean",
-                    "description": "Use regex pattern matching (optional for: find_replace, default: false)"
+                    "description": "Use regex (default: false)"
                 },
                 "case_sensitive": {
                     "type": "boolean",
-                    "description": "Case sensitive search (optional for: find_replace, default: true)"
+                    "description": "Case sensitive (default: true)"
                 },
                 "target": {
                     "type": "string",
-                    "description": "Target objects for replacement (optional for: find_replace, default: 'all')"
+                    "description": "Target objects (default: 'all')"
                 },
                 "renames": {
                     "type": "array",
-                    "description": "Array of rename operations (required for: bulk_rename)",
+                    "description": "Rename operations",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -348,36 +340,36 @@ def register_tmdl_operations_handler(registry):
                 },
                 "update_references": {
                     "type": "boolean",
-                    "description": "Update all references when renaming (optional for: bulk_rename, default: true)"
+                    "description": "Update refs when renaming (default: true)"
                 },
                 "definition": {
                     "type": "object",
-                    "description": "Object definition (required for: generate_script)"
+                    "description": "Object definition"
                 },
                 "object_type": {
                     "type": "string",
                     "enum": ["table", "measure", "relationship", "calc_group"],
-                    "description": "Type of object to generate (optional for: generate_script, default: 'table')"
+                    "description": "Object type (default: 'table')"
                 },
                 "source_path": {
                     "type": "string",
-                    "description": "Path to source TMDL file (required for: migrate_measures)"
+                    "description": "Source TMDL file"
                 },
                 "target_path": {
                     "type": "string",
-                    "description": "Path to target TMDL file (required for: migrate_measures)"
+                    "description": "Target TMDL file"
                 },
                 "display_folder_filter": {
                     "type": "string",
-                    "description": "Display folder prefix to filter measures by (optional for: migrate_measures)"
+                    "description": "Folder prefix filter"
                 },
                 "replace_target": {
                     "type": "boolean",
-                    "description": "Replace target content entirely vs append (optional for: migrate_measures, default: false)"
+                    "description": "Replace target entirely (default: false)"
                 },
                 "skip_duplicates": {
                     "type": "boolean",
-                    "description": "Skip measures that already exist in target (optional for: migrate_measures, default: true)"
+                    "description": "Skip existing measures (default: true)"
                 }
             },
             "required": ["operation"]

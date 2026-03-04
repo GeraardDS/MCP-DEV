@@ -620,6 +620,7 @@ def handle_simple_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
     - 'roles': List security roles - Microsoft MCP Role List operation
     - 'database': List databases - Microsoft MCP Database List operation
     - 'calculation_groups': List calculation groups - Microsoft MCP ListGroups operation
+    - 'storage': VertiPaq storage analysis - column/table size, encoding, compression, recommendations
     """
     if not connection_state.is_connected():
         return ErrorHandler.handle_not_connected()
@@ -794,13 +795,54 @@ def handle_simple_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
     elif mode == 'calculation_groups':
         # Calculation Group ListGroups operation
         result = agent_policy.analysis_orch.list_calculation_groups_simple(connection_state)
+    elif mode == 'storage':
+        # VertiPaq storage analysis via DMVs
+        result = _handle_storage_analysis()
     else:
         return {
             'success': False,
-            'error': f'Unknown mode: {mode}. Valid modes: all, tables, stats, measures, measure, columns, relationships, roles, database, calculation_groups'
+            'error': (
+                f'Unknown mode: {mode}. Valid modes: all, tables, stats, '
+                'measures, measure, columns, relationships, roles, '
+                'database, calculation_groups, storage'
+            )
         }
 
     return result
+
+def _handle_storage_analysis() -> Dict[str, Any]:
+    """
+    Run VertiPaq storage analysis using DMV queries.
+
+    Returns structured storage report with per-table and
+    per-column storage metrics plus recommendations.
+    """
+    try:
+        qe = connection_state.query_executor
+        if not qe:
+            return {
+                'success': False,
+                'error': 'Query executor not available'
+            }
+
+        from core.dax.vertipaq_storage_report import (
+            VertiPaqStorageReport,
+        )
+
+        reporter = VertiPaqStorageReport(qe)
+        report = reporter.generate_report()
+        return report.to_dict()
+
+    except Exception as e:
+        logger.error(
+            f"Storage analysis failed: {e}",
+            exc_info=True,
+        )
+        return {
+            'success': False,
+            'error': f'Storage analysis failed: {e}'
+        }
+
 
 def handle_full_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -882,20 +924,20 @@ def register_analysis_handlers(registry):
         input_schema={
             "type": "object",
             "properties": {
-                "operation": {"type": "string", "enum": ["simple", "full", "compare"], "description": "simple|full|compare", "default": "simple"},
-                "mode": {"type": "string", "enum": ["all", "tables", "stats", "measures", "measure", "columns", "relationships", "roles", "database", "calculation_groups"], "description": "Simple analysis mode", "default": "all"},
-                "table": {"type": "string", "description": "Table filter (simple: measures/columns/measure modes)"},
+                "operation": {"type": "string", "enum": ["simple", "full", "compare"], "default": "simple"},
+                "mode": {"type": "string", "enum": ["all", "tables", "stats", "measures", "measure", "columns", "relationships", "roles", "database", "calculation_groups", "storage"], "description": "Simple analysis mode", "default": "all"},
+                "table": {"type": "string", "description": "Table filter"},
                 "measure_name": {"type": "string", "description": "Required for mode=measure"},
                 "max_results": {"type": "integer"},
                 "active_only": {"type": "boolean", "default": False},
-                "scope": {"type": "string", "enum": ["all", "best_practices", "performance", "integrity"], "description": "Full analysis scope", "default": "all"},
+                "scope": {"type": "string", "enum": ["all", "best_practices", "performance", "integrity"], "description": "Analysis scope", "default": "all"},
                 "depth": {"type": "string", "enum": ["fast", "balanced", "deep"], "default": "balanced"},
                 "include_bpa": {"type": "boolean", "default": True},
                 "include_performance": {"type": "boolean", "default": True},
                 "include_integrity": {"type": "boolean", "default": True},
                 "max_seconds": {"type": "integer", "minimum": 5, "maximum": 300},
-                "old_port": {"type": "integer", "description": "Port of OLD model (compare)"},
-                "new_port": {"type": "integer", "description": "Port of NEW model (compare)"}
+                "old_port": {"type": "integer", "description": "Port of OLD model"},
+                "new_port": {"type": "integer", "description": "Port of NEW model"}
             },
             "required": []
         },

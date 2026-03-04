@@ -31,32 +31,49 @@ _normalize_pbip_path = normalize_pbip_path
 
 
 # ═════════════════════════════════════════════════════════════════════
-# Main dispatcher
+# Dispatchers
 # ═════════════════════════════════════════════════════════════════════
 
-def handle_pbip_operations(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle unified PBIP operations."""
+def handle_pbip_model_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch for PBIP model analysis operations."""
     operation = args.get("operation")
-
     if not operation:
         return {"success": False, "error": "operation parameter is required"}
-
     handlers = {
         "analyze": _handle_analyze,
+        "validate_model": _handle_validate_model,
+        "compare_models": _handle_compare_models,
+        "generate_documentation": _handle_generate_documentation,
+    }
+    handler = handlers.get(operation)
+    if not handler:
+        valid = ", ".join(handlers)
+        return {
+            "success": False,
+            "error": f"Unknown operation: {operation}. Valid: {valid}",
+        }
+    return handler(args)
+
+
+def handle_pbip_query(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch for PBIP query operations."""
+    operation = args.get("operation")
+    if not operation:
+        return {"success": False, "error": "operation parameter is required"}
+    handlers = {
         "query_dependencies": _handle_query_dependencies,
         "query_measures": _handle_query_measures,
         "query_relationships": _handle_query_relationships,
         "query_unused": _handle_query_unused,
-        "validate_model": _handle_validate_model,
-        "compare_models": _handle_compare_models,
-        "generate_documentation": _handle_generate_documentation,
         "git_diff": _handle_git_diff,
     }
-
     handler = handlers.get(operation)
     if not handler:
-        return {"success": False, "error": f"Unknown operation: {operation}"}
-
+        valid = ", ".join(handlers)
+        return {
+            "success": False,
+            "error": f"Unknown operation: {operation}. Valid: {valid}",
+        }
     return handler(args)
 
 
@@ -140,9 +157,23 @@ def _handle_query_dependencies(args: Dict[str, Any]) -> Dict[str, Any]:
 
         if object_name:
             # Query for a specific object
-            fwd = deps.get("measure_to_measure", {}).get(object_name, [])
-            rev = deps.get("measure_to_measure_reverse", {}).get(object_name, [])
-            col_deps = deps.get("measure_to_column", {}).get(object_name, [])
+            # Resolve key: try exact match first, then search for unqualified name
+            m2m = deps.get("measure_to_measure", {})
+            m2m_rev = deps.get("measure_to_measure_reverse", {})
+            m2c = deps.get("measure_to_column", {})
+
+            resolved_key = object_name
+            if object_name not in m2m and object_name not in m2m_rev:
+                # Try matching unqualified [MeasureName] against TableName[MeasureName] keys
+                bare_name = object_name.strip("[]' ")
+                for key in list(m2m.keys()) + list(m2m_rev.keys()) + list(m2c.keys()):
+                    if key.endswith(f"[{bare_name}]"):
+                        resolved_key = key
+                        break
+
+            fwd = m2m.get(resolved_key, [])
+            rev = m2m_rev.get(resolved_key, [])
+            col_deps = m2c.get(resolved_key, [])
 
             if direction in ("forward", "both"):
                 result["depends_on_measures"] = fwd
@@ -639,16 +670,48 @@ def _generate_markdown(model: Dict[str, Any], deps: Dict[str, Any]) -> str:
 # Registration
 # ═════════════════════════════════════════════════════════════════════
 
-def register_pbip_operations_handler(registry):
-    """Register PBIP operations handler."""
+def handle_pbip_operations(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Unified dispatcher for all offline PBIP operations."""
+    operation = args.get("operation")
+    if not operation:
+        return {"success": False, "error": "operation parameter is required"}
 
+    # Model analysis operations
+    analysis_ops = {
+        "analyze": _handle_analyze,
+        "validate_model": _handle_validate_model,
+        "compare_models": _handle_compare_models,
+        "generate_documentation": _handle_generate_documentation,
+    }
+    # Query operations
+    query_ops = {
+        "query_dependencies": _handle_query_dependencies,
+        "query_measures": _handle_query_measures,
+        "query_relationships": _handle_query_relationships,
+        "query_unused": _handle_query_unused,
+        "git_diff": _handle_git_diff,
+    }
+
+    all_ops = {**analysis_ops, **query_ops}
+    handler = all_ops.get(operation)
+    if not handler:
+        valid = ", ".join(all_ops)
+        return {
+            "success": False,
+            "error": f"Unknown operation: {operation}. Valid: {valid}",
+        }
+    return handler(args)
+
+
+def register_pbip_operations_handler(registry):
+    """Register unified PBIP operations handler."""
     tool = ToolDefinition(
         name="07_PBIP_Operations",
         description=(
-            "Offline PBIP analysis operations: analyze (HTML report), "
-            "query_dependencies, query_measures, query_relationships, "
-            "query_unused, validate_model, compare_models, generate_documentation. "
-            "No live Power BI connection required."
+            "Offline PBIP analysis and queries (no live connection needed):"
+            " analyze, validate_model, compare_models, generate_documentation,"
+            " query_dependencies, query_measures, query_relationships,"
+            " query_unused, git_diff."
         ),
         handler=handle_pbip_operations,
         input_schema={
@@ -657,70 +720,71 @@ def register_pbip_operations_handler(registry):
                 "operation": {
                     "type": "string",
                     "enum": [
-                        "analyze", "query_dependencies", "query_measures",
-                        "query_relationships", "query_unused", "validate_model",
-                        "compare_models", "generate_documentation", "git_diff",
+                        "analyze", "validate_model",
+                        "compare_models", "generate_documentation",
+                        "query_dependencies", "query_measures",
+                        "query_relationships", "query_unused",
+                        "git_diff",
                     ],
-                    "description": (
-                        "Operation:\n"
-                        "• 'analyze' - Full analysis with HTML report\n"
-                        "• 'query_dependencies' - Dependency graph for object\n"
-                        "• 'query_measures' - Search/list measures (by name, folder, or DAX expression)\n"
-                        "• 'query_relationships' - Relationships with quality analysis\n"
-                        "• 'query_unused' - Find unused measures/columns\n"
-                        "• 'validate_model' - TMDL validation and linting\n"
-                        "• 'compare_models' - Compare two PBIP projects\n"
-                        "• 'generate_documentation' - Markdown docs from metadata\n"
-                        "• 'git_diff' - Semantic analysis of git changes"
-                    ),
                 },
                 "pbip_path": {
                     "type": "string",
-                    "description": "Path to .pbip file, project directory, or .SemanticModel folder (not .Report folder)",
+                    "description": (
+                        "Path to .pbip file, project directory,"
+                        " or .SemanticModel folder"
+                    ),
+                },
+                "output_path": {
+                    "type": "string",
+                    "description": "Output path",
+                },
+                "source_path": {
+                    "type": "string",
+                    "description": "Source PBIP path (compare_models)",
+                },
+                "target_path": {
+                    "type": "string",
+                    "description": "Target PBIP path (compare_models)",
                 },
                 "object_name": {
                     "type": "string",
-                    "description": "Object name for query_dependencies (e.g., '[Total Sales]')",
+                    "description": (
+                        "Object name (query_dependencies,"
+                        " e.g. '[Total Sales]')"
+                    ),
                 },
                 "direction": {
                     "type": "string",
                     "enum": ["forward", "reverse", "both"],
-                    "description": "Dependency direction (default: both)",
                 },
                 "table": {
                     "type": "string",
-                    "description": "Table filter for query_measures",
+                    "description": "Table filter (query_measures)",
                 },
                 "display_folder": {
                     "type": "string",
-                    "description": "Display folder filter for query_measures",
+                    "description": (
+                        "Display folder filter (query_measures)"
+                    ),
                 },
                 "pattern": {
                     "type": "string",
-                    "description": "Name pattern (regex) for query_measures",
+                    "description": (
+                        "Name pattern regex (query_measures)"
+                    ),
                 },
                 "expression_search": {
                     "type": "string",
-                    "description": "Search DAX expressions (regex) for query_measures - find measures containing specific functions or references",
-                },
-                "source_path": {
-                    "type": "string",
-                    "description": "Source PBIP path for compare_models",
-                },
-                "target_path": {
-                    "type": "string",
-                    "description": "Target PBIP path for compare_models",
-                },
-                "output_path": {
-                    "type": "string",
-                    "description": "Output file path (for analyze or generate_documentation)",
+                    "description": (
+                        "DAX expression regex search"
+                        " (query_measures)"
+                    ),
                 },
             },
             "required": ["operation"],
         },
         category="pbip",
-        sort_order=70,  # Primary PBIP analysis tool
+        sort_order=70,
     )
-
     registry.register(tool)
-    logger.info("Registered pbip_operations handler")
+    logger.info("Registered unified pbip_operations handler")

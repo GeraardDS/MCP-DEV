@@ -44,11 +44,7 @@ def register_documentation_handlers(registry):
     """Register documentation handler"""
     tool = ToolDefinition(
         name="08_Documentation_Word",
-        description=(
-            "Generate or update Word documentation report. "
-            "mode='generate' (default) creates new doc; "
-            "mode='update' requires input_path to detect changes."
-        ),
+        description="Generate or update Word documentation report.",
         handler=handle_documentation_word,
         input_schema={
             "type": "object",
@@ -56,15 +52,14 @@ def register_documentation_handlers(registry):
                 "mode": {
                     "type": "string",
                     "enum": ["generate", "update"],
-                    "description": "Mode: 'generate' (default) creates new doc, 'update' detects changes from previous doc",
                 },
                 "output_path": {
                     "type": "string",
-                    "description": "Output Word file path (optional)",
+                    "description": "Output Word file path",
                 },
                 "input_path": {
                     "type": "string",
-                    "description": "Existing Word document path (required for mode='update')",
+                    "description": "Existing doc path (required for update)",
                 },
             },
             "required": [],

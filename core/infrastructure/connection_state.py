@@ -21,7 +21,6 @@ class ConnectionState:
         """Initialize connection state manager."""
         self.connection_manager = None
         self.query_executor = None
-        self.performance_analyzer = None
         self.dax_injector = None
         self.bpa_analyzer = None
         self.dependency_analyzer = None
@@ -68,6 +67,10 @@ class ConnectionState:
         self._table_name_by_id: Optional[Dict[Any, str]] = None
         self._table_mapping_timestamp: Optional[float] = None
         self._table_mapping_ttl: int = config.get('performance.table_mapping_cache_ttl', 600)  # 10 minutes default
+
+        # Last trace result cache (auto-passed to optimize)
+        self._last_trace_result: Optional[Dict[str, Any]] = None
+        self._last_trace_timestamp: Optional[float] = None
 
         # Intelligent analysis components (lazy loaded only when needed)
         self.context_tracker = None
@@ -270,7 +273,6 @@ class ConnectionState:
             try:
                 conn = self.connection_manager.get_connection()
 
-                # Import managers (import performance_analyzer separately to handle deletion)
                 from core.infrastructure.query_executor import OptimizedQueryExecutor
                 from core.dax.dax_injector import DAXInjector
                 from core.model.dependency_analyzer import DependencyAnalyzer
@@ -300,35 +302,6 @@ class ConnectionState:
                     except Exception:
                         pass
                     logger.info("[OK] Query executor initialized")
-
-                # Initialize performance analyzer with AMO SessionTrace (optional - may not exist)
-                if not self.performance_analyzer or force_reinit:
-                    try:
-                        from core.performance.performance_analyzer import EnhancedAMOTraceAnalyzer
-                        if self.connection_manager and self.connection_manager.connection_string:
-                            self.performance_analyzer = EnhancedAMOTraceAnalyzer(self.connection_manager.connection_string)
-                            amo_connected = self.performance_analyzer.connect_amo()
-
-                            # Respect configured trace mode for clearer logs
-                            try:
-                                mode = str(config.get('performance.trace_mode', 'full') or 'full').lower()
-                            except Exception:
-                                mode = 'full'
-                            if mode == 'off':
-                                logger.info("[OK] Performance analyzer initialized (trace_mode=off; basic timing only)")
-                            elif mode == 'basic':
-                                logger.info("[OK] Performance analyzer initialized (trace_mode=basic; basic timing preferred)")
-                            else:
-                                if amo_connected:
-                                    logger.info("[OK] Performance analyzer initialized (AMO SessionTrace with event subscriptions)")
-                                else:
-                                    logger.warning("[WARN] AMO not available - performance analysis will use basic timing")
-                        else:
-                            logger.warning("Cannot initialize performance analyzer: no connection string")
-                    except ImportError:
-                        logger.info("[SKIP] Performance analyzer not available (module not found)")
-                    except Exception as e:
-                        logger.warning(f"[SKIP] Performance analyzer initialization failed: {e}")
 
                 # Initialize other managers
                 if not self.dax_injector or force_reinit:
@@ -467,7 +440,6 @@ class ConnectionState:
     def cleanup(self):
         """Clean up connection state and managers."""
         self.query_executor = None
-        self.performance_analyzer = None
         self.dax_injector = None
         self.bpa_analyzer = None
         self.dependency_analyzer = None
@@ -492,6 +464,10 @@ class ConnectionState:
         self._table_id_by_name = None
         self._table_name_by_id = None
         self._table_mapping_timestamp = None
+
+        # Clear trace result cache
+        self._last_trace_result = None
+        self._last_trace_timestamp = None
 
         # Clear PBIP path information
         self._pbip_folder_path = None
@@ -631,6 +607,22 @@ class ConnectionState:
     def list_perf_baselines(self) -> Dict[str, Any]:
         return {'success': True, 'baselines': {k: v for k, v in self._perf_baselines.items()}}
 
+    # ---- Trace result cache (auto-passed to optimize) ----
+    def store_trace_result(self, trace_data: Dict[str, Any]) -> None:
+        """Cache trace result for auto-retrieval by optimize."""
+        import time
+        self._last_trace_result = trace_data
+        self._last_trace_timestamp = time.time()
+
+    def get_cached_trace_result(self, max_age_seconds: int = 300) -> Optional[Dict[str, Any]]:
+        """Get cached trace result if still fresh (default 5 min TTL)."""
+        if self._last_trace_result is None or self._last_trace_timestamp is None:
+            return None
+        import time
+        if time.time() - self._last_trace_timestamp > max_age_seconds:
+            return None
+        return self._last_trace_result
+
     # ---- Context helpers ----
     def set_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Merge provided key/values into context and return current context."""
@@ -674,7 +666,7 @@ class ConnectionState:
         """
         managers_status = {}
         manager_names = [
-            'query_executor', 'performance_analyzer', 'dax_injector',
+            'query_executor', 'dax_injector',
             'bpa_analyzer', 'dependency_analyzer', 'bulk_operations',
             'calc_group_manager', 'partition_manager', 'rls_manager',
             'model_exporter', 'performance_optimizer', 'model_validator'

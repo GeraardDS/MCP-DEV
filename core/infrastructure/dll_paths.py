@@ -7,7 +7,7 @@ that was duplicated across 13+ files.
 
 import os
 import logging
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,17 @@ def load_amo_assemblies():
     except Exception as e:
         logger.warning(f"AMO/TOM assemblies not available: {e}")
         return False
+
+
+def get_trace_runner_path() -> Optional[str]:
+    """Get path to native DaxExecutor trace runner exe, or None if not built."""
+    # Check common build output locations
+    base = os.path.join(_THIS_DIR, "dax_executor", "bin", "Release")
+    for subdir in ("net8.0-windows/win-x64", "net8.0-windows", "net8.0"):
+        path = os.path.join(base, subdir, "DaxExecutor.exe")
+        if os.path.exists(path):
+            return path
+    return None
 
 
 def load_adomd_assembly():

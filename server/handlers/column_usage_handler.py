@@ -861,11 +861,7 @@ def register_export_dax_measures_handler(registry):
 
     tool = ToolDefinition(
         name="05_Export_DAX_Measures",
-        description="""Export all DAX measures to CSV file.
-
-Creates a CSV with columns: Table, Measure_Name, Display_Folder, DAX_Expression
-
-Use this to get a complete list of all measures in the model with their DAX definitions.""",
+        description="Export all DAX measures to CSV (Table, Measure_Name, Display_Folder, DAX_Expression).",
         handler=handle_export_dax_measures,
         input_schema=input_schema,
         category="dax",
@@ -895,8 +891,8 @@ def register_column_usage_handler(registry):
                 ],
                 "default": "get_unused_columns"
             },
-            "pbip_path": {"type": "string", "description": "PBIP path (for get_unused_columns_pbip)"},
-            "report_paths": {"type": "array", "items": {"type": "string"}, "description": "Report folder paths (optional)"},
+            "pbip_path": {"type": "string", "description": "PBIP path"},
+            "report_paths": {"type": "array", "items": {"type": "string"}, "description": "Report folder paths"},
             "tables": {"type": "array", "items": {"type": "string"}, "description": "Table name filter"},
             "table": {"type": "string"},
             "measure": {"type": "string"},
@@ -911,7 +907,7 @@ def register_column_usage_handler(registry):
 
     tool = ToolDefinition(
         name="05_Column_Usage_Mapping",
-        description="Column usage: get_unused_columns (live), get_unused_columns_pbip (offline multi-report), get_measures_for_tables, get_columns_for_measure, export_to_csv",
+        description="Column usage: unused columns (live/offline), measure-column mapping, CSV export.",
         handler=handle_column_usage_mapping,
         input_schema=input_schema,
         category="dax",

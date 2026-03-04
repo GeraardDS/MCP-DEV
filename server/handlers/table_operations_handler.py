@@ -21,86 +21,73 @@ def register_table_operations_handler(registry):
 
     tool = ToolDefinition(
         name="02_Table_Operations",
-        description="Unified table CRUD: list, describe, preview, sample_data, create, update, delete, rename, refresh.",
+        description="Unified table CRUD: list, describe, sample_data, create, update, delete, refresh.",
         handler=handle_table_operations,
         input_schema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["list", "describe", "preview", "sample_data", "create", "update", "delete", "rename", "refresh"],
-                    "description": (
-                        "Operation to perform (MUST USE ALL OPERATIONS - don't skip CRUD!):\n"
-                        "• 'list' - List all tables\n"
-                        "• 'describe' - Get table details with columns/measures/relationships\n"
-                        "• 'preview' - Show sample data rows (alias for sample_data with defaults)\n"
-                        "• 'sample_data' - Get sample data with optional column selection and ordering\n"
-                        "• 'create' - CREATE new table (requires: table_name; optional: description, expression, hidden)\n"
-                        "• 'update' - UPDATE table properties (requires: table_name; optional: description, expression, hidden, new_name)\n"
-                        "• 'delete' - DELETE table (requires: table_name)\n"
-                        "• 'rename' - RENAME table (requires: table_name, new_name)\n"
-                        "• 'refresh' - REFRESH table data (requires: table_name)"
-                    )
+                    "enum": ["list", "describe", "sample_data", "create", "update", "delete", "refresh"],
                 },
                 "table_name": {
                     "type": "string",
-                    "description": "Table name (required for: describe, preview, sample_data, create, update, delete, rename, refresh)"
+                    "description": "Table name (required for all ops except list)"
                 },
                 "new_name": {
                     "type": "string",
-                    "description": "New table name (required for: rename operation)"
+                    "description": "New name (update)"
                 },
                 "description": {
                     "type": "string",
-                    "description": "Table description (optional for: create, update)"
+                    "description": "Table description (create, update)"
                 },
                 "expression": {
                     "type": "string",
-                    "description": "DAX expression for calculated table (optional for: create, update). Example: 'TOPN(100, Customer, [Revenue], DESC)'"
+                    "description": "DAX expression for calculated table (create, update)"
                 },
                 "hidden": {
                     "type": "boolean",
-                    "description": "Hide table from client tools (optional for: create, update)"
+                    "description": "Hide table (create, update)"
                 },
                 "max_rows": {
                     "type": "integer",
-                    "description": "Maximum rows to return (default: 10, max: 1000, for preview/sample_data operations)",
+                    "description": "Max rows (default: 10, max: 1000, sample_data)",
                     "default": 10
                 },
                 "columns": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of column names to include in sample_data (optional, default: all columns)"
+                    "description": "Columns to include (sample_data)"
                 },
                 "order_by": {
                     "type": "string",
-                    "description": "Column name to order by (for sample_data operation)"
+                    "description": "Order by column (sample_data)"
                 },
                 "order_direction": {
                     "type": "string",
                     "enum": ["asc", "desc"],
-                    "description": "Order direction: 'asc' or 'desc' (default: 'asc', for sample_data operation)",
                     "default": "asc"
                 },
                 "columns_page_size": {
                     "type": "integer",
-                    "description": "Page size for columns in describe operation"
+                    "description": "Page size for columns (describe)"
                 },
                 "measures_page_size": {
                     "type": "integer",
-                    "description": "Page size for measures in describe operation"
+                    "description": "Page size for measures (describe)"
                 },
                 "relationships_page_size": {
                     "type": "integer",
-                    "description": "Page size for relationships in describe operation"
+                    "description": "Page size for relationships (describe)"
                 },
                 "page_size": {
                     "type": "integer",
-                    "description": "Page size for list operation"
+                    "description": "Page size (list)"
                 },
                 "next_token": {
                     "type": "string",
-                    "description": "Pagination token for list operation"
+                    "description": "Pagination token (list)"
                 }
             },
             "required": ["operation"]

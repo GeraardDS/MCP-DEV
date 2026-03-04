@@ -14,6 +14,11 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
+from core.dax.dax_utilities import (
+    normalize_dax,
+    find_matching_paren,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -170,11 +175,7 @@ class CallTreeBuilder:
 
     def _normalize_dax(self, dax: str) -> str:
         """Normalize DAX expression"""
-        # Remove single-line comments
-        dax = re.sub(r"//.*?$", "", dax, flags=re.MULTILINE)
-        # Remove multi-line comments
-        dax = re.sub(r"/\*.*?\*/", "", dax, flags=re.DOTALL)
-        return dax.strip()
+        return normalize_dax(dax).strip()
 
     def _next_id(self) -> int:
         """Get next node ID"""
@@ -332,18 +333,8 @@ class CallTreeBuilder:
             self._parse_expression(dax, parent_node, start + arg_start, start + arg_start + len(arg))
 
     def _find_matching_paren(self, expr: str, open_pos: int) -> int:
-        """Find matching closing parenthesis"""
-        depth = 1
-        pos = open_pos + 1
-
-        while pos < len(expr) and depth > 0:
-            if expr[pos] == '(':
-                depth += 1
-            elif expr[pos] == ')':
-                depth -= 1
-            pos += 1
-
-        return pos - 1 if depth == 0 else -1
+        """Find matching closing parenthesis (string-literal-aware)"""
+        return find_matching_paren(expr, open_pos)
 
     def _split_by_comma(self, expr: str) -> List[str]:
         """Split expression by commas at the same nesting level"""

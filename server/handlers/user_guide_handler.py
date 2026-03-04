@@ -156,9 +156,9 @@ Execute DAX query with auto limits.
 - **Parameters**:
   - `query` (str, required): DAX EVALUATE statement
   - `top_n` (int, default 100): Row limit
-  - `mode` (str, default 'auto'): 'auto'|'analyze'|'profile'|'simple'
+  - `mode` (str, default 'auto'): 'auto'|'analyze'|'simple'
     - auto: Smart mode selection
-    - analyze/profile: Include timing analysis
+    - analyze: Include timing analysis
     - simple: Preview only
 
 ### 04_Get_Data_Sources
@@ -271,36 +271,47 @@ Compare two live/open Power BI models.
 
 ## CATEGORY 07: PBIP ANALYSIS (7 tools) - No live connection required
 
-### 07_PBIP_Operations
-Offline PBIP analysis with 9 operations.
-- **operation** (required): `analyze` | `query_dependencies` | `query_measures` | `query_relationships` | `query_unused` | `validate_model` | `compare_models` | `generate_documentation` | `git_diff`
+### 07_PBIP_Model_Analysis
+Offline PBIP analysis and validation.
+- **operation** (required): `analyze` | `validate_model` | `compare_models` | `generate_documentation`
+- **Key parameters**:
+  - `pbip_path` (str): Path to .pbip file or .SemanticModel folder
+  - `source_path` / `target_path` (str): For compare_models
+  - `output_path` (str): For analyze or generate_documentation
+- **Operations**:
+  - **analyze**: Full HTML report with model analysis
+  - **validate_model**: TMDL validation and linting
+  - **compare_models**: Compare two PBIP projects
+  - **generate_documentation**: Markdown docs from TMDL metadata
+
+### 07_PBIP_Query
+Offline PBIP queries and git diff.
+- **operation** (required): `query_dependencies` | `query_measures` | `query_relationships` | `query_unused` | `git_diff`
 - **Key parameters**:
   - `pbip_path` (str): Path to .pbip file or .SemanticModel folder
   - `object_name` (str): For query_dependencies (e.g., '[Total Sales]')
   - `direction` (str): 'forward'|'reverse'|'both' (query_dependencies)
   - `table` / `display_folder` / `pattern` / `expression_search` (str): Filters for query_measures
-  - `source_path` / `target_path` (str): For compare_models
-  - `output_path` (str): For analyze or generate_documentation
 - **Operations**:
-  - **analyze**: Full HTML report with model analysis
   - **query_dependencies**: Dependency graph for an object
   - **query_measures**: Search/list measures by name, folder, or DAX expression
   - **query_relationships**: Relationships with quality analysis
   - **query_unused**: Find unused measures/columns
-  - **validate_model**: TMDL validation and linting
-  - **compare_models**: Compare two PBIP projects
-  - **generate_documentation**: Markdown docs from TMDL metadata
   - **git_diff**: Semantic analysis of git changes in TMDL files
 
 ### 07_Report_Info
-Get report structure - pages, filters, visuals.
+Get report structure - pages, filters, visuals. measure_usage lists all measures per page.
 - **Parameters**:
+  - `operation` (str): 'info' (default) or 'measure_usage'
   - `pbip_path` (str, required): Path to PBIP/Report folder
-  - `include_visuals` (bool, default true): Include visual info
-  - `include_filters` (bool, default true): Include filter info
+  - `include_visuals` (bool, default true): [info] Include visual info
+  - `include_filters` (bool, default true): [info] Include filter info
   - `page_name` (str): Filter by page name (substring match)
-  - `summary_only` (bool, default true): Compact output
-  - `max_visuals_per_page` (int, default 50): Limit visuals per page
+  - `summary_only` (bool, default true): [info] Compact output
+  - `max_visuals_per_page` (int, default 50): [info] Limit visuals per page
+  - `measure_filter` (str): [measure_usage] Filter by measure name
+  - `output_format` (str): [measure_usage] 'text' (default) or 'json'
+  - `export_path` (str): [measure_usage] Export to CSV at this directory path
 
 ### 07_PBIP_Dependency_Analysis
 Generate interactive HTML dependency browser.
@@ -513,7 +524,7 @@ Advanced analysis operations.
 ### Model Documentation
 1. `06_Simple_Analysis` (mode='all') - get model overview
 2. `08_Documentation_Word` - generate Word doc
-3. `07_PBIP_Operations` (operation='analyze') - HTML report
+3. `07_PBIP_Model_Analysis` (operation='analyze') - HTML report
 4. `02_TMDL_Operations` (operation='export') - TMDL backup
 
 ### DAX Debugging
@@ -531,9 +542,9 @@ Advanced analysis operations.
 4. `06_Compare_PBI_Models` (old_port, new_port) - perform comparison
 
 ### Offline PBIP Analysis
-1. `07_PBIP_Operations` (operation='analyze') - full offline analysis
-2. `07_PBIP_Operations` (operation='validate_model') - TMDL linting
-3. `07_PBIP_Operations` (operation='query_unused') - find dead code
+1. `07_PBIP_Model_Analysis` (operation='analyze') - full offline analysis
+2. `07_PBIP_Model_Analysis` (operation='validate_model') - TMDL linting
+3. `07_PBIP_Query` (operation='query_unused') - find dead code
 4. `07_PBIP_Dependency_Analysis` - interactive dependency browser
 5. `07_Analyze_Aggregation` - aggregation optimization
 
