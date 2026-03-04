@@ -1719,7 +1719,7 @@ def register_visual_operations_handler(registry):
         ),
         handler=handle_visual_operations,
         input_schema=TOOL_SCHEMAS.get('visual_operations', {}),
-        category="pbip",
+        category="docs",
         sort_order=80,
     )
     registry.register(tool)
@@ -1738,7 +1738,7 @@ def register_visual_sync_handler(registry):
         ),
         handler=handle_visual_sync,
         input_schema=TOOL_SCHEMAS.get('visual_sync', {}),
-        category="pbip",
+        category="docs",
         sort_order=81,
     )
     registry.register(tool)

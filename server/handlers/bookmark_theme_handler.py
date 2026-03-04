@@ -4,27 +4,12 @@ Handles PBIP bookmark analysis and theme compliance tools
 """
 from typing import Dict, Any
 import logging
-import re
 import os
 from pathlib import Path
 from server.registry import ToolDefinition
+from core.utilities.pbip_utils import normalize_path as _normalize_path
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_path(path: str) -> str:
-    """Normalize path handling WSL/Unix paths on Windows."""
-    normalized_path = path
-
-    # Convert WSL/Unix paths to Windows paths on Windows systems
-    if re.match(r'^/mnt/([a-z])/', path, re.IGNORECASE):
-        drive_letter = re.match(r'^/mnt/([a-z])/', path, re.IGNORECASE).group(1)
-        rest_of_path = path[7:].replace('/', '\\')
-        normalized_path = f"{drive_letter.upper()}:\\{rest_of_path}"
-    elif path.startswith('/'):
-        normalized_path = path.replace('/', '\\')
-
-    return normalized_path
 
 
 def _find_report_folder(pbip_path: str) -> str:

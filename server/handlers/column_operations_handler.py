@@ -21,14 +21,14 @@ def register_column_operations_handler(registry):
 
     tool = ToolDefinition(
         name="02_Column_Operations",
-        description="Unified column CRUD: list, get, statistics, distribution, create, update, delete, rename.",
+        description="Unified column CRUD: list, get, statistics, distribution, create, update, delete.",
         handler=handle_column_operations,
         input_schema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["list", "statistics", "distribution", "get", "create", "update", "delete", "rename"],
+                    "enum": ["list", "statistics", "distribution", "get", "create", "update", "delete"],
                 },
                 "table_name": {
                     "type": "string",
@@ -89,7 +89,7 @@ def register_column_operations_handler(registry):
                 },
                 "new_name": {
                     "type": "string",
-                    "description": "New name (rename, update)"
+                    "description": "New name (update)"
                 }
             },
             "required": ["operation"]

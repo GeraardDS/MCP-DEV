@@ -4,7 +4,6 @@ Handles model comparison operations with workflow templates
 """
 from typing import Dict, Any
 import logging
-from server.registry import ToolDefinition
 from core.infrastructure.connection_state import connection_state
 from core.validation.error_handler import ErrorHandler
 
@@ -138,22 +137,6 @@ def handle_compare_pbi_models(args: Dict[str, Any]) -> Dict[str, Any]:
             }
         }
 
-def register_comparison_handlers(registry):
-    """Register all comparison handlers"""
-    from server.tool_schemas import TOOL_SCHEMAS
 
-    tools = [
-        ToolDefinition(
-            name="06_Compare_PBI_Models",
-            description="Compare Open/Live Models",
-            handler=handle_compare_pbi_models,
-            input_schema=TOOL_SCHEMAS.get('compare_pbi_models', {}),
-            category="analysis",
-            sort_order=62  # 06 = Analysis
-        ),
-    ]
-
-    for tool in tools:
-        registry.register(tool)
-
-    logger.info(f"Registered {len(tools)} comparison handlers")
+# Note: register_comparison_handlers() was removed — handle_compare_pbi_models is
+# used by analysis_handler.py (06_Analysis_Operations.compare).

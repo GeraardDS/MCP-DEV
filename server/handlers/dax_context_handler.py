@@ -686,56 +686,42 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
         if analysis_mode == 'all':
             # Run all modes: analyze, debug, and report
             from core.dax import DaxContextAnalyzer, DaxContextDebugger
+            from core.dax.analysis_pipeline import (
+                run_context_analysis, run_vertipaq_analysis,
+                run_best_practices, run_call_tree,
+            )
             analyzer = DaxContextAnalyzer()
             debugger = DaxContextDebugger()
 
-            # Run analyze mode
-            result_analyze = analyzer.analyze_context_transitions(expression)
+            # Run analyze mode (shared pipeline - returns raw object + dict)
+            result_analyze, _ = run_context_analysis(expression)
+            if result_analyze is None:
+                # Fallback: create minimal result for downstream consumers
+                result_analyze = analyzer.analyze_context_transitions(expression)
             anti_patterns = analyzer.detect_dax_anti_patterns(expression)
 
             # Run static analysis rules engine
             rules_analysis = None
             try:
                 from core.dax.dax_rules_engine import DaxRulesEngine
-                rules_engine = DaxRulesEngine()
-                rules_analysis = rules_engine.analyze(expression)
+                rules_analysis = DaxRulesEngine().analyze(expression)
             except Exception as e:
                 logger.warning(f"Rules engine analysis not available: {e}")
 
             # Generate annotated DAX code for visual display
             annotated_dax = analyzer.format_dax_with_annotations(expression, result_analyze.transitions)
 
-            # Get VertiPaq analysis for comprehensive optimization
-            vertipaq_analysis = None
-            try:
-                from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
-                vertipaq = VertiPaqAnalyzer(connection_state)
-                vertipaq_analysis = vertipaq.analyze_dax_columns(expression)
-                if not vertipaq_analysis.get('success'):
-                    logger.warning(f"VertiPaq analysis failed: {vertipaq_analysis.get('error', 'Unknown error')}")
-            except Exception as e:
-                logger.warning(f"VertiPaq analysis not available: {e}")
-
-            # Run comprehensive best practices analysis
-            best_practices_result = None
-            try:
-                from core.dax.dax_best_practices import DaxBestPracticesAnalyzer
-                bp_analyzer = DaxBestPracticesAnalyzer()
-                best_practices_result = bp_analyzer.analyze(
-                    dax_expression=expression,
-                    context_analysis=result_analyze.to_dict() if hasattr(result_analyze, 'to_dict') else result_analyze,
-                    vertipaq_analysis=vertipaq_analysis
-                )
-                logger.info(f"Best practices analysis: {best_practices_result.get('total_issues', 0)} issues found")
-            except Exception as e:
-                logger.warning(f"Best practices analysis not available: {e}")
+            # VertiPaq + best practices (shared pipeline)
+            vertipaq_analysis = run_vertipaq_analysis(expression, connection_state)
+            context_dict = result_analyze.to_dict() if hasattr(result_analyze, 'to_dict') else result_analyze
+            best_practices_result = run_best_practices(expression, context_dict, vertipaq_analysis)
 
             improvements = debugger.generate_improved_dax(
                 dax_expression=expression,
                 context_analysis=result_analyze,
                 anti_patterns=anti_patterns,
                 vertipaq_analysis=vertipaq_analysis,
-                connection_state=connection_state  # Pass for output validation
+                connection_state=connection_state
             )
 
             # Run debug mode
@@ -759,55 +745,9 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     for step in steps
                 ]
 
-            # NOTE: We DO NOT generate the full report in 'all' mode to avoid duplication
-            # The report duplicates all structured data (context_analysis, anti_patterns, improvements, vertipaq, call_tree)
-            # and also re-runs some expensive analyses (context analysis, anti-patterns)
-            # If user wants a formatted text report, they should use analysis_mode='report'
-            # result_report = debugger.generate_debug_report(...)  # REMOVED to eliminate duplication
-
-            # Get call tree analysis
-            call_tree_data = None
-            total_iterations = 0
-            try:
-                from core.dax.call_tree_builder import CallTreeBuilder
-
-                call_tree_builder = CallTreeBuilder()
-                if connection_state:
-                    try:
-                        from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
-                        vertipaq = VertiPaqAnalyzer(connection_state)
-                        call_tree_builder.vertipaq_analyzer = vertipaq
-                    except Exception:
-                        pass
-
-                call_tree = call_tree_builder.build_call_tree(expression)
-                tree_viz = call_tree_builder.visualize_tree(call_tree)
-
-                # Calculate total iterations
-                def count_iterations(node):
-                    total = node.estimated_iterations or 0
-                    for child in node.children:
-                        total += count_iterations(child)
-                    return total
-
-                total_iterations = count_iterations(call_tree)
-
-                call_tree_data = {
-                    'visualization': tree_viz,
-                    'total_iterations': total_iterations,
-                    'performance_warning': (
-                        'CRITICAL: Over 1 million iterations - severe performance impact!' if total_iterations >= 1_000_000
-                        else 'WARNING: Over 100,000 iterations - consider optimization' if total_iterations >= 100_000
-                        else None
-                    ),
-                    'formatting_note': 'Display this visualization in a ```text code block to preserve the tree structure and box-drawing characters. The visualization includes its own integrated legend.'
-                }
-
-            except Exception as e:
-                logger.warning(f"Call tree analysis failed: {e}")
-                call_tree_data = {
-                    'error': f"Call tree could not be generated: {str(e)}"
-                }
+            # Call tree analysis (shared pipeline)
+            call_tree_data = run_call_tree(expression, connection_state)
+            total_iterations = call_tree_data.get('total_iterations', 0) if call_tree_data else 0
 
             # Combine all articles from various sources
             all_articles = []

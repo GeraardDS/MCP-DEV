@@ -6,7 +6,9 @@ Combines PBIP analysis with live model query execution.
 """
 
 import logging
+import math
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -19,28 +21,18 @@ from core.config.config_manager import config
 logger = logging.getLogger(__name__)
 
 # --- Module-level constants ---
-PBIP_FRESHNESS_THRESHOLD_MINUTES = config.get(
-    'debug.pbip_freshness_minutes', 5
-)
+PBIP_FRESHNESS_THRESHOLD_MINUTES = config.get("debug.pbip_freshness_minutes", 5)
 DRILL_DETAIL_LIMIT_MIN = 1
 DRILL_DETAIL_LIMIT_MAX = 10000
-MAX_MEASURES_SHOWN = config.get('debug.max_measures_shown', 3)
-MAX_QUERY_RESULT_ROWS = config.get(
-    'debug.max_query_result_rows', 100
-)
-FILTER_TRUNCATION_CHARS = config.get(
-    'debug.filter_truncation_chars', 50
-)
-VARIABLE_TRUNCATION_CHARS = config.get(
-    'debug.variable_truncation_chars', 100
-)
+MAX_MEASURES_SHOWN = config.get("debug.max_measures_shown", 3)
+MAX_QUERY_RESULT_ROWS = config.get("debug.max_query_result_rows", 100)
+FILTER_TRUNCATION_CHARS = config.get("debug.filter_truncation_chars", 50)
+VARIABLE_TRUNCATION_CHARS = config.get("debug.variable_truncation_chars", 100)
 
 # Module-level VQB cache — avoids rebuilding PBIP per call
 # Key: pbip_path, Value: (builder, timestamp)
 _vqb_cache: Dict[str, tuple] = {}
-_VQB_CACHE_TTL = config.get(
-    'debug.vqb_cache_ttl_seconds', 300
-)
+_VQB_CACHE_TTL = config.get("debug.vqb_cache_ttl_seconds", 300)
 
 
 def _compact_response(data: Dict[str, Any], compact: bool = True) -> Dict[str, Any]:
@@ -48,6 +40,7 @@ def _compact_response(data: Dict[str, Any], compact: bool = True) -> Dict[str, A
     if not compact:
         return data
     from server.middleware import compact_response
+
     return compact_response(data, compact=True, remove_empty=True, remove_nulls=True)
 
 
@@ -58,10 +51,10 @@ def _compact_visual_list(visuals: List[Dict], compact: bool = True) -> List[Dict
     # Return only essential fields: id, friendly_name, type, measures
     return [
         {
-            'id': v.get('id'),
-            'name': v.get('friendly_name', v.get('type', '?')),
-            'type': v.get('type_display', v.get('type', '')),
-            'measures': v.get('measures', [])[:MAX_MEASURES_SHOWN]
+            "id": v.get("id"),
+            "name": v.get("friendly_name", v.get("type", "?")),
+            "type": v.get("type_display", v.get("type", "")),
+            "measures": v.get("measures", [])[:MAX_MEASURES_SHOWN],
         }
         for v in visuals
     ]
@@ -71,7 +64,7 @@ def _compact_page_list(pages: List[Dict], compact: bool = True) -> List[Dict]:
     """Return compact page list."""
     if not compact:
         return pages
-    return [{'name': p.get('name')} for p in pages]
+    return [{"name": p.get("name")} for p in pages]
 
 
 def _compact_filter_context(filter_breakdown: Dict, compact: bool = True) -> Dict:
@@ -82,7 +75,7 @@ def _compact_filter_context(filter_breakdown: Dict, compact: bool = True) -> Dic
     result = {}
     for level, filters in filter_breakdown.items():
         if filters:
-            dax_list = [f.get('dax') for f in filters if f.get('dax')]
+            dax_list = [f.get("dax") for f in filters if f.get("dax")]
             if dax_list:
                 result[level] = dax_list
     return result
@@ -96,23 +89,23 @@ def _build_trace_response(trace_result: dict) -> dict:
     avoid duplicating the mapping logic.
     """
     perf = {
-        'total_ms': trace_result.get('total_ms', 0),
-        'fe_ms': trace_result.get('fe_ms', 0),
-        'se_ms': trace_result.get('se_ms', 0),
-        'se_cpu_ms': trace_result.get('se_cpu_ms', 0),
-        'se_parallelism': trace_result.get('se_parallelism', 0.0),
-        'se_queries': trace_result.get('se_queries', 0),
-        'se_cache_hits': trace_result.get('se_cache_hits', 0),
-        'fe_pct': trace_result.get('fe_pct', 0.0),
-        'se_pct': trace_result.get('se_pct', 0.0),
+        "total_ms": trace_result.get("total_ms", 0),
+        "fe_ms": trace_result.get("fe_ms", 0),
+        "se_ms": trace_result.get("se_ms", 0),
+        "se_cpu_ms": trace_result.get("se_cpu_ms", 0),
+        "se_parallelism": trace_result.get("se_parallelism", 0.0),
+        "se_queries": trace_result.get("se_queries", 0),
+        "se_cache_hits": trace_result.get("se_cache_hits", 0),
+        "fe_pct": trace_result.get("fe_pct", 0.0),
+        "se_pct": trace_result.get("se_pct", 0.0),
     }
-    se_events_list = trace_result.get('se_events', [])
+    se_events_list = trace_result.get("se_events", [])
     response = {
-        'runner': 'native',
-        'performance': perf,
-        'se_events': se_events_list,
-        'cache_cleared': trace_result.get('cache_cleared', False),
-        'summary': (
+        "runner": "native",
+        "performance": perf,
+        "se_events": se_events_list,
+        "cache_cleared": trace_result.get("cache_cleared", False),
+        "summary": (
             f"Total: {perf['total_ms']}ms | "
             f"FE: {perf['fe_ms']}ms ({perf['fe_pct']}%) | "
             f"SE: {perf['se_ms']}ms ({perf['se_pct']}%) | "
@@ -124,13 +117,16 @@ def _build_trace_response(trace_result: dict) -> dict:
     if se_events_list:
         try:
             from core.dax.se_event_analyzer import SeEventAnalyzer
-            response['se_analysis'] = SeEventAnalyzer().analyze(se_events_list, perf)
+
+            response["se_analysis"] = SeEventAnalyzer().analyze(se_events_list, perf)
         except Exception:
             pass
     return response
 
 
-def _check_pbip_freshness(pbip_folder: str, threshold_minutes: int = PBIP_FRESHNESS_THRESHOLD_MINUTES) -> Optional[Dict[str, Any]]:
+def _check_pbip_freshness(
+    pbip_folder: str, threshold_minutes: int = PBIP_FRESHNESS_THRESHOLD_MINUTES
+) -> Optional[Dict[str, Any]]:
     """
     Check if PBIP files have been modified recently.
 
@@ -149,7 +145,7 @@ def _check_pbip_freshness(pbip_folder: str, threshold_minutes: int = PBIP_FRESHN
 
     # Check key PBIP files for most recent modification
     # Use rglob which already searches recursively, so just use the extension pattern
-    patterns = ['*.json', '*.tmdl']
+    patterns = ["*.json", "*.tmdl"]
 
     for pattern in patterns:
         for file_path in pbip_path.rglob(pattern):
@@ -168,10 +164,10 @@ def _check_pbip_freshness(pbip_folder: str, threshold_minutes: int = PBIP_FRESHN
 
     if age_minutes > threshold_minutes:
         return {
-            'stale': True,
-            'age_minutes': round(age_minutes, 1),
-            'message': f'PBIP files are {round(age_minutes, 1)} minutes old. Save your report for accurate slicer state.',
-            'hint': 'Use filters parameter to override with current values if needed.'
+            "stale": True,
+            "age_minutes": round(age_minutes, 1),
+            "message": f"PBIP files are {round(age_minutes, 1)} minutes old. Save your report for accurate slicer state.",
+            "hint": "Use filters parameter to override with current values if needed.",
         }
 
     return None
@@ -207,6 +203,7 @@ def _get_visual_query_builder():
 
     try:
         from core.debug.visual_query_builder import VisualQueryBuilder
+
         builder = VisualQueryBuilder(pbip_folder)
         _vqb_cache[pbip_folder] = (builder, now)
         return builder, None
@@ -215,64 +212,57 @@ def _get_visual_query_builder():
 
 
 def _discover_visuals(
-    args: Dict[str, Any],
-    builder: Any,
-    compact: bool
+    args: Dict[str, Any], builder: Any, compact: bool
 ) -> Optional[Dict[str, Any]]:
     """Handle discovery when page/visual not fully specified.
 
     Returns a discovery response dict if page or visual is missing,
     or None if both are specified and valid.
     """
-    page_name = args.get('page_name')
-    visual_id = args.get('visual_id')
-    visual_name = args.get('visual_name')
+    page_name = args.get("page_name")
+    visual_id = args.get("visual_id")
+    visual_name = args.get("visual_name")
 
     # If page_name not provided, list available pages
     if not page_name:
         pages = builder.list_pages()
         return {
-            'success': False,
-            'error': 'page_name required',
-            'pages': _compact_page_list(pages, compact)
+            "success": False,
+            "error": "page_name required",
+            "pages": _compact_page_list(pages, compact),
         }
 
     # Check if page exists
     pages = builder.list_pages()
-    page_exists = any(
-        p['name'].lower() == page_name.lower() for p in pages
-    )
+    page_exists = any(p["name"].lower() == page_name.lower() for p in pages)
     if not page_exists:
         return {
-            'success': False,
-            'error': f"Page '{page_name}' not found",
-            'pages': _compact_page_list(pages, compact)
+            "success": False,
+            "error": f"Page '{page_name}' not found",
+            "pages": _compact_page_list(pages, compact),
         }
 
     # If visual_id/visual_name not provided, list visuals on page
     if not visual_id and not visual_name:
         visuals = builder.list_visuals(page_name)
-        non_slicer = [
-            v for v in visuals if not v.get('is_slicer')
-        ]
-        slicer = [
-            v for v in visuals if v.get('is_slicer')
-        ]
+        non_slicer = [v for v in visuals if not v.get("is_slicer")]
+        slicer = [v for v in visuals if v.get("is_slicer")]
         return {
-            'success': False,
-            'error': 'visual_id or visual_name required',
-            'page': page_name,
-            'visuals': _compact_visual_list(non_slicer, compact),
-            'slicers': [
-                {
-                    'id': v.get('id'),
-                    'field': (
-                        v.get('columns', ['?'])[0]
-                        if v.get('columns') else '?'
-                    )
-                }
-                for v in slicer
-            ] if slicer else None
+            "success": False,
+            "error": "visual_id or visual_name required",
+            "page": page_name,
+            "visuals": _compact_visual_list(non_slicer, compact),
+            "slicers": (
+                [
+                    {
+                        "id": v.get("id"),
+                        "field": (v.get("columns", ["?"])[0] if v.get("columns") else "?"),
+                    }
+                    for v in slicer
+                ]
+                if slicer
+                else None
+            ),
         }
 
     return None  # All specified — proceed with main logic
@@ -284,7 +274,7 @@ def _build_filter_context(
     page_name: str,
     compact: bool,
     include_slicers: bool,
-    pbip_freshness: Optional[Dict]
+    pbip_freshness: Optional[Dict],
 ) -> Dict[str, Any]:
     """Classify filters and assemble the base response dict.
 
@@ -299,19 +289,15 @@ def _build_filter_context(
     all_slicers = builder.list_slicers(page_name)
     for slicer in all_slicers:
         if not slicer.selected_values:
-            slicers_without_selection.append({
-                'field': slicer.field_reference,
-                'table': slicer.table,
-                'column': slicer.column
-            })
+            slicers_without_selection.append(
+                {"field": slicer.field_reference, "table": slicer.table, "column": slicer.column}
+            )
 
     # Classify filters
     all_filters = result.filter_context.all_filters()
 
     # Reliable detection methods for field parameters
-    RELIABLE_FP_METHODS = {
-        'nameof_pattern', 'switch_pattern', 'system_flags'
-    }
+    RELIABLE_FP_METHODS = {"nameof_pattern", "switch_pattern", "system_flags"}
 
     # Enhance classification with semantic analysis
     if connection_state.is_connected():
@@ -322,147 +308,116 @@ def _build_filter_context(
                     if not f.table:
                         continue
                     sc = classifier.classify(f.table, f.column)
-                    if sc.classification == 'field_parameter':
-                        if (
-                            sc.detection_method in RELIABLE_FP_METHODS
-                            and sc.confidence > 0.80
-                        ):
-                            f.classification = (
-                                FilterClassification.FIELD_PARAMETER
-                            )
-                    elif (
-                        sc.classification == 'ui_control'
-                        and sc.confidence > 0.80
-                    ):
-                        f.classification = (
-                            FilterClassification.UI_CONTROL
-                        )
+                    if sc.classification == "field_parameter":
+                        if sc.detection_method in RELIABLE_FP_METHODS and sc.confidence > 0.80:
+                            f.classification = FilterClassification.FIELD_PARAMETER
+                    elif sc.classification == "ui_control" and sc.confidence > 0.80:
+                        f.classification = FilterClassification.UI_CONTROL
         except (AttributeError, ValueError, TypeError) as se:
-            logger.debug(
-                f"Semantic classification skipped: {se}"
-            )
+            logger.debug(f"Semantic classification skipped: {se}")
 
     data_filters = [
-        f for f in all_filters
-        if getattr(f, 'classification', 'data')
-        == FilterClassification.DATA
+        f for f in all_filters if getattr(f, "classification", "data") == FilterClassification.DATA
     ]
     field_param_filters = [
-        f for f in all_filters
-        if getattr(f, 'classification', 'data')
-        == FilterClassification.FIELD_PARAMETER
+        f
+        for f in all_filters
+        if getattr(f, "classification", "data") == FilterClassification.FIELD_PARAMETER
     ]
     ui_control_filters = [
-        f for f in all_filters
-        if getattr(f, 'classification', 'data')
-        == FilterClassification.UI_CONTROL
+        f
+        for f in all_filters
+        if getattr(f, "classification", "data") == FilterClassification.UI_CONTROL
     ]
-    filters_with_nulls = [
-        f for f in all_filters
-        if getattr(f, 'has_null_values', False)
-    ]
+    filters_with_nulls = [f for f in all_filters if getattr(f, "has_null_values", False)]
 
     # Build base response
     response = {
-        'success': True,
-        'visual': {
-            'id': result.visual_info.visual_id,
-            'name': result.visual_info.visual_name,
-            'type': result.visual_info.visual_type,
-            'page': result.visual_info.page_name,
-            'measures': result.visual_info.measures,
-            'columns': result.visual_info.columns
+        "success": True,
+        "visual": {
+            "id": result.visual_info.visual_id,
+            "name": result.visual_info.visual_name,
+            "type": result.visual_info.visual_type,
+            "page": result.visual_info.page_name,
+            "measures": result.visual_info.measures,
+            "columns": result.visual_info.columns,
         },
-        'filters': _compact_filter_context(
-            result.filter_breakdown, compact
+        "filters": _compact_filter_context(result.filter_breakdown, compact),
+        "filter_counts": (
+            {
+                "total": len(all_filters),
+                "applied": len(data_filters),
+                "excluded": (len(field_param_filters) + len(ui_control_filters)),
+            }
+            if compact
+            else {
+                "report": len(result.filter_context.report_filters),
+                "page": len(result.filter_context.page_filters),
+                "visual": len(result.filter_context.visual_filters),
+                "slicer": len(result.filter_context.slicer_filters),
+                "total": len(all_filters),
+                "data_applied": len(data_filters),
+                "field_params_excluded": len(field_param_filters),
+                "ui_controls_excluded": len(ui_control_filters),
+                "with_nulls": len(filters_with_nulls),
+            }
         ),
-        'filter_counts': {
-            'total': len(all_filters),
-            'applied': len(data_filters),
-            'excluded': (
-                len(field_param_filters) + len(ui_control_filters)
-            )
-        } if compact else {
-            'report': len(result.filter_context.report_filters),
-            'page': len(result.filter_context.page_filters),
-            'visual': len(result.filter_context.visual_filters),
-            'slicer': len(result.filter_context.slicer_filters),
-            'total': len(all_filters),
-            'data_applied': len(data_filters),
-            'field_params_excluded': len(field_param_filters),
-            'ui_controls_excluded': len(ui_control_filters),
-            'with_nulls': len(filters_with_nulls)
-        },
-        'query': result.dax_query,
-        'measure': result.measure_name
+        "query": result.dax_query,
+        "measure": result.measure_name,
     }
 
     # Add PBIP freshness warning if applicable
     if pbip_freshness:
-        response['pbip_warning'] = pbip_freshness
+        response["pbip_warning"] = pbip_freshness
 
     # Verbose-only fields
     if not compact:
-        response['pbip_path'] = connection_state.pbip_path
-        response['title'] = result.visual_info.title
+        response["pbip_path"] = connection_state.pbip_path
+        response["title"] = result.visual_info.title
 
     if not compact and (field_param_filters or ui_control_filters):
         excluded = []
         for f in field_param_filters:
-            excluded.append({
-                'table': f.table, 'column': f.column,
-                'type': 'field_param'
-            })
+            excluded.append({"table": f.table, "column": f.column, "type": "field_param"})
         for f in ui_control_filters:
-            excluded.append({
-                'table': f.table, 'column': f.column,
-                'type': 'ui_control'
-            })
-        response['excluded_filters'] = excluded
+            excluded.append({"table": f.table, "column": f.column, "type": "ui_control"})
+        response["excluded_filters"] = excluded
 
-    if (
-        not compact
-        and include_slicers
-        and result.filter_context.slicer_filters
-    ):
-        response['slicer_details'] = [
-            {
-                'field': f"{sf.table}[{sf.column}]",
-                'dax': sf.dax,
-                'values': sf.values[:5]
-            }
+    if not compact and include_slicers and result.filter_context.slicer_filters:
+        response["slicer_details"] = [
+            {"field": f"{sf.table}[{sf.column}]", "dax": sf.dax, "values": sf.values[:5]}
             for sf in result.filter_context.slicer_filters
         ]
 
     if not compact and result.measure_definitions:
-        response['measure_definitions'] = [
+        response["measure_definitions"] = [
             {
-                'name': m.name,
-                'expression': (
-                    m.expression[:800] + '... [truncated]'
+                "name": m.name,
+                "expression": (
+                    m.expression[:800] + "... [truncated]"
                     if len(m.expression) > 800
                     else m.expression
-                )
+                ),
             }
             for m in result.measure_definitions
         ]
 
     if not compact and result.expanded_query:
-        response['expanded_query'] = result.expanded_query
+        response["expanded_query"] = result.expanded_query
 
     # Always surface detected format string companion measures so the caller
     # knows they are included as IGNORE() args in the trace query.
-    fs_measures = getattr(result, 'format_string_measures', [])
+    fs_measures = getattr(result, "format_string_measures", [])
     if fs_measures:
-        response['format_string_measures'] = fs_measures
+        response["format_string_measures"] = fs_measures
 
     return {
-        'response': response,
-        'all_filters': all_filters,
-        'data_filters': data_filters,
-        'field_param_filters': field_param_filters,
-        'ui_control_filters': ui_control_filters,
-        'slicers_without_selection': slicers_without_selection,
+        "response": response,
+        "all_filters": all_filters,
+        "data_filters": data_filters,
+        "field_param_filters": field_param_filters,
+        "ui_control_filters": ui_control_filters,
+        "slicers_without_selection": slicers_without_selection,
     }
 
 
@@ -472,7 +427,7 @@ def _apply_manual_filters(
     builder: Any,
     response: Dict[str, Any],
     data_filters: List,
-    query_to_execute: str
+    query_to_execute: str,
 ) -> str:
     """Handle manual filter overrides and skip_auto_filters logic.
 
@@ -482,59 +437,52 @@ def _apply_manual_filters(
     import re
     from core.debug.filter_to_dax import FilterExpression
 
-    manual_filters = args.get('filters', [])
-    skip_auto_filters = args.get('skip_auto_filters', False)
+    manual_filters = args.get("filters", [])
+    skip_auto_filters = args.get("skip_auto_filters", False)
 
     if skip_auto_filters:
-        measures = (
-            result.visual_info.measures or [result.measure_name]
-        )
-        measures = [
-            m if m.startswith('[') else f'[{m}]'
-            for m in measures
-        ]
+        measures = result.visual_info.measures or [result.measure_name]
+        measures = [m if m.startswith("[") else f"[{m}]" for m in measures]
         columns = result.visual_info.columns or []
 
         if manual_filters:
             manual_objs = [
                 FilterExpression(
-                    dax=f, source='manual', table='',
-                    column='', condition_type='Manual',
-                    values=[]
+                    dax=f, source="manual", table="", column="", condition_type="Manual", values=[]
                 )
                 for f in manual_filters
             ]
             query_to_execute = builder._build_visual_dax_query(
-                measures, columns, manual_objs,
-                format_string_measures=getattr(result, 'format_string_measures', [])
+                measures,
+                columns,
+                manual_objs,
+                format_string_measures=getattr(result, "format_string_measures", []),
             )
-            response['generated_query'] = query_to_execute
-            response['auto_filters_skipped'] = True
-            response['manual_filters_applied'] = manual_filters
+            response["generated_query"] = query_to_execute
+            response["auto_filters_skipped"] = True
+            response["manual_filters_applied"] = manual_filters
         else:
             query_to_execute = builder._build_visual_dax_query(
-                measures, columns, [],
-                format_string_measures=getattr(result, 'format_string_measures', [])
+                measures,
+                columns,
+                [],
+                format_string_measures=getattr(result, "format_string_measures", []),
             )
-            response['generated_query'] = query_to_execute
-            response['auto_filters_skipped'] = True
-            response['note'] = (
-                'Auto-detected filters skipped. Provide '
-                'filters parameter for manual DAX filters.'
+            response["generated_query"] = query_to_execute
+            response["auto_filters_skipped"] = True
+            response["note"] = (
+                "Auto-detected filters skipped. Provide "
+                "filters parameter for manual DAX filters."
             )
 
     elif manual_filters:
         # Extract table.column refs from manual filters
         manual_filter_columns = set()
         for mf in manual_filters:
-            matches = re.findall(
-                r"['\"]?([^'\"]+)['\"]?\[([^\]]+)\]", mf
-            )
+            matches = re.findall(r"['\"]?([^'\"]+)['\"]?\[([^\]]+)\]", mf)
             for table, col in matches:
                 table_clean = table.strip("'\"")
-                manual_filter_columns.add(
-                    (table_clean.lower(), col.lower())
-                )
+                manual_filter_columns.add((table_clean.lower(), col.lower()))
 
         # Separate conflicting vs non-conflicting auto-filters
         non_conflicting = []
@@ -552,42 +500,34 @@ def _apply_manual_filters(
         all_dax = [f.dax for f in non_conflicting]
         all_dax.extend(manual_filters)
 
-        measures = (
-            result.visual_info.measures or [result.measure_name]
-        )
-        measures = [
-            m if m.startswith('[') else f'[{m}]'
-            for m in measures
-        ]
+        measures = result.visual_info.measures or [result.measure_name]
+        measures = [m if m.startswith("[") else f"[{m}]" for m in measures]
         columns = result.visual_info.columns or []
 
         combined = [
             FilterExpression(
-                dax=f, source='manual', table='',
-                column='', condition_type='Manual',
-                values=[]
+                dax=f, source="manual", table="", column="", condition_type="Manual", values=[]
             )
             for f in all_dax
         ]
         query_to_execute = builder._build_visual_dax_query(
-            measures, columns, combined,
-            format_string_measures=getattr(result, 'format_string_measures', [])
+            measures,
+            columns,
+            combined,
+            format_string_measures=getattr(result, "format_string_measures", []),
         )
 
-        response['generated_query'] = query_to_execute
-        response['query_with_manual_filters'] = query_to_execute
-        response['manual_filters_applied'] = manual_filters
+        response["generated_query"] = query_to_execute
+        response["query_with_manual_filters"] = query_to_execute
+        response["manual_filters_applied"] = manual_filters
 
         if skipped:
-            response['auto_filters_overridden'] = [
+            response["auto_filters_overridden"] = [
                 {
-                    'table': f.table,
-                    'column': f.column,
-                    'original_dax': f.dax,
-                    'reason': (
-                        'Overridden by manual filter '
-                        'on same column'
-                    )
+                    "table": f.table,
+                    "column": f.column,
+                    "original_dax": f.dax,
+                    "reason": ("Overridden by manual filter " "on same column"),
                 }
                 for f in skipped
             ]
@@ -621,246 +561,177 @@ def _execute_visual_query(
     # Add warning if slicers have no selection
     if slicers_without_selection:
         if compact:
-            response['empty_slicers'] = len(
-                slicers_without_selection
-            )
+            response["empty_slicers"] = len(slicers_without_selection)
         else:
-            response['warnings'] = [{
-                'type': 'empty_slicers',
-                'count': len(slicers_without_selection),
-                'slicers': slicers_without_selection
-            }]
+            response["warnings"] = [
+                {
+                    "type": "empty_slicers",
+                    "count": len(slicers_without_selection),
+                    "slicers": slicers_without_selection,
+                }
+            ]
 
     # Advanced analysis: relationships and aggregation
     if connection_state.is_connected():
         qe = connection_state.query_executor
         if qe:
-            measure_tables = list(set(
-                getattr(m, 'table', '')
-                for m in (result.measure_definitions or [])
-                if getattr(m, 'table', '')
-            ))
-            filter_tables = list(set(
-                f.table for f in all_filters if f.table
-            ))
-            grouping_tables = list(set(
-                col.split('[')[0].strip("'\"")
-                for col in (result.visual_info.columns or [])
-                if '[' in col
-            ))
+            measure_tables = list(
+                set(
+                    getattr(m, "table", "")
+                    for m in (result.measure_definitions or [])
+                    if getattr(m, "table", "")
+                )
+            )
+            filter_tables = list(set(f.table for f in all_filters if f.table))
+            grouping_tables = list(
+                set(
+                    col.split("[")[0].strip("'\"")
+                    for col in (result.visual_info.columns or [])
+                    if "[" in col
+                )
+            )
 
             # Relationship analysis
             try:
-                resolver = (
-                    builder._init_relationship_resolver()
-                )
+                resolver = builder._init_relationship_resolver()
                 if resolver:
                     hints = resolver.analyze_query_tables(
-                        measure_tables, filter_tables,
-                        grouping_tables
+                        measure_tables, filter_tables, grouping_tables
                     )
                     if hints:
-                        response['relationship_hints'] = [
+                        response["relationship_hints"] = [
                             {
-                                'type': h.type,
-                                'tables': (
-                                    f"{h.from_table} -> "
-                                    f"{h.to_table}"
-                                ),
-                                'suggestion': (
-                                    h.dax_modifier
-                                    if h.dax_modifier
-                                    else h.reason
-                                ),
-                                'severity': h.severity
+                                "type": h.type,
+                                "tables": (f"{h.from_table} -> " f"{h.to_table}"),
+                                "suggestion": (h.dax_modifier if h.dax_modifier else h.reason),
+                                "severity": h.severity,
                             }
                             for h in hints[:MAX_MEASURES_SHOWN]
                         ]
-            except (
-                AttributeError, ValueError, TypeError
-            ) as re_err:
-                logger.debug(
-                    f"Relationship analysis skipped: {re_err}"
-                )
+            except (AttributeError, ValueError, TypeError) as re_err:
+                logger.debug(f"Relationship analysis skipped: {re_err}")
 
             # Aggregation matching
             try:
-                agg_matcher = (
-                    builder._init_aggregation_matcher()
-                )
+                agg_matcher = builder._init_aggregation_matcher()
                 if agg_matcher:
-                    grp_cols = (
-                        result.visual_info.columns or []
-                    )
+                    grp_cols = result.visual_info.columns or []
                     flt_cols = [
-                        f"'{f.table}'[{f.column}]"
-                        for f in data_filters
-                        if f.table and f.column
+                        f"'{f.table}'[{f.column}]" for f in data_filters if f.table and f.column
                     ]
-                    agg_match = (
-                        agg_matcher.find_matching_aggregation(
-                            grp_cols, flt_cols
-                        )
-                    )
+                    agg_match = agg_matcher.find_matching_aggregation(grp_cols, flt_cols)
                     if agg_match:
-                        response['aggregation_info'] = {
-                            'available': True,
-                            'table': agg_match.agg_table,
-                            'confidence': (
-                                agg_match.match_confidence
-                            ),
-                            'recommendation': (
-                                agg_match.recommendation
-                            )
+                        response["aggregation_info"] = {
+                            "available": True,
+                            "table": agg_match.agg_table,
+                            "confidence": (agg_match.match_confidence),
+                            "recommendation": (agg_match.recommendation),
                         }
-            except (
-                AttributeError, ValueError, TypeError
-            ) as ae:
-                logger.debug(
-                    f"Aggregation analysis skipped: {ae}"
-                )
+            except (AttributeError, ValueError, TypeError) as ae:
+                logger.debug(f"Aggregation analysis skipped: {ae}")
 
     # SE/FE trace — runs first (cold cache) so timing is accurate.
     # If execute_query is also True it runs after on warm cache (fast row fetch).
-    conn_status = {'connected': False}
+    conn_status = {"connected": False}
     if trace:
         conn_status = connection_state.verify_connection(auto_reconnect=True)
-        if conn_status['connected']:
+        if conn_status["connected"]:
             try:
                 from core.infrastructure.query_trace import NativeTraceRunner
-                conn_str = (
-                    connection_state.connection_manager.connection_string
-                )
+
+                conn_str = connection_state.connection_manager.connection_string
                 if not conn_str:
-                    response['se_fe_trace'] = {
-                        'error': 'No connection string available'
-                    }
+                    response["se_fe_trace"] = {"error": "No connection string available"}
                 elif not NativeTraceRunner.is_available():
-                    response['se_fe_trace'] = {
-                        'error': (
-                            'DaxExecutor.exe not found. '
-                            'Build: cd core/infrastructure/dax_executor '
-                            '&& dotnet build -c Release'
+                    response["se_fe_trace"] = {
+                        "error": (
+                            "DaxExecutor.exe not found. "
+                            "Build: cd core/infrastructure/dax_executor "
+                            "&& dotnet build -c Release"
                         )
                     }
                 else:
                     runner = NativeTraceRunner(conn_str)
-                    trace_result = runner.execute_with_trace(
-                        query_to_execute, clear_cache
-                    )
-                    if '_error' in trace_result:
-                        response['se_fe_trace'] = {
-                            'error': trace_result['_error']
-                        }
+                    trace_result = runner.execute_with_trace(query_to_execute, clear_cache)
+                    if "_error" in trace_result:
+                        response["se_fe_trace"] = {"error": trace_result["_error"]}
                     else:
                         trace_response = _build_trace_response(trace_result)
-                        response['se_fe_trace'] = trace_response
+                        response["se_fe_trace"] = trace_response
                         # Cache for auto-retrieval by optimize
                         connection_state.store_trace_result(trace_response)
             except Exception as te:
                 logger.error(f"SE/FE trace failed: {te}", exc_info=True)
-                response['se_fe_trace'] = {'error': str(te)}
+                response["se_fe_trace"] = {"error": str(te)}
         else:
-            error_msg = 'not_connected'
-            if conn_status.get('error'):
+            error_msg = "not_connected"
+            if conn_status.get("error"):
                 error_msg += f" ({conn_status['error']})"
-            response['se_fe_trace'] = {'error': error_msg}
+            response["se_fe_trace"] = {"error": error_msg}
 
     # Execute query if requested and connected
     if execute_query:
-        if not conn_status.get('connected'):
+        if not conn_status.get("connected"):
             conn_status = connection_state.verify_connection(auto_reconnect=True)
-    if execute_query and conn_status.get('connected'):
+    if execute_query and conn_status.get("connected"):
         try:
             qe = connection_state.query_executor
             if qe:
                 exec_result = qe.validate_and_execute_dax(
-                    query_to_execute,
-                    top_n=MAX_QUERY_RESULT_ROWS
+                    query_to_execute, top_n=MAX_QUERY_RESULT_ROWS
                 )
 
                 # Smart retry on composite key errors
-                if not exec_result.get('success'):
-                    error_msg = (
-                        exec_result.get('error', '').lower()
-                    )
+                if not exec_result.get("success"):
+                    error_msg = exec_result.get("error", "").lower()
                     retry_patterns = [
-                        'composite', 'multiple columns',
-                        'ambiguous', 'cannot determine',
+                        "composite",
+                        "multiple columns",
+                        "ambiguous",
+                        "cannot determine",
                     ]
-                    if (
-                        any(
-                            p in error_msg
-                            for p in retry_patterns
-                        )
-                        and field_param_filters
-                    ):
+                    if any(p in error_msg for p in retry_patterns) and field_param_filters:
                         logger.info(
                             "Composite key error, retrying "
                             "without "
                             f"{len(field_param_filters)}"
                             " field param filters"
                         )
-                        measures = (
-                            result.visual_info.measures
-                            or [result.measure_name]
+                        measures = result.visual_info.measures or [result.measure_name]
+                        measures = [m if m.startswith("[") else f"[{m}]" for m in measures]
+                        columns = result.visual_info.columns or []
+                        reduced_query = builder._build_visual_dax_query(
+                            measures, columns, data_filters
                         )
-                        measures = [
-                            m if m.startswith('[')
-                            else f'[{m}]'
-                            for m in measures
-                        ]
-                        columns = (
-                            result.visual_info.columns or []
+                        retry_result = qe.validate_and_execute_dax(
+                            reduced_query, top_n=MAX_QUERY_RESULT_ROWS
                         )
-                        reduced_query = (
-                            builder._build_visual_dax_query(
-                                measures, columns,
-                                data_filters
-                            )
-                        )
-                        retry_result = (
-                            qe.validate_and_execute_dax(
-                                reduced_query,
-                                top_n=MAX_QUERY_RESULT_ROWS
-                            )
-                        )
-                        if retry_result.get('success'):
+                        if retry_result.get("success"):
                             exec_result = retry_result
-                            response['retry_info'] = {
-                                'retried': True,
-                                'original_error': (
-                                    error_msg[
-                                        :VARIABLE_TRUNCATION_CHARS
-                                    ]
-                                ),
-                                'excluded': [
-                                    f"'{f.table}'[{f.column}]"
-                                    for f in field_param_filters
+                            response["retry_info"] = {
+                                "retried": True,
+                                "original_error": (error_msg[:VARIABLE_TRUNCATION_CHARS]),
+                                "excluded": [
+                                    f"'{f.table}'[{f.column}]" for f in field_param_filters
                                 ],
-                                'note': (
-                                    'Results may differ from '
-                                    'visual due to excluded '
-                                    'field parameters'
-                                )
+                                "note": (
+                                    "Results may differ from "
+                                    "visual due to excluded "
+                                    "field parameters"
+                                ),
                             }
 
-                if exec_result.get('success'):
-                    rows = exec_result.get('rows', [])
-                    response['result'] = {
-                        'rows': rows,
-                        'count': len(rows),
-                        'ms': exec_result.get(
-                            'execution_time_ms'
-                        )
+                if exec_result.get("success"):
+                    rows = exec_result.get("rows", [])
+                    response["result"] = {
+                        "rows": rows,
+                        "count": len(rows),
+                        "ms": exec_result.get("execution_time_ms"),
                     }
                     if not rows:
-                        response['result']['note'] = 'no_rows'
-                    elif all(
-                        all(v is None for v in row.values())
-                        for row in rows
-                    ):
-                        response['result']['note'] = 'all_null'
+                        response["result"]["note"] = "no_rows"
+                    elif all(all(v is None for v in row.values()) for row in rows):
+                        response["result"]["note"] = "all_null"
 
                     # Anomaly detection
                     if rows and len(rows) > 1:
@@ -868,38 +739,31 @@ def _execute_visual_query(
                             from core.debug.anomaly_detector import (
                                 analyze_results,
                             )
+
                             report = analyze_results(rows)
                             if report:
-                                response['anomalies'] = report
-                        except (
-                            ImportError, KeyError,
-                            ValueError, TypeError
-                        ) as ae:
-                            logger.debug(
-                                "Anomaly detection skipped: "
-                                f"{ae}"
-                            )
+                                response["anomalies"] = report
+                        except (ImportError, KeyError, ValueError, TypeError) as ae:
+                            logger.debug("Anomaly detection skipped: " f"{ae}")
                 else:
-                    response['result'] = {
-                        'error': exec_result.get('error')
-                    }
+                    response["result"] = {"error": exec_result.get("error")}
         except Exception as e:
-            response['result'] = {'error': str(e)}
+            response["result"] = {"error": str(e)}
     elif execute_query:
-        error_msg = 'not_connected'
-        if conn_status.get('error'):
+        error_msg = "not_connected"
+        if conn_status.get("error"):
             error_msg += f" ({conn_status['error']})"
-        response['result'] = {'error': error_msg}
+        response["result"] = {"error": error_msg}
 
     # Surface connection loss prominently at top level
     if (trace or execute_query) and not connection_state.is_connected():
-        response['connection_warning'] = (
-            'Connection to Power BI model was lost. '
-            'Trace and execution results may be missing. '
-            'Use connect_to_powerbi to reconnect.'
+        response["connection_warning"] = (
+            "Connection to Power BI model was lost. "
+            "Trace and execution results may be missing. "
+            "Use connect_to_powerbi to reconnect."
         )
-        if trace and response.get('se_fe_trace', {}).get('error'):
-            response['success'] = False
+        if trace and response.get("se_fe_trace", {}).get("error"):
+            response["success"] = False
 
 
 def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -911,16 +775,16 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
     not found.
     """
     try:
-        compact = args.get('compact', True)
-        execute_query = args.get('execute_query', True)
-        include_slicers = args.get('include_slicers', True)
-        trace = args.get('trace', False)
-        clear_cache = args.get('clear_cache', True)
+        compact = args.get("compact", True)
+        execute_query = args.get("execute_query", True)
+        include_slicers = args.get("include_slicers", True)
+        trace = args.get("trace", False)
+        clear_cache = args.get("clear_cache", True)
 
         # Get builder — needed for all operations
         builder, error = _get_visual_query_builder()
         if error:
-            return {'success': False, 'error': error}
+            return {"success": False, "error": error}
 
         # Step 1: Discovery — return early if page/visual missing
         discovery = _discover_visuals(args, builder, compact)
@@ -933,60 +797,56 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
             if qe:
                 types_loaded = builder.load_column_types(qe)
                 if types_loaded > 0:
-                    logger.debug(
-                        f"Loaded {types_loaded} column types"
-                    )
+                    logger.debug(f"Loaded {types_loaded} column types")
 
         # Build visual query
-        page_name = args.get('page_name')
+        page_name = args.get("page_name")
         result = builder.build_visual_query(
             page_name=page_name,
-            visual_id=args.get('visual_id'),
-            visual_name=args.get('visual_name'),
-            measure_name=args.get('measure_name'),
+            visual_id=args.get("visual_id"),
+            visual_name=args.get("visual_name"),
+            measure_name=args.get("measure_name"),
             include_slicers=include_slicers,
-            measures=args.get('measures'),
+            measures=args.get("measures"),
         )
 
         if not result:
             visuals = builder.list_visuals(page_name)
-            non_slicer = [
-                v for v in visuals if not v.get('is_slicer')
-            ]
+            non_slicer = [v for v in visuals if not v.get("is_slicer")]
             return {
-                'success': False,
-                'error': (
+                "success": False,
+                "error": (
                     "Visual not found: "
                     f"id='{args.get('visual_id')}', "
                     f"name='{args.get('visual_name')}'"
                 ),
-                'visuals': _compact_visual_list(
-                    non_slicer, compact
-                )
+                "visuals": _compact_visual_list(non_slicer, compact),
             }
 
         # Step 2: Build filter context and base response
-        pbip_freshness = _check_pbip_freshness(
-            connection_state.get_pbip_folder_path()
-        )
+        pbip_freshness = _check_pbip_freshness(connection_state.get_pbip_folder_path())
         ctx = _build_filter_context(
-            builder, result, page_name, compact,
-            include_slicers, pbip_freshness
+            builder, result, page_name, compact, include_slicers, pbip_freshness
         )
-        response = ctx['response']
+        response = ctx["response"]
 
         # Step 3: Apply manual filter overrides
         query_to_execute = _apply_manual_filters(
-            args, result, builder, response,
-            ctx['data_filters'], result.dax_query
+            args, result, builder, response, ctx["data_filters"], result.dax_query
         )
 
         # Step 4: Execute query + advanced analysis
         _execute_visual_query(
-            query_to_execute, response, builder, result,
-            ctx['all_filters'], ctx['data_filters'],
-            ctx['field_param_filters'], compact,
-            ctx['slicers_without_selection'], execute_query,
+            query_to_execute,
+            response,
+            builder,
+            result,
+            ctx["all_filters"],
+            ctx["data_filters"],
+            ctx["field_param_filters"],
+            compact,
+            ctx["slicers_without_selection"],
+            execute_query,
             trace=trace,
             clear_cache=clear_cache,
         )
@@ -994,12 +854,8 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
         return response
 
     except Exception as e:
-        logger.error(
-            f"Error in debug_visual: {e}", exc_info=True
-        )
-        return ErrorHandler.handle_unexpected_error(
-            'debug_visual', e
-        )
+        logger.error(f"Error in debug_visual: {e}", exc_info=True)
+        return ErrorHandler.handle_unexpected_error("debug_visual", e)
 
 
 def handle_compare_measures(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1009,26 +865,26 @@ def handle_compare_measures(args: Dict[str, Any]) -> Dict[str, Any]:
     Can use filter context from a specific visual or manually specified.
     """
     try:
-        original_measure = args.get('original_measure')
-        optimized_expression = args.get('optimized_expression')
-        page_name = args.get('page_name')
-        visual_id = args.get('visual_id')
-        visual_name = args.get('visual_name')
-        manual_filters = args.get('filters', [])
-        include_slicers = args.get('include_slicers', True)
+        original_measure = args.get("original_measure")
+        optimized_expression = args.get("optimized_expression")
+        page_name = args.get("page_name")
+        visual_id = args.get("visual_id")
+        visual_name = args.get("visual_name")
+        manual_filters = args.get("filters", [])
+        include_slicers = args.get("include_slicers", True)
 
         if not original_measure:
-            return {'success': False, 'error': 'original_measure is required'}
+            return {"success": False, "error": "original_measure is required"}
 
         if not optimized_expression:
-            return {'success': False, 'error': 'optimized_expression is required'}
+            return {"success": False, "error": "optimized_expression is required"}
 
         if not connection_state.is_connected():
-            return {'success': False, 'error': 'Not connected to Power BI model'}
+            return {"success": False, "error": "Not connected to Power BI model"}
 
         qe = connection_state.query_executor
         if not qe:
-            return ErrorHandler.handle_manager_unavailable('query_executor')
+            return ErrorHandler.handle_manager_unavailable("query_executor")
 
         # Build filter context
         filter_dax_parts = []
@@ -1044,23 +900,33 @@ def handle_compare_measures(args: Dict[str, Any]) -> Dict[str, Any]:
                 )
                 # Filter out field parameters and UI controls (they cause composite key errors)
                 from core.debug.filter_to_dax import FilterClassification
+
                 all_filters = filter_context.all_filters()
-                data_filters = [f for f in all_filters if getattr(f, 'classification', FilterClassification.DATA) == FilterClassification.DATA]
+                data_filters = [
+                    f
+                    for f in all_filters
+                    if getattr(f, "classification", FilterClassification.DATA)
+                    == FilterClassification.DATA
+                ]
                 filter_dax_parts = [f.dax for f in data_filters if f.dax]
 
         # Add manual filters
         filter_dax_parts.extend(manual_filters)
 
         # Ensure measure has brackets
-        if not original_measure.startswith('['):
-            original_measure = f'[{original_measure}]'
+        if not original_measure.startswith("["):
+            original_measure = f"[{original_measure}]"
 
         # Build queries
-        filter_clause = ', '.join(filter_dax_parts) if filter_dax_parts else ''
+        filter_clause = ", ".join(filter_dax_parts) if filter_dax_parts else ""
 
         if filter_clause:
-            original_query = f'EVALUATE ROW("Original", CALCULATE({original_measure}, {filter_clause}))'
-            optimized_query = f'EVALUATE ROW("Optimized", CALCULATE({optimized_expression}, {filter_clause}))'
+            original_query = (
+                f'EVALUATE ROW("Original", CALCULATE({original_measure}, {filter_clause}))'
+            )
+            optimized_query = (
+                f'EVALUATE ROW("Optimized", CALCULATE({optimized_expression}, {filter_clause}))'
+            )
         else:
             original_query = f'EVALUATE ROW("Original", {original_measure})'
             optimized_query = f'EVALUATE ROW("Optimized", {optimized_expression})'
@@ -1072,16 +938,16 @@ def handle_compare_measures(args: Dict[str, Any]) -> Dict[str, Any]:
         # Extract values
         original_value = None
         optimized_value = None
-        original_time = original_result.get('execution_time_ms', 0)
-        optimized_time = optimized_result.get('execution_time_ms', 0)
+        original_time = original_result.get("execution_time_ms", 0)
+        optimized_time = optimized_result.get("execution_time_ms", 0)
 
-        if original_result.get('success') and original_result.get('rows'):
-            row = original_result['rows'][0]
-            original_value = row.get('Original', row.get('[Original]'))
+        if original_result.get("success") and original_result.get("rows"):
+            row = original_result["rows"][0]
+            original_value = row.get("Original", row.get("[Original]"))
 
-        if optimized_result.get('success') and optimized_result.get('rows'):
-            row = optimized_result['rows'][0]
-            optimized_value = row.get('Optimized', row.get('[Optimized]'))
+        if optimized_result.get("success") and optimized_result.get("rows"):
+            row = optimized_result["rows"][0]
+            optimized_value = row.get("Optimized", row.get("[Optimized]"))
 
         # Compare
         values_match = False
@@ -1095,46 +961,48 @@ def handle_compare_measures(args: Dict[str, Any]) -> Dict[str, Any]:
                 values_match = abs(difference) < 0.001  # Small tolerance for floating point
             except (ValueError, TypeError):
                 values_match = str(original_value) == str(optimized_value)
-                difference = 'N/A (non-numeric)'
+                difference = "N/A (non-numeric)"
 
         # Performance comparison
         perf_improvement_ms = original_time - optimized_time
-        perf_improvement_pct = (perf_improvement_ms / original_time * 100) if original_time > 0 else 0
+        perf_improvement_pct = (
+            (perf_improvement_ms / original_time * 100) if original_time > 0 else 0
+        )
 
         return {
-            'success': True,
-            'original': {
-                'measure': original_measure,
-                'query': original_query,
-                'value': original_value,
-                'execution_time_ms': original_time,
-                'success': original_result.get('success', False),
-                'error': original_result.get('error')
+            "success": True,
+            "original": {
+                "measure": original_measure,
+                "query": original_query,
+                "value": original_value,
+                "execution_time_ms": original_time,
+                "success": original_result.get("success", False),
+                "error": original_result.get("error"),
             },
-            'optimized': {
-                'expression': optimized_expression,
-                'query': optimized_query,
-                'value': optimized_value,
-                'execution_time_ms': optimized_time,
-                'success': optimized_result.get('success', False),
-                'error': optimized_result.get('error')
+            "optimized": {
+                "expression": optimized_expression,
+                "query": optimized_query,
+                "value": optimized_value,
+                "execution_time_ms": optimized_time,
+                "success": optimized_result.get("success", False),
+                "error": optimized_result.get("error"),
             },
-            'comparison': {
-                'values_match': values_match,
-                'difference': difference,
-                'performance_improvement_ms': perf_improvement_ms,
-                'performance_improvement_pct': round(perf_improvement_pct, 1)
+            "comparison": {
+                "values_match": values_match,
+                "difference": difference,
+                "performance_improvement_ms": perf_improvement_ms,
+                "performance_improvement_pct": round(perf_improvement_pct, 1),
             },
-            'filter_context': {
-                'source': f"visual:{visual_id or visual_name}" if page_name else 'manual',
-                'filters_applied': len(filter_dax_parts),
-                'filter_dax': filter_dax_parts
-            }
+            "filter_context": {
+                "source": f"visual:{visual_id or visual_name}" if page_name else "manual",
+                "filters_applied": len(filter_dax_parts),
+                "filter_dax": filter_dax_parts,
+            },
         }
 
     except Exception as e:
         logger.error(f"Error in compare_measures: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('compare_measures', e)
+        return ErrorHandler.handle_unexpected_error("compare_measures", e)
 
 
 def handle_list_slicers(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1144,12 +1012,12 @@ def handle_list_slicers(args: Dict[str, Any]) -> Dict[str, Any]:
     Shows which values are selected in each slicer (from saved PBIP state).
     """
     try:
-        page_name = args.get('page_name')
-        compact = args.get('compact', True)
+        page_name = args.get("page_name")
+        compact = args.get("compact", True)
 
         builder, error = _get_visual_query_builder()
         if error:
-            return {'success': False, 'error': error}
+            return {"success": False, "error": error}
 
         slicers = builder.list_slicers(page_name)
 
@@ -1157,43 +1025,41 @@ def handle_list_slicers(args: Dict[str, Any]) -> Dict[str, Any]:
             # Compact mode: minimal info per slicer
             slicer_list = [
                 {
-                    'field': s.field_reference,
-                    'values': s.selected_values[:5] if s.selected_values else [],  # Limit to 5 values
-                    'count': len(s.selected_values) if len(s.selected_values) > 5 else None
+                    "field": s.field_reference,
+                    "values": (
+                        s.selected_values[:5] if s.selected_values else []
+                    ),  # Limit to 5 values
+                    "count": len(s.selected_values) if len(s.selected_values) > 5 else None,
                 }
                 for s in slicers
             ]
-            return {
-                'success': True,
-                'slicers': slicer_list,
-                'total': len(slicer_list)
-            }
+            return {"success": True, "slicers": slicer_list, "total": len(slicer_list)}
         else:
             # Verbose mode: full details
             slicer_list = [
                 {
-                    'id': s.slicer_id,
-                    'page': s.page_name,
-                    'field': s.field_reference,
-                    'table': s.table,
-                    'column': s.column,
-                    'selection_mode': s.selection_mode,
-                    'is_inverted': s.is_inverted,
-                    'selected_values': s.selected_values,
-                    'value_count': len(s.selected_values)
+                    "id": s.slicer_id,
+                    "page": s.page_name,
+                    "field": s.field_reference,
+                    "table": s.table,
+                    "column": s.column,
+                    "selection_mode": s.selection_mode,
+                    "is_inverted": s.is_inverted,
+                    "selected_values": s.selected_values,
+                    "value_count": len(s.selected_values),
                 }
                 for s in slicers
             ]
             return {
-                'success': True,
-                'slicers': slicer_list,
-                'count': len(slicer_list),
-                'pbip_path': connection_state.pbip_path
+                "success": True,
+                "slicers": slicer_list,
+                "count": len(slicer_list),
+                "pbip_path": connection_state.pbip_path,
             }
 
     except Exception as e:
         logger.error(f"Error in list_slicers: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('list_slicers', e)
+        return ErrorHandler.handle_unexpected_error("list_slicers", e)
 
 
 def handle_drill_to_detail(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1203,66 +1069,62 @@ def handle_drill_to_detail(args: Dict[str, Any]) -> Dict[str, Any]:
     Uses the visual's filter context to query the fact table.
     """
     try:
-        page_name = args.get('page_name')
-        visual_id = args.get('visual_id')
-        visual_name = args.get('visual_name')
-        fact_table = args.get('fact_table')
-        limit = args.get('limit', MAX_QUERY_RESULT_ROWS)
+        page_name = args.get("page_name")
+        visual_id = args.get("visual_id")
+        visual_name = args.get("visual_name")
+        fact_table = args.get("fact_table")
+        limit = args.get("limit", MAX_QUERY_RESULT_ROWS)
         limit = max(DRILL_DETAIL_LIMIT_MIN, min(DRILL_DETAIL_LIMIT_MAX, limit))
-        include_slicers = args.get('include_slicers', True)
+        include_slicers = args.get("include_slicers", True)
 
         if not connection_state.is_connected():
-            return {'success': False, 'error': 'Not connected to Power BI model'}
+            return {"success": False, "error": "Not connected to Power BI model"}
 
         qe = connection_state.query_executor
         if not qe:
-            return ErrorHandler.handle_manager_unavailable('query_executor')
+            return ErrorHandler.handle_manager_unavailable("query_executor")
 
         builder, error = _get_visual_query_builder()
         if error:
-            return {'success': False, 'error': error}
+            return {"success": False, "error": error}
 
         # Load column types for accurate filter generation
         builder.load_column_types(qe)
 
         # Build detail query
         query = builder.build_detail_rows_query(
-            page_name=page_name or '',
+            page_name=page_name or "",
             visual_id=visual_id,
             visual_name=visual_name,
             fact_table=fact_table,
             limit=limit,
-            include_slicers=include_slicers
+            include_slicers=include_slicers,
         )
 
         if not query:
             return {
-                'success': False,
-                'error': 'Could not build detail query. Specify fact_table if visual cannot be found.'
+                "success": False,
+                "error": "Could not build detail query. Specify fact_table if visual cannot be found.",
             }
 
         # Execute
         result = qe.validate_and_execute_dax(query, top_n=limit)
 
-        if not result.get('success'):
-            return {
-                'success': False,
-                'error': result.get('error'),
-                'query_attempted': query
-            }
+        if not result.get("success"):
+            return {"success": False, "error": result.get("error"), "query_attempted": query}
 
         return {
-            'success': True,
-            'query': query,
-            'row_count': result.get('row_count', len(result.get('rows', []))),
-            'rows': result.get('rows', []),
-            'columns': result.get('columns', []),
-            'execution_time_ms': result.get('execution_time_ms')
+            "success": True,
+            "query": query,
+            "row_count": result.get("row_count", len(result.get("rows", []))),
+            "rows": result.get("rows", []),
+            "columns": result.get("columns", []),
+            "execution_time_ms": result.get("execution_time_ms"),
         }
 
     except Exception as e:
         logger.error(f"Error in drill_to_detail: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('drill_to_detail', e)
+        return ErrorHandler.handle_unexpected_error("drill_to_detail", e)
 
 
 def handle_set_pbip_path(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1272,33 +1134,35 @@ def handle_set_pbip_path(args: Dict[str, Any]) -> Dict[str, Any]:
     Use this if auto-detection didn't work or you want to analyze a different project.
     """
     try:
-        pbip_path = args.get('pbip_path')
+        pbip_path = args.get("pbip_path")
 
         if not pbip_path:
-            return {'success': False, 'error': 'pbip_path is required'}
+            return {"success": False, "error": "pbip_path is required"}
 
         import os
+
         if not os.path.exists(pbip_path):
-            return {'success': False, 'error': f'Path does not exist: {pbip_path}'}
+            return {"success": False, "error": f"Path does not exist: {pbip_path}"}
 
         # Smart resolution: try to resolve to a valid .Report folder
         from core.utilities.pbip_utils import resolve_pbip_report_path
+
         resolved_path = resolve_pbip_report_path(pbip_path)
 
         if resolved_path:
             effective_path = resolved_path
         else:
             # Direct validation (original behavior)
-            definition_path = os.path.join(pbip_path, 'definition')
-            report_json = os.path.join(pbip_path, 'report.json')
+            definition_path = os.path.join(pbip_path, "definition")
+            report_json = os.path.join(pbip_path, "report.json")
             if not os.path.exists(definition_path) and not os.path.exists(report_json):
                 return {
-                    'success': False,
-                    'error': (
-                        'Path does not appear to be a valid PBIP folder. '
-                        'Expected: .pbip file, .Report folder, or directory '
-                        'containing .pbip files. Got: ' + pbip_path
-                    )
+                    "success": False,
+                    "error": (
+                        "Path does not appear to be a valid PBIP folder. "
+                        "Expected: .pbip file, .Report folder, or directory "
+                        "containing .pbip files. Got: " + pbip_path
+                    ),
                 }
             effective_path = pbip_path
 
@@ -1306,23 +1170,23 @@ def handle_set_pbip_path(args: Dict[str, Any]) -> Dict[str, Any]:
         result = connection_state.set_pbip_info(
             pbip_folder_path=effective_path,
             file_full_path=pbip_path,
-            file_type='pbip',
-            source='manual'
+            file_type="pbip",
+            source="manual",
         )
 
         response = {
-            'success': True,
-            'pbip_info': result,
-            'message': f'PBIP path set to: {effective_path}'
+            "success": True,
+            "pbip_info": result,
+            "message": f"PBIP path set to: {effective_path}",
         }
         if effective_path != pbip_path:
-            response['resolved_from'] = pbip_path
-            response['resolved_to'] = effective_path
+            response["resolved_from"] = pbip_path
+            response["resolved_to"] = effective_path
         return response
 
     except Exception as e:
         logger.error(f"Error in set_pbip_path: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('set_pbip_path', e)
+        return ErrorHandler.handle_unexpected_error("set_pbip_path", e)
 
 
 def handle_get_debug_status(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1332,10 +1196,10 @@ def handle_get_debug_status(args: Dict[str, Any]) -> Dict[str, Any]:
     Shows whether PBIP and model connection are available.
     """
     try:
-        compact = args.get('compact', True)
+        compact = args.get("compact", True)
         pbip_info = connection_state.get_pbip_info()
         is_connected = connection_state.is_connected()
-        pbip_available = pbip_info.get('pbip_available', False)
+        pbip_available = pbip_info.get("pbip_available", False)
 
         builder = None
         pages = []
@@ -1346,33 +1210,33 @@ def handle_get_debug_status(args: Dict[str, Any]) -> Dict[str, Any]:
 
         if compact:
             return {
-                'success': True,
-                'connected': is_connected,
-                'pbip': pbip_available,
-                'ready': is_connected and pbip_available,
-                'pages': [p.get('name') for p in pages]
+                "success": True,
+                "connected": is_connected,
+                "pbip": pbip_available,
+                "ready": is_connected and pbip_available,
+                "pages": [p.get("name") for p in pages],
             }
         else:
             return {
-                'success': True,
-                'connection': {
-                    'is_connected': is_connected,
-                    'info': connection_state._connection_info
+                "success": True,
+                "connection": {
+                    "is_connected": is_connected,
+                    "info": connection_state._connection_info,
                 },
-                'pbip': pbip_info,
-                'capabilities': {
-                    'analyze_filters': pbip_available,
-                    'execute_queries': is_connected,
-                    'debug_visuals': pbip_available and is_connected,
-                    'compare_measures': is_connected
+                "pbip": pbip_info,
+                "capabilities": {
+                    "analyze_filters": pbip_available,
+                    "execute_queries": is_connected,
+                    "debug_visuals": pbip_available and is_connected,
+                    "compare_measures": is_connected,
                 },
-                'pages': pages,
-                'recommendations': _get_recommendations(pbip_info, is_connected)
+                "pages": pages,
+                "recommendations": _get_recommendations(pbip_info, is_connected),
             }
 
     except Exception as e:
         logger.error(f"Error in get_debug_status: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('get_debug_status', e)
+        return ErrorHandler.handle_unexpected_error("get_debug_status", e)
 
 
 def _get_recommendations(pbip_info: Dict, is_connected: bool) -> List[str]:
@@ -1380,144 +1244,117 @@ def _get_recommendations(pbip_info: Dict, is_connected: bool) -> List[str]:
     recommendations = []
 
     if not is_connected:
-        recommendations.append("Connect to Power BI Desktop using connect_to_powerbi for query execution")
+        recommendations.append(
+            "Connect to Power BI Desktop using connect_to_powerbi for query execution"
+        )
 
-    if not pbip_info.get('pbip_available'):
-        if pbip_info.get('file_type') == 'pbix':
-            recommendations.append("You have a .pbix file open. Convert to PBIP (Save As > Power BI Project) for visual debugging")
+    if not pbip_info.get("pbip_available"):
+        if pbip_info.get("file_type") == "pbix":
+            recommendations.append(
+                "You have a .pbix file open. Convert to PBIP (Save As > Power BI Project) for visual debugging"
+            )
         else:
-            recommendations.append("Use set_pbip_path to specify your PBIP folder path for visual debugging")
+            recommendations.append(
+                "Use set_pbip_path to specify your PBIP folder path for visual debugging"
+            )
 
-    if is_connected and pbip_info.get('pbip_available'):
+    if is_connected and pbip_info.get("pbip_available"):
         recommendations.append("Full debugging available! Use debug_visual to analyze any visual")
 
     return recommendations
 
 
 def _resolve_measure_expression(
-    measure_name: str,
-    table_name: Optional[str],
-    qe: Any
+    measure_name: str, table_name: Optional[str], qe: Any
 ) -> Dict[str, Any]:
     """Find measure expression from model via DMV, TMDL, or fallback.
 
     Returns dict with keys: success, measure_details, expression,
     expression_source. On failure, returns success=False with error.
     """
-    clean_name = measure_name.strip('[]')
-    measure_details: Dict[str, Any] = {'success': False}
+    clean_name = measure_name.strip("[]")
+    measure_details: Dict[str, Any] = {"success": False}
     expression_source = None
 
     # Try 1: DMV (most reliable for live model)
     info_result = qe.execute_info_query("MEASURES")
-    if info_result.get('success') and info_result.get('rows'):
-        for row in info_result['rows']:
-            name = row.get('Name', row.get('[Name]', ''))
+    if info_result.get("success") and info_result.get("rows"):
+        for row in info_result["rows"]:
+            name = row.get("Name", row.get("[Name]", ""))
             if name.lower() == clean_name.lower():
-                expression = row.get(
-                    'Expression', row.get('[Expression]', '')
-                )
-                table_id = row.get(
-                    'TableID', row.get('[TableID]')
-                )
-                fmt = row.get(
-                    'FormatString',
-                    row.get('[FormatString]', '')
-                )
+                expression = row.get("Expression", row.get("[Expression]", ""))
+                table_id = row.get("TableID", row.get("[TableID]"))
+                fmt = row.get("FormatString", row.get("[FormatString]", ""))
 
                 found_table = table_name
                 if table_id and not found_table:
-                    tables_result = qe.execute_info_query(
-                        "TABLES"
-                    )
-                    if (
-                        tables_result.get('success')
-                        and tables_result.get('rows')
-                    ):
-                        for trow in tables_result['rows']:
-                            tid = trow.get(
-                                'ID', trow.get('[ID]', '')
-                            )
+                    tables_result = qe.execute_info_query("TABLES")
+                    if tables_result.get("success") and tables_result.get("rows"):
+                        for trow in tables_result["rows"]:
+                            tid = trow.get("ID", trow.get("[ID]", ""))
                             if str(tid) == str(table_id):
-                                found_table = trow.get(
-                                    'Name',
-                                    trow.get('[Name]', '')
-                                )
+                                found_table = trow.get("Name", trow.get("[Name]", ""))
                                 break
 
                 measure_details = {
-                    'success': True,
-                    'measure_name': name,
-                    'expression': expression,
-                    'table_name': found_table,
-                    'table_id': table_id,
-                    'format_string': fmt
+                    "success": True,
+                    "measure_name": name,
+                    "expression": expression,
+                    "table_name": found_table,
+                    "table_id": table_id,
+                    "format_string": fmt,
                 }
-                expression_source = 'DMV'
+                expression_source = "DMV"
                 break
 
     # Try 2: TMDL files
-    if (
-        not measure_details.get('success')
-        or not measure_details.get('expression')
-    ):
+    if not measure_details.get("success") or not measure_details.get("expression"):
         builder, error = _get_visual_query_builder()
         if not error and builder:
             builder.load_column_types(qe)
-            tmdl_result = builder.get_measure_expression(
-                clean_name
-            )
+            tmdl_result = builder.get_measure_expression(clean_name)
             if tmdl_result and tmdl_result.expression:
                 measure_details = {
-                    'success': True,
-                    'measure_name': tmdl_result.name,
-                    'expression': tmdl_result.expression,
-                    'table_name': (
-                        tmdl_result.table or table_name
-                    ),
-                    'format_string': tmdl_result.format_string
+                    "success": True,
+                    "measure_name": tmdl_result.name,
+                    "expression": tmdl_result.expression,
+                    "table_name": (tmdl_result.table or table_name),
+                    "format_string": tmdl_result.format_string,
                 }
-                expression_source = 'TMDL'
+                expression_source = "TMDL"
 
     # Try 3: QueryExecutor fallback
-    if not measure_details.get('success'):
-        measure_details = qe.get_measure_details_with_fallback(
-            table_name, measure_name
-        )
-        if measure_details.get('success'):
-            expression_source = 'QueryExecutor fallback'
+    if not measure_details.get("success"):
+        measure_details = qe.get_measure_details_with_fallback(table_name, measure_name)
+        if measure_details.get("success"):
+            expression_source = "QueryExecutor fallback"
 
-    if not measure_details.get('success'):
+    if not measure_details.get("success"):
         return {
-            'success': False,
-            'error': (
+            "success": False,
+            "error": (
                 f"Could not find measure '{measure_name}'. "
                 "Specify table_name to narrow the search."
             ),
-            'hint': (
-                'Use measure_operations with operation=list '
-                'to see available measures'
-            )
+            "hint": ("Use measure_operations with operation=list " "to see available measures"),
         }
 
-    expression = measure_details.get(
-        'expression', measure_details.get('Expression', '')
-    )
+    expression = measure_details.get("expression", measure_details.get("Expression", ""))
     if not expression:
         return {
-            'success': False,
-            'error': (
+            "success": False,
+            "error": (
                 f"Measure '{measure_name}' found but has no "
                 "expression (may be a calculated column or "
                 "external measure)"
-            )
+            ),
         }
 
     return {
-        'success': True,
-        'measure_details': measure_details,
-        'expression': expression,
-        'expression_source': expression_source
+        "success": True,
+        "measure_details": measure_details,
+        "expression": expression,
+        "expression_source": expression_source,
     }
 
 
@@ -1528,20 +1365,17 @@ def _analyze_measure_dax(
 
     Returns the analysis result dict.
     """
-    try:
-        from core.dax.dax_best_practices import (
-            DaxBestPracticesAnalyzer,
-        )
-        analyzer = DaxBestPracticesAnalyzer()
-        return analyzer.analyze(expression)
-    except (ImportError, ValueError, TypeError) as e:
-        logger.warning(f"DAX analysis failed: {e}")
+    from core.dax.analysis_pipeline import run_best_practices
+
+    result = run_best_practices(expression)
+    if result is None:
         return {
-            'success': False,
-            'error': str(e),
-            'issues': [],
-            'total_issues': 0
+            "success": False,
+            "error": "Best practices analysis unavailable",
+            "issues": [],
+            "total_issues": 0,
         }
+    return result
 
 
 def _get_visual_filter_context_for_measure(
@@ -1549,7 +1383,7 @@ def _get_visual_filter_context_for_measure(
     visual_id: Optional[str],
     visual_name: Optional[str],
     include_slicers: bool,
-    qe: Any
+    qe: Any,
 ) -> tuple:
     """Get filter context from a visual/page for measure analysis.
 
@@ -1567,98 +1401,59 @@ def _get_visual_filter_context_for_measure(
         return filter_context_info, filter_dax_parts
 
     builder.load_column_types(qe)
-    visual_info, filter_context = (
-        builder.get_visual_filter_context(
-            page_name, visual_id, visual_name,
-            include_slicers
-        )
+    visual_info, filter_context = builder.get_visual_filter_context(
+        page_name, visual_id, visual_name, include_slicers
     )
-    filter_dax_parts = [
-        f.dax for f in filter_context.all_filters()
-    ]
+    filter_dax_parts = [f.dax for f in filter_context.all_filters()]
     filter_context_info = {
-        'visual': {
-            'id': (
-                visual_info.visual_id if visual_info
-                else None
-            ),
-            'name': (
-                visual_info.visual_name if visual_info
-                else None
-            ),
-            'page': page_name
+        "visual": {
+            "id": (visual_info.visual_id if visual_info else None),
+            "name": (visual_info.visual_name if visual_info else None),
+            "page": page_name,
         },
-        'filters_applied': len(filter_dax_parts),
-        'filter_summary': {
-            'report_filters': len(
-                filter_context.report_filters
-            ),
-            'page_filters': len(
-                filter_context.page_filters
-            ),
-            'visual_filters': len(
-                filter_context.visual_filters
-            ),
-            'slicer_filters': len(
-                filter_context.slicer_filters
-            )
+        "filters_applied": len(filter_dax_parts),
+        "filter_summary": {
+            "report_filters": len(filter_context.report_filters),
+            "page_filters": len(filter_context.page_filters),
+            "visual_filters": len(filter_context.visual_filters),
+            "slicer_filters": len(filter_context.slicer_filters),
         },
-        'filter_dax': filter_dax_parts
+        "filter_dax": filter_dax_parts,
     }
 
     return filter_context_info, filter_dax_parts
 
 
 def _execute_measure_with_context(
-    measure_name: str,
-    filter_dax_parts: List[str],
-    qe: Any
+    measure_name: str, filter_dax_parts: List[str], qe: Any
 ) -> Optional[Dict[str, Any]]:
     """Execute a measure with the given filter context.
 
     Returns execution result dict, or None if not executed.
     """
     measure_ref = f'[{measure_name.strip("[]")}]'
-    filter_clause = ', '.join(filter_dax_parts) if filter_dax_parts else ''
+    filter_clause = ", ".join(filter_dax_parts) if filter_dax_parts else ""
 
     if filter_clause:
-        query = (
-            f'EVALUATE ROW("Value", '
-            f'CALCULATE({measure_ref}, {filter_clause}))'
-        )
+        query = f'EVALUATE ROW("Value", ' f"CALCULATE({measure_ref}, {filter_clause}))"
     else:
         query = f'EVALUATE ROW("Value", {measure_ref})'
 
     try:
-        exec_result = qe.validate_and_execute_dax(
-            query, top_n=10
-        )
-        if (
-            exec_result.get('success')
-            and exec_result.get('rows')
-        ):
-            row = exec_result['rows'][0]
-            value = row.get('Value', row.get('[Value]'))
+        exec_result = qe.validate_and_execute_dax(query, top_n=10)
+        if exec_result.get("success") and exec_result.get("rows"):
+            row = exec_result["rows"][0]
+            value = row.get("Value", row.get("[Value]"))
             return {
-                'success': True,
-                'value': value,
-                'execution_time_ms': exec_result.get(
-                    'execution_time_ms'
-                ),
-                'query': query
+                "success": True,
+                "value": value,
+                "execution_time_ms": exec_result.get("execution_time_ms"),
+                "query": query,
             }
         else:
-            return {
-                'success': False,
-                'error': exec_result.get('error'),
-                'query': query
-            }
+            return {"success": False, "error": exec_result.get("error"), "query": query}
     except Exception as e:
-        return {
-            'success': False,
-            'error': str(e),
-            'query': query
-        }
+        return {"success": False, "error": str(e), "query": query}
 
 
 def _build_analyze_response(
@@ -1671,55 +1466,53 @@ def _build_analyze_response(
     fix_suggestions: List[Dict],
     execution_result: Optional[Dict[str, Any]],
     filter_context_info: Optional[Dict[str, Any]],
-    compact: bool
+    compact: bool,
 ) -> Dict[str, Any]:
     """Build the compact or verbose response for analyze_measure."""
     expr_limit = 3 * VARIABLE_TRUNCATION_CHARS
     if compact:
         response: Dict[str, Any] = {
-            'success': True,
-            'measure': measure_name,
-            'expression': (
-                expression[:expr_limit] + '...'
-                if len(expression) > expr_limit
-                else expression
+            "success": True,
+            "measure": measure_name,
+            "expression": (
+                expression[:expr_limit] + "..." if len(expression) > expr_limit else expression
             ),
-            'issues': analysis_result.get('total_issues', 0),
-            'score': analysis_result.get('overall_score'),
-            'fixes': [
-                {'issue': s['issue'], 'severity': s['severity']}
+            "issues": analysis_result.get("total_issues", 0),
+            "score": analysis_result.get("overall_score"),
+            "fixes": [
+                {"issue": s["issue"], "severity": s["severity"]}
                 for s in fix_suggestions[:MAX_MEASURES_SHOWN]
-            ]
+            ],
         }
-        if execution_result and execution_result.get('success'):
-            response['value'] = execution_result.get('value')
-            response['ms'] = execution_result.get('execution_time_ms')
+        if execution_result and execution_result.get("success"):
+            response["value"] = execution_result.get("value")
+            response["ms"] = execution_result.get("execution_time_ms")
         elif execution_result:
-            response['exec_error'] = execution_result.get('error')
+            response["exec_error"] = execution_result.get("error")
     else:
         response = {
-            'success': True,
-            'measure': {
-                'name': measure_name,
-                'table': table_name or measure_details.get('table_name', 'Unknown'),
-                'expression': expression,
-                'format_string': measure_details.get('format_string'),
-                'source': expression_source
+            "success": True,
+            "measure": {
+                "name": measure_name,
+                "table": table_name or measure_details.get("table_name", "Unknown"),
+                "expression": expression,
+                "format_string": measure_details.get("format_string"),
+                "source": expression_source,
             },
-            'analysis': {
-                'total_issues': analysis_result.get('total_issues', 0),
-                'critical': analysis_result.get('critical_issues', 0),
-                'high': analysis_result.get('high_issues', 0),
-                'score': analysis_result.get('overall_score'),
-                'complexity': analysis_result.get('complexity_level'),
-                'summary': analysis_result.get('summary')
+            "analysis": {
+                "total_issues": analysis_result.get("total_issues", 0),
+                "critical": analysis_result.get("critical_issues", 0),
+                "high": analysis_result.get("high_issues", 0),
+                "score": analysis_result.get("overall_score"),
+                "complexity": analysis_result.get("complexity_level"),
+                "summary": analysis_result.get("summary"),
             },
-            'fix_suggestions': fix_suggestions
+            "fix_suggestions": fix_suggestions,
         }
         if filter_context_info:
-            response['filter_context'] = filter_context_info
+            response["filter_context"] = filter_context_info
         if execution_result:
-            response['execution'] = execution_result
+            response["execution"] = execution_result
 
     return response
 
@@ -1732,80 +1525,84 @@ def handle_analyze_measure(args: Dict[str, Any]) -> Dict[str, Any]:
     evaluates with filter context from a visual.
     """
     try:
-        table_name = args.get('table_name')
-        measure_name = args.get('measure_name')
-        compact = args.get('compact', True)
+        table_name = args.get("table_name")
+        measure_name = args.get("measure_name")
+        compact = args.get("compact", True)
 
         if not measure_name:
-            return {'success': False, 'error': 'measure_name required'}
+            return {"success": False, "error": "measure_name required"}
 
         if not connection_state.is_connected():
             return {
-                'success': False,
-                'error': 'Not connected to Power BI model. Use connect_to_powerbi first.'
+                "success": False,
+                "error": "Not connected to Power BI model. Use connect_to_powerbi first.",
             }
 
         qe = connection_state.query_executor
         if not qe:
-            return ErrorHandler.handle_manager_unavailable('query_executor')
+            return ErrorHandler.handle_manager_unavailable("query_executor")
 
         # Step 1: Resolve measure expression
         resolved = _resolve_measure_expression(measure_name, table_name, qe)
-        if not resolved['success']:
+        if not resolved["success"]:
             return resolved
 
-        expression = resolved['expression']
-        measure_details = resolved['measure_details']
-        expression_source = resolved['expression_source']
+        expression = resolved["expression"]
+        measure_details = resolved["measure_details"]
+        expression_source = resolved["expression_source"]
 
         # Step 2: Analyze the DAX expression
         analysis_result = _analyze_measure_dax(expression)
 
         # Step 3: Get filter context from visual if specified
         filter_context_info, filter_dax_parts = _get_visual_filter_context_for_measure(
-            page_name=args.get('page_name'),
-            visual_id=args.get('visual_id'),
-            visual_name=args.get('visual_name'),
-            include_slicers=args.get('include_slicers', True),
-            qe=qe
+            page_name=args.get("page_name"),
+            visual_id=args.get("visual_id"),
+            visual_name=args.get("visual_name"),
+            include_slicers=args.get("include_slicers", True),
+            qe=qe,
         )
 
         # Step 4: Execute measure with filter context
         execution_result = None
-        if args.get('execute_measure', True):
-            execution_result = _execute_measure_with_context(
-                measure_name, filter_dax_parts, qe
-            )
+        if args.get("execute_measure", True):
+            execution_result = _execute_measure_with_context(measure_name, filter_dax_parts, qe)
 
         # Step 5: Generate fix suggestions from analysis issues
         fix_suggestions = []
-        for issue in (analysis_result.get('issues') or [])[:5]:
+        for issue in (analysis_result.get("issues") or [])[:5]:
             suggestion: Dict[str, Any] = {
-                'issue': issue.get('title'),
-                'severity': issue.get('severity'),
-                'description': issue.get('description'),
-                'category': issue.get('category')
+                "issue": issue.get("title"),
+                "severity": issue.get("severity"),
+                "description": issue.get("description"),
+                "category": issue.get("category"),
             }
-            if issue.get('code_example_before') and issue.get('code_example_after'):
-                suggestion['example_fix'] = {
-                    'before': issue.get('code_example_before'),
-                    'after': issue.get('code_example_after')
+            if issue.get("code_example_before") and issue.get("code_example_after"):
+                suggestion["example_fix"] = {
+                    "before": issue.get("code_example_before"),
+                    "after": issue.get("code_example_after"),
                 }
-            if issue.get('estimated_improvement'):
-                suggestion['estimated_improvement'] = issue.get('estimated_improvement')
+            if issue.get("estimated_improvement"):
+                suggestion["estimated_improvement"] = issue.get("estimated_improvement")
             fix_suggestions.append(suggestion)
 
         # Step 6: Build response
         return _build_analyze_response(
-            measure_name, table_name, expression,
-            measure_details, expression_source,
-            analysis_result, fix_suggestions,
-            execution_result, filter_context_info, compact
+            measure_name,
+            table_name,
+            expression,
+            measure_details,
+            expression_source,
+            analysis_result,
+            fix_suggestions,
+            execution_result,
+            filter_context_info,
+            compact,
         )
 
     except Exception as e:
         logger.error(f"Error in analyze_measure: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('analyze_measure', e)
+        return ErrorHandler.handle_unexpected_error("analyze_measure", e)
 
 
 def _get_debug_operations():
@@ -1822,6 +1619,7 @@ def _get_debug_operations():
 
     try:
         from core.debug.debug_operations import DebugOperations
+
         return DebugOperations(builder, qe), None
     except Exception as e:
         return None, f"Error initializing DebugOperations: {e}"
@@ -1837,56 +1635,62 @@ def handle_validate(args: Dict[str, Any]) -> Dict[str, Any]:
     - filter_permutation: Test visual with different slicer combinations
     """
     try:
-        operation = args.get('operation', 'cross_visual')
+        operation = args.get("operation", "cross_visual")
 
         ops, error = _get_debug_operations()
         if error:
-            return {'success': False, 'error': error}
+            return {"success": False, "error": error}
 
-        if operation == 'cross_visual':
-            measure_name = args.get('measure_name')
+        if operation == "cross_visual":
+            measure_name = args.get("measure_name")
             if not measure_name:
-                return {'success': False, 'error': 'measure_name is required for cross_visual validation'}
+                return {
+                    "success": False,
+                    "error": "measure_name is required for cross_visual validation",
+                }
             return ops.cross_visual_validation(
                 measure_name=measure_name,
-                page_names=args.get('page_names'),
-                tolerance=args.get('tolerance', 0.001)
+                page_names=args.get("page_names"),
+                tolerance=args.get("tolerance", 0.001),
             )
 
-        elif operation == 'expected_value':
-            page_name = args.get('page_name')
+        elif operation == "expected_value":
+            page_name = args.get("page_name")
             if not page_name:
-                return {'success': False, 'error': 'page_name is required for expected_value test'}
+                return {"success": False, "error": "page_name is required for expected_value test"}
             return ops.expected_value_test(
                 page_name=page_name,
-                visual_id=args.get('visual_id'),
-                visual_name=args.get('visual_name'),
-                expected_value=args.get('expected_value'),
-                filters=args.get('filters'),
-                tolerance=args.get('tolerance', 0.001)
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                expected_value=args.get("expected_value"),
+                filters=args.get("filters"),
+                tolerance=args.get("tolerance", 0.001),
             )
 
-        elif operation == 'filter_permutation':
-            page_name = args.get('page_name')
+        elif operation == "filter_permutation":
+            page_name = args.get("page_name")
             if not page_name:
-                return {'success': False, 'error': 'page_name is required for filter_permutation test'}
+                return {
+                    "success": False,
+                    "error": "page_name is required for filter_permutation test",
+                }
             return ops.filter_permutation_test(
                 page_name=page_name,
-                visual_id=args.get('visual_id'),
-                visual_name=args.get('visual_name'),
-                max_permutations=args.get('max_permutations', 20)
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                max_permutations=args.get("max_permutations", 20),
             )
 
         else:
             return {
-                'success': False,
-                'error': f'Unknown operation: {operation}',
-                'available_operations': ['cross_visual', 'expected_value', 'filter_permutation']
+                "success": False,
+                "error": f"Unknown operation: {operation}",
+                "available_operations": ["cross_visual", "expected_value", "filter_permutation"],
             }
 
     except Exception as e:
         logger.error(f"Error in validate: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('validate', e)
+        return ErrorHandler.handle_unexpected_error("validate", e)
 
 
 def handle_profile(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1898,51 +1702,51 @@ def handle_profile(args: Dict[str, Any]) -> Dict[str, Any]:
     - filter_matrix: Test measure performance with different filter combinations
     """
     try:
-        operation = args.get('operation', 'page')
-        page_name = args.get('page_name')
+        operation = args.get("operation", "page")
+        page_name = args.get("page_name")
 
         if not page_name:
             # List available pages
             builder, error = _get_visual_query_builder()
             if error:
-                return {'success': False, 'error': error}
+                return {"success": False, "error": error}
             pages = builder.list_pages()
             return {
-                'success': False,
-                'error': 'page_name required',
-                'pages': [p.get('name') for p in pages]
+                "success": False,
+                "error": "page_name required",
+                "pages": [p.get("name") for p in pages],
             }
 
         ops, error = _get_debug_operations()
         if error:
-            return {'success': False, 'error': error}
+            return {"success": False, "error": error}
 
-        if operation == 'page':
+        if operation == "page":
             return ops.profile_page(
                 page_name=page_name,
-                iterations=args.get('iterations', 3),
-                include_slicers=args.get('include_slicers', True)
+                iterations=args.get("iterations", 3),
+                include_slicers=args.get("include_slicers", True),
             )
 
-        elif operation == 'filter_matrix':
+        elif operation == "filter_matrix":
             return ops.filter_performance_matrix(
                 page_name=page_name,
-                visual_id=args.get('visual_id'),
-                visual_name=args.get('visual_name'),
-                filter_columns=args.get('filter_columns'),
-                max_combinations=args.get('max_combinations', 15)
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                filter_columns=args.get("filter_columns"),
+                max_combinations=args.get("max_combinations", 15),
             )
 
         else:
             return {
-                'success': False,
-                'error': f'Unknown operation: {operation}',
-                'available_operations': ['page', 'filter_matrix']
+                "success": False,
+                "error": f"Unknown operation: {operation}",
+                "available_operations": ["page", "filter_matrix"],
             }
 
     except Exception as e:
         logger.error(f"Error in profile: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('profile', e)
+        return ErrorHandler.handle_unexpected_error("profile", e)
 
 
 def handle_document(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1956,49 +1760,51 @@ def handle_document(args: Dict[str, Any]) -> Dict[str, Any]:
     - filter_lineage: Show which filters affect which visuals
     """
     try:
-        operation = args.get('operation', 'page')
+        operation = args.get("operation", "page")
         # Lightweight mode (default True) skips expensive operations for faster documentation
-        lightweight = args.get('lightweight', True)
+        lightweight = args.get("lightweight", True)
         # Include UI elements (shapes, buttons, visual groups) - default False for cleaner output
-        include_ui_elements = args.get('include_ui_elements', False)
+        include_ui_elements = args.get("include_ui_elements", False)
 
         ops, error = _get_debug_operations()
         if error:
-            return {'success': False, 'error': error}
+            return {"success": False, "error": error}
 
-        if operation == 'page':
-            page_name = args.get('page_name')
+        if operation == "page":
+            page_name = args.get("page_name")
             if not page_name:
                 # List available pages
                 builder, _ = _get_visual_query_builder()
                 if builder:
                     pages = builder.list_pages()
                     return {
-                        'success': False,
-                        'error': 'page_name required',
-                        'pages': [p.get('name') for p in pages]
+                        "success": False,
+                        "error": "page_name required",
+                        "pages": [p.get("name") for p in pages],
                     }
-            return ops.document_page(page_name, lightweight=lightweight, include_ui_elements=include_ui_elements)
+            return ops.document_page(
+                page_name, lightweight=lightweight, include_ui_elements=include_ui_elements
+            )
 
-        elif operation == 'report':
+        elif operation == "report":
             return ops.document_report(lightweight=lightweight)
 
-        elif operation == 'measure_lineage':
-            return ops.measure_lineage(args.get('measure_name'))
+        elif operation == "measure_lineage":
+            return ops.measure_lineage(args.get("measure_name"))
 
-        elif operation == 'filter_lineage':
-            return ops.filter_lineage(args.get('page_name'))
+        elif operation == "filter_lineage":
+            return ops.filter_lineage(args.get("page_name"))
 
         else:
             return {
-                'success': False,
-                'error': f'Unknown operation: {operation}',
-                'available_operations': ['page', 'report', 'measure_lineage', 'filter_lineage']
+                "success": False,
+                "error": f"Unknown operation: {operation}",
+                "available_operations": ["page", "report", "measure_lineage", "filter_lineage"],
             }
 
     except Exception as e:
         logger.error(f"Error in document: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('document', e)
+        return ErrorHandler.handle_unexpected_error("document", e)
 
 
 def handle_advanced_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -2013,77 +1819,86 @@ def handle_advanced_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
     - export: Export debug report as markdown/JSON
     """
     try:
-        operation = args.get('operation', 'decompose')
-        page_name = args.get('page_name')
+        operation = args.get("operation", "decompose")
+        page_name = args.get("page_name")
 
         ops, error = _get_debug_operations()
         if error:
-            return {'success': False, 'error': error}
+            return {"success": False, "error": error}
 
-        if operation == 'decompose':
+        if operation == "decompose":
             if not page_name:
-                return {'success': False, 'error': 'page_name is required for decompose'}
+                return {"success": False, "error": "page_name is required for decompose"}
             return ops.decompose_value(
                 page_name=page_name,
-                visual_id=args.get('visual_id'),
-                visual_name=args.get('visual_name'),
-                dimension=args.get('dimension'),
-                top_n=args.get('top_n', 10)
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                dimension=args.get("dimension"),
+                top_n=args.get("top_n", 10),
             )
 
-        elif operation == 'contribution':
+        elif operation == "contribution":
             if not page_name:
-                return {'success': False, 'error': 'page_name is required for contribution analysis'}
+                return {
+                    "success": False,
+                    "error": "page_name is required for contribution analysis",
+                }
             return ops.contribution_analysis(
                 page_name=page_name,
-                visual_id=args.get('visual_id'),
-                visual_name=args.get('visual_name'),
-                dimension=args.get('dimension'),
-                top_n=args.get('top_n', 10)
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                dimension=args.get("dimension"),
+                top_n=args.get("top_n", 10),
             )
 
-        elif operation == 'trend':
+        elif operation == "trend":
             if not page_name:
-                return {'success': False, 'error': 'page_name is required for trend analysis'}
+                return {"success": False, "error": "page_name is required for trend analysis"}
             return ops.trend_analysis(
                 page_name=page_name,
-                visual_id=args.get('visual_id'),
-                visual_name=args.get('visual_name'),
-                date_column=args.get('date_column'),
-                granularity=args.get('granularity', 'month')
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                date_column=args.get("date_column"),
+                granularity=args.get("granularity", "month"),
             )
 
-        elif operation == 'root_cause':
+        elif operation == "root_cause":
             if not page_name:
-                return {'success': False, 'error': 'page_name is required for root_cause analysis'}
+                return {"success": False, "error": "page_name is required for root_cause analysis"}
             return ops.root_cause_analysis(
                 page_name=page_name,
-                visual_id=args.get('visual_id'),
-                visual_name=args.get('visual_name'),
-                baseline_filters=args.get('baseline_filters'),
-                comparison_filters=args.get('comparison_filters'),
-                dimensions=args.get('dimensions'),
-                top_n=args.get('top_n', 5)
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                baseline_filters=args.get("baseline_filters"),
+                comparison_filters=args.get("comparison_filters"),
+                dimensions=args.get("dimensions"),
+                top_n=args.get("top_n", 5),
             )
 
-        elif operation == 'export':
+        elif operation == "export":
             return ops.export_debug_report(
                 page_name=page_name,
-                visual_id=args.get('visual_id'),
-                visual_name=args.get('visual_name'),
-                format=args.get('format', 'markdown')
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                format=args.get("format", "markdown"),
             )
 
         else:
             return {
-                'success': False,
-                'error': f'Unknown operation: {operation}',
-                'available_operations': ['decompose', 'contribution', 'trend', 'root_cause', 'export']
+                "success": False,
+                "error": f"Unknown operation: {operation}",
+                "available_operations": [
+                    "decompose",
+                    "contribution",
+                    "trend",
+                    "root_cause",
+                    "export",
+                ],
             }
 
     except Exception as e:
         logger.error(f"Error in advanced_analysis: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error('advanced_analysis', e)
+        return ErrorHandler.handle_unexpected_error("advanced_analysis", e)
 
 
 def _extract_variables_full(dax: str) -> List[Dict[str, str]]:
@@ -2097,6 +1912,7 @@ def _extract_variables_full(dax: str) -> List[Dict[str, str]]:
         preserving declaration order for dependency chaining.
     """
     import re
+
     var_pattern = re.compile(
         r"\bVAR\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*",
         re.IGNORECASE,
@@ -2105,6 +1921,7 @@ def _extract_variables_full(dax: str) -> List[Dict[str, str]]:
     return_kw = re.compile(r"\bRETURN\b", re.IGNORECASE)
 
     from core.dax.dax_utilities import normalize_dax
+
     cleaned = normalize_dax(dax)
 
     variables: List[Dict[str, str]] = []
@@ -2125,27 +1942,47 @@ def _extract_variables_full(dax: str) -> List[Dict[str, str]]:
             end_pos = nr.start()
 
         expr = remaining[:end_pos].strip()
-        variables.append({
-            'name': var_name,
-            'expression': expr,
-        })
+        variables.append(
+            {
+                "name": var_name,
+                "expression": expr,
+            }
+        )
 
     return variables
 
 
 # DAX functions that typically return tables (not scalars)
 _TABLE_RETURNING_FUNCTIONS = {
-    'FILTER', 'ALL', 'VALUES', 'SUMMARIZE',
-    'ADDCOLUMNS', 'SELECTCOLUMNS', 'TOPN',
-    'DISTINCT', 'UNION', 'INTERSECT', 'EXCEPT',
-    'DATATABLE', 'GENERATESERIES', 'GENERATE',
-    'CROSSJOIN', 'NATURALINNERJOIN',
-    'NATURALLEFTOUTERJOIN', 'CALCULATETABLE',
-    'TREATAS', 'SUMMARIZECOLUMNS', 'GROUPBY',
-    'ROW', 'DETAILROWS', 'SAMPLE',
-    'SUBSTITUTEWITHINDEX', 'ROLLUP',
-    'ROLLUPADDISSUBTOTAL', 'ROLLUPISSUBTOTAL',
-    'ROLLUPGROUP',
+    "FILTER",
+    "ALL",
+    "VALUES",
+    "SUMMARIZE",
+    "ADDCOLUMNS",
+    "SELECTCOLUMNS",
+    "TOPN",
+    "DISTINCT",
+    "UNION",
+    "INTERSECT",
+    "EXCEPT",
+    "DATATABLE",
+    "GENERATESERIES",
+    "GENERATE",
+    "CROSSJOIN",
+    "NATURALINNERJOIN",
+    "NATURALLEFTOUTERJOIN",
+    "CALCULATETABLE",
+    "TREATAS",
+    "SUMMARIZECOLUMNS",
+    "GROUPBY",
+    "ROW",
+    "DETAILROWS",
+    "SAMPLE",
+    "SUBSTITUTEWITHINDEX",
+    "ROLLUP",
+    "ROLLUPADDISSUBTOTAL",
+    "ROLLUPISSUBTOTAL",
+    "ROLLUPGROUP",
 }
 
 
@@ -2161,12 +1998,13 @@ def _classify_var_type(expression: str) -> str:
     stripped = expression.strip()
     # Get leading word (function name before the opening paren)
     import re
+
     m = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", stripped)
     if m:
         func_name = m.group(1).upper()
         if func_name in _TABLE_RETURNING_FUNCTIONS:
-            return 'table'
-    return 'scalar'
+            return "table"
+    return "scalar"
 
 
 def _build_var_chain_query(
@@ -2195,14 +2033,10 @@ def _build_var_chain_query(
         v = variables[i]
         lines.append(f"  VAR {v['name']} = {v['expression']}")
 
-    if var_type == 'table':
-        lines.append(
-            f"EVALUATE TOPN({max_rows}, {target['name']})"
-        )
+    if var_type == "table":
+        lines.append(f"EVALUATE TOPN({max_rows}, {target['name']})")
     else:
-        lines.append(
-            f'EVALUATE ROW("value", {target["name"]})'
-        )
+        lines.append(f'EVALUATE ROW("value", {target["name"]})')
 
     return "\n".join(lines)
 
@@ -2216,138 +2050,111 @@ def _handle_debug_variable(
     includes the full VAR chain up to the target variable.
     """
     try:
-        measure_name = args.get('measure_name')
-        table_name = args.get('table_name')
-        variable_name = args.get('variable_name')
-        max_rows = args.get('max_rows', 100)
+        measure_name = args.get("measure_name")
+        table_name = args.get("table_name")
+        variable_name = args.get("variable_name")
+        max_rows = args.get("max_rows", 100)
 
         if not measure_name:
             return {
-                'success': False,
-                'error': 'measure_name is required',
+                "success": False,
+                "error": "measure_name is required",
             }
         if not variable_name:
             return {
-                'success': False,
-                'error': 'variable_name is required',
+                "success": False,
+                "error": "variable_name is required",
             }
 
         if not connection_state.is_connected():
             return {
-                'success': False,
-                'error': (
-                    'Not connected to Power BI model. '
-                    'Use connect_to_powerbi first.'
-                ),
+                "success": False,
+                "error": ("Not connected to Power BI model. " "Use connect_to_powerbi first."),
             }
 
         qe = connection_state.query_executor
         if not qe:
-            return ErrorHandler.handle_manager_unavailable(
-                'query_executor'
-            )
+            return ErrorHandler.handle_manager_unavailable("query_executor")
 
         # Resolve measure expression
-        resolved = _resolve_measure_expression(
-            measure_name, table_name, qe
-        )
-        if not resolved['success']:
+        resolved = _resolve_measure_expression(measure_name, table_name, qe)
+        if not resolved["success"]:
             return resolved
 
-        expression = resolved['expression']
+        expression = resolved["expression"]
 
         # Parse variables
         variables = _extract_variables_full(expression)
         if not variables:
             return {
-                'success': False,
-                'error': (
-                    f"No VAR definitions found in measure "
-                    f"'{measure_name}'"
-                ),
-                'expression_preview': expression[:200],
+                "success": False,
+                "error": (f"No VAR definitions found in measure " f"'{measure_name}'"),
+                "expression_preview": expression[:200],
             }
 
         # Find the target variable
         target_idx = None
         for i, v in enumerate(variables):
-            if v['name'].lower() == variable_name.lower():
+            if v["name"].lower() == variable_name.lower():
                 target_idx = i
                 break
 
         if target_idx is None:
             return {
-                'success': False,
-                'error': (
-                    f"Variable '{variable_name}' not found "
-                    f"in measure '{measure_name}'"
-                ),
-                'available_variables': [
-                    v['name'] for v in variables
-                ],
+                "success": False,
+                "error": (f"Variable '{variable_name}' not found " f"in measure '{measure_name}'"),
+                "available_variables": [v["name"] for v in variables],
             }
 
         target = variables[target_idx]
-        var_type = _classify_var_type(target['expression'])
+        var_type = _classify_var_type(target["expression"])
 
         # Build and execute query
-        query = _build_var_chain_query(
-            variables, target_idx, var_type, max_rows
-        )
+        query = _build_var_chain_query(variables, target_idx, var_type, max_rows)
 
         start = time.monotonic()
-        exec_result = qe.validate_and_execute_dax(
-            query, top_n=max_rows
-        )
-        elapsed_ms = round(
-            (time.monotonic() - start) * 1000, 1
-        )
+        exec_result = qe.validate_and_execute_dax(query, top_n=max_rows)
+        elapsed_ms = round((time.monotonic() - start) * 1000, 1)
 
-        if not exec_result.get('success'):
+        if not exec_result.get("success"):
             return {
-                'success': False,
-                'error': exec_result.get('error'),
-                'variable': variable_name,
-                'type': var_type,
-                'query': query,
+                "success": False,
+                "error": exec_result.get("error"),
+                "variable": variable_name,
+                "type": var_type,
+                "query": query,
             }
 
-        rows = exec_result.get('rows', [])
+        rows = exec_result.get("rows", [])
 
         result: Dict[str, Any] = {
-            'success': True,
-            'variable': variable_name,
-            'type': var_type,
-            'expression': (
-                target['expression'][:300] + '...'
-                if len(target['expression']) > 300
-                else target['expression']
+            "success": True,
+            "variable": variable_name,
+            "type": var_type,
+            "expression": (
+                target["expression"][:300] + "..."
+                if len(target["expression"]) > 300
+                else target["expression"]
             ),
-            'execution_time_ms': elapsed_ms,
-            'query': query,
+            "execution_time_ms": elapsed_ms,
+            "query": query,
         }
 
-        if var_type == 'scalar':
+        if var_type == "scalar":
             value = None
             if rows:
                 row = rows[0]
-                value = row.get(
-                    'value', row.get('[value]')
-                )
-            result['value'] = value
+                value = row.get("value", row.get("[value]"))
+            result["value"] = value
         else:
-            result['rows'] = rows
-            result['row_count'] = len(rows)
+            result["rows"] = rows
+            result["row_count"] = len(rows)
 
         return result
 
     except Exception as e:
-        logger.error(
-            f"Error in debug_variable: {e}", exc_info=True
-        )
-        return ErrorHandler.handle_unexpected_error(
-            'debug_variable', e
-        )
+        logger.error(f"Error in debug_variable: {e}", exc_info=True)
+        return ErrorHandler.handle_unexpected_error("debug_variable", e)
 
 
 def _handle_step_variables(
@@ -2360,51 +2167,41 @@ def _handle_step_variables(
     for each step.
     """
     try:
-        measure_name = args.get('measure_name')
-        table_name = args.get('table_name')
-        page_name = args.get('page_name')
-        max_rows = args.get('max_rows', 10)
+        measure_name = args.get("measure_name")
+        table_name = args.get("table_name")
+        page_name = args.get("page_name")
+        max_rows = args.get("max_rows", 10)
 
         if not measure_name:
             return {
-                'success': False,
-                'error': 'measure_name is required',
+                "success": False,
+                "error": "measure_name is required",
             }
 
         if not connection_state.is_connected():
             return {
-                'success': False,
-                'error': (
-                    'Not connected to Power BI model. '
-                    'Use connect_to_powerbi first.'
-                ),
+                "success": False,
+                "error": ("Not connected to Power BI model. " "Use connect_to_powerbi first."),
             }
 
         qe = connection_state.query_executor
         if not qe:
-            return ErrorHandler.handle_manager_unavailable(
-                'query_executor'
-            )
+            return ErrorHandler.handle_manager_unavailable("query_executor")
 
         # Resolve measure expression
-        resolved = _resolve_measure_expression(
-            measure_name, table_name, qe
-        )
-        if not resolved['success']:
+        resolved = _resolve_measure_expression(measure_name, table_name, qe)
+        if not resolved["success"]:
             return resolved
 
-        expression = resolved['expression']
+        expression = resolved["expression"]
 
         # Parse variables
         variables = _extract_variables_full(expression)
         if not variables:
             return {
-                'success': False,
-                'error': (
-                    f"No VAR definitions found in measure "
-                    f"'{measure_name}'"
-                ),
-                'expression_preview': expression[:200],
+                "success": False,
+                "error": (f"No VAR definitions found in measure " f"'{measure_name}'"),
+                "expression_preview": expression[:200],
             }
 
         # Optionally get filter context from page
@@ -2412,11 +2209,9 @@ def _handle_step_variables(
         if page_name:
             _, parts = _get_visual_filter_context_for_measure(
                 page_name=page_name,
-                visual_id=args.get('visual_id'),
-                visual_name=args.get('visual_name'),
-                include_slicers=args.get(
-                    'include_slicers', True
-                ),
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                include_slicers=args.get("include_slicers", True),
                 qe=qe,
             )
             filter_dax_parts = parts
@@ -2426,175 +2221,162 @@ def _handle_step_variables(
         total_start = time.monotonic()
 
         for idx, var in enumerate(variables):
-            var_type = _classify_var_type(var['expression'])
-            rows_limit = (
-                max_rows if var_type == 'table' else 1
-            )
+            var_type = _classify_var_type(var["expression"])
+            rows_limit = max_rows if var_type == "table" else 1
 
-            query = _build_var_chain_query(
-                variables, idx, var_type, rows_limit
-            )
+            query = _build_var_chain_query(variables, idx, var_type, rows_limit)
 
             # Wrap in CALCULATETABLE if filter context
-            if filter_dax_parts and var_type == 'table':
-                filter_clause = ', '.join(filter_dax_parts)
+            if filter_dax_parts and var_type == "table":
+                filter_clause = ", ".join(filter_dax_parts)
                 # Replace EVALUATE line with filtered version
-                eval_line = query.split('\n')[-1]
-                inner = eval_line.replace('EVALUATE ', '')
+                eval_line = query.split("\n")[-1]
+                inner = eval_line.replace("EVALUATE ", "")
                 query = (
-                    '\n'.join(query.split('\n')[:-1])
-                    + f'\nEVALUATE CALCULATETABLE('
-                    f'{inner}, {filter_clause})'
+                    "\n".join(query.split("\n")[:-1]) + f"\nEVALUATE CALCULATETABLE("
+                    f"{inner}, {filter_clause})"
                 )
-            elif filter_dax_parts and var_type == 'scalar':
-                filter_clause = ', '.join(filter_dax_parts)
-                eval_line = query.split('\n')[-1]
+            elif filter_dax_parts and var_type == "scalar":
+                filter_clause = ", ".join(filter_dax_parts)
+                eval_line = query.split("\n")[-1]
                 # Extract the ROW expression
-                inner_expr = var['name']
+                inner_expr = var["name"]
                 query = (
-                    '\n'.join(query.split('\n')[:-1])
-                    + f'\nEVALUATE ROW("value", '
-                    f'CALCULATE({inner_expr}, '
-                    f'{filter_clause}))'
+                    "\n".join(query.split("\n")[:-1]) + f'\nEVALUATE ROW("value", '
+                    f"CALCULATE({inner_expr}, "
+                    f"{filter_clause}))"
                 )
 
             step_start = time.monotonic()
-            exec_result = qe.validate_and_execute_dax(
-                query, top_n=rows_limit
-            )
-            step_ms = round(
-                (time.monotonic() - step_start) * 1000, 1
-            )
+            exec_result = qe.validate_and_execute_dax(query, top_n=rows_limit)
+            step_ms = round((time.monotonic() - step_start) * 1000, 1)
 
             step: Dict[str, Any] = {
-                'var_name': var['name'],
-                'type': var_type,
-                'expression': (
-                    var['expression'][:200] + '...'
-                    if len(var['expression']) > 200
-                    else var['expression']
+                "var_name": var["name"],
+                "type": var_type,
+                "expression": (
+                    var["expression"][:200] + "..."
+                    if len(var["expression"]) > 200
+                    else var["expression"]
                 ),
-                'execution_time_ms': step_ms,
+                "execution_time_ms": step_ms,
             }
 
-            if exec_result.get('success'):
-                rows = exec_result.get('rows', [])
-                if var_type == 'scalar':
+            if exec_result.get("success"):
+                rows = exec_result.get("rows", [])
+                if var_type == "scalar":
                     value = None
                     if rows:
                         row = rows[0]
-                        value = row.get(
-                            'value', row.get('[value]')
-                        )
-                    step['value'] = value
+                        value = row.get("value", row.get("[value]"))
+                    step["value"] = value
                 else:
-                    step['row_count'] = len(rows)
-                    step['rows'] = rows[:5]
+                    step["row_count"] = len(rows)
+                    step["rows"] = rows[:5]
                     if len(rows) > 5:
-                        step['truncated'] = True
+                        step["truncated"] = True
             else:
-                step['error'] = exec_result.get('error')
+                step["error"] = exec_result.get("error")
 
             steps.append(step)
 
-        total_ms = round(
-            (time.monotonic() - total_start) * 1000, 1
-        )
+        total_ms = round((time.monotonic() - total_start) * 1000, 1)
 
         # Find slowest step
-        slowest = max(
-            steps,
-            key=lambda s: s.get('execution_time_ms', 0),
-        ) if steps else None
+        slowest = (
+            max(
+                steps,
+                key=lambda s: s.get("execution_time_ms", 0),
+            )
+            if steps
+            else None
+        )
 
         result: Dict[str, Any] = {
-            'success': True,
-            'measure': measure_name,
-            'variable_count': len(variables),
-            'total_execution_time_ms': total_ms,
-            'steps': steps,
+            "success": True,
+            "measure": measure_name,
+            "variable_count": len(variables),
+            "total_execution_time_ms": total_ms,
+            "steps": steps,
         }
 
         if slowest:
-            result['slowest_variable'] = {
-                'name': slowest['var_name'],
-                'ms': slowest['execution_time_ms'],
+            result["slowest_variable"] = {
+                "name": slowest["var_name"],
+                "ms": slowest["execution_time_ms"],
             }
 
         if filter_dax_parts:
-            result['filter_context'] = {
-                'source': page_name,
-                'filters_applied': len(filter_dax_parts),
+            result["filter_context"] = {
+                "source": page_name,
+                "filters_applied": len(filter_dax_parts),
             }
 
         return result
 
     except Exception as e:
-        logger.error(
-            f"Error in step_variables: {e}", exc_info=True
-        )
-        return ErrorHandler.handle_unexpected_error(
-            'step_variables', e
-        )
+        logger.error(f"Error in step_variables: {e}", exc_info=True)
+        return ErrorHandler.handle_unexpected_error("step_variables", e)
 
 
 def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a raw DAX query, optionally with SE/FE trace analysis."""
     if not connection_state.is_connected():
-        return {'success': False, 'error': 'Not connected to Power BI Desktop'}
+        return {"success": False, "error": "Not connected to Power BI Desktop"}
 
-    query = args.get('query', '').strip()
+    query = args.get("query", "").strip()
     if not query:
-        return {'success': False, 'error': 'query parameter is required'}
+        return {"success": False, "error": "query parameter is required"}
 
-    trace = args.get('trace', False)
-    clear_cache = args.get('clear_cache', True)
+    trace = args.get("trace", False)
+    clear_cache = args.get("clear_cache", True)
 
-    response: Dict[str, Any] = {'success': True, 'query': query}
+    response: Dict[str, Any] = {"success": True, "query": query}
 
     # SE/FE trace (cold cache first so timing is accurate)
     if trace:
         try:
             from core.infrastructure.query_trace import NativeTraceRunner
+
             conn_str = connection_state.connection_manager.connection_string
             if not conn_str:
-                response['se_fe_trace'] = {'error': 'No connection string available'}
+                response["se_fe_trace"] = {"error": "No connection string available"}
             elif not NativeTraceRunner.is_available():
-                response['se_fe_trace'] = {
-                    'error': (
-                        'DaxExecutor.exe not found. '
-                        'Build: cd core/infrastructure/dax_executor '
-                        '&& dotnet build -c Release'
+                response["se_fe_trace"] = {
+                    "error": (
+                        "DaxExecutor.exe not found. "
+                        "Build: cd core/infrastructure/dax_executor "
+                        "&& dotnet build -c Release"
                     )
                 }
             else:
                 runner = NativeTraceRunner(conn_str)
                 trace_result = runner.execute_with_trace(query, clear_cache)
-                if '_error' in trace_result:
-                    response['se_fe_trace'] = {'error': trace_result['_error']}
+                if "_error" in trace_result:
+                    response["se_fe_trace"] = {"error": trace_result["_error"]}
                 else:
                     trace_response = _build_trace_response(trace_result)
-                    response['se_fe_trace'] = trace_response
+                    response["se_fe_trace"] = trace_response
                     # Cache for auto-retrieval by optimize
                     connection_state.store_trace_result(trace_response)
         except Exception as te:
             logger.error(f"SE/FE trace failed: {te}", exc_info=True)
-            response['se_fe_trace'] = {'error': str(te)}
+            response["se_fe_trace"] = {"error": str(te)}
 
     # Execute query and return rows
     try:
         qe = connection_state.query_executor
         if not qe:
-            response['result'] = {'error': 'Query executor not available'}
+            response["result"] = {"error": "Query executor not available"}
         else:
             exec_result = qe.validate_and_execute_dax(query, top_n=0)
-            response['result'] = exec_result
-            if not exec_result.get('success'):
-                response['success'] = False
+            response["result"] = exec_result
+            if not exec_result.get("success"):
+                response["success"] = False
     except Exception as e:
         logger.error(f"DAX execution failed: {e}", exc_info=True)
-        response['result'] = {'error': str(e)}
-        response['success'] = False
+        response["result"] = {"error": str(e)}
+        response["success"] = False
 
     return response
 
@@ -2603,96 +2385,173 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
 # OPTIMIZE OPERATION — SE/FE trace + DAX analysis + suggestions
 # =============================================================================
 
-def _diagnose_timing(perf: dict) -> dict:
-    """Convert raw SE/FE metrics into a human-readable diagnosis."""
-    fe_pct = perf.get('fe_pct', 0)
-    se_queries = perf.get('se_queries', 0)
-    se_ms = perf.get('se_ms', 0)
-    se_par = perf.get('se_parallelism', 0)
+
+def _trace_measures_individually(
+    measures: List[str], clear_cache: bool = True
+) -> Dict[str, Dict[str, Any]]:
+    """Run individual traces per measure to isolate timing.
+
+    CAVEAT: Individual traces lack the visual's combined filter context,
+    so timings may differ from the actual visual query.
+
+    Args:
+        measures: List of measure names to trace individually
+        clear_cache: Whether to clear VertiPaq cache before each trace
+
+    Returns:
+        Dict mapping measure_name -> {total_ms, se_ms, fe_ms, se_queries}
+    """
+    results: Dict[str, Dict[str, Any]] = {}
+    try:
+        from core.infrastructure.query_trace import NativeTraceRunner
+
+        conn_str = (
+            connection_state.connection_manager.connection_string
+            if connection_state.connection_manager
+            else None
+        )
+        if not conn_str or not NativeTraceRunner.is_available():
+            return results
+
+        runner = NativeTraceRunner(conn_str)
+        for measure_name in measures:
+            try:
+                query = f'EVALUATE ROW("Result", [{measure_name}])'
+                trace_result = runner.execute_with_trace(query, clear_cache)
+                if "_error" not in trace_result:
+                    perf_data = trace_result.get("performance", {})
+                    results[measure_name] = {
+                        "total_ms": perf_data.get("total_ms", 0),
+                        "se_ms": perf_data.get("se_ms", 0),
+                        "fe_ms": perf_data.get("fe_ms", 0),
+                        "se_queries": perf_data.get("se_queries", 0),
+                    }
+                else:
+                    results[measure_name] = {"error": trace_result["_error"]}
+            except Exception as me:
+                results[measure_name] = {"error": str(me)}
+    except Exception as e:
+        logger.warning(f"Per-measure tracing failed: {e}")
+
+    return results
+
+
+def _diagnose_timing(perf: dict, se_analysis: Optional[dict] = None) -> dict:
+    """Convert raw SE/FE metrics into a human-readable diagnosis.
+
+    Args:
+        perf: Performance dict with timing aggregates
+        se_analysis: Optional SE event analysis (for fusion-aware datacache thresholds)
+    """
+    fe_pct = perf.get("fe_pct", 0)
+    se_queries = perf.get("se_queries", 0)
+    se_ms = perf.get("se_ms", 0)
+    se_par = perf.get("se_parallelism", 0)
     notes = []
 
     if fe_pct > 80:
-        profile = 'FE-bound'
+        profile = "FE-bound"
         notes.append(
-            f'Formula Engine consumed {fe_pct}% of total time. '
-            'The FE is single-threaded and uncached — this is the bottleneck. '
-            'Focus on reducing iterators, context transitions, and pushing work to SE.'
+            f"Formula Engine consumed {fe_pct}% of total time. "
+            "The FE is single-threaded and uncached — this is the bottleneck. "
+            "Focus on reducing iterators, context transitions, and pushing work to SE."
         )
     elif fe_pct > 50:
-        profile = 'FE-heavy'
+        profile = "FE-heavy"
         notes.append(
-            f'Formula Engine consumed {fe_pct}% of time. '
-            'DAX complexity is dominant. Consider simplifying filter arguments and reducing iterator scope.'
+            f"Formula Engine consumed {fe_pct}% of time. "
+            "DAX complexity is dominant. Consider simplifying filter arguments and reducing iterator scope."
         )
     elif fe_pct < 20:
-        profile = 'SE-bound'
+        profile = "SE-bound"
         notes.append(
-            f'Storage Engine consumed {100 - fe_pct}% of time. '
-            'Check for large table scans, high-cardinality DISTINCTCOUNT, or missing aggregation tables.'
+            f"Storage Engine consumed {100 - fe_pct}% of time. "
+            "Check for large table scans, high-cardinality DISTINCTCOUNT, or missing aggregation tables."
         )
     else:
-        profile = 'balanced'
+        profile = "balanced"
         notes.append(
-            f'Good FE/SE balance ({fe_pct}% FE, {100 - fe_pct:.0f}% SE). '
-            'Query performance is likely acceptable at this complexity level.'
+            f"Good FE/SE balance ({fe_pct}% FE, {100 - fe_pct:.0f}% SE). "
+            "Query performance is likely acceptable at this complexity level."
         )
+
+    # Fusion-aware datacache threshold: tighten to 128 when many fusion breaks
+    fusion_breaks = 0
+    if se_analysis:
+        fusion = se_analysis.get("fusion_opportunities", {})
+        fusion_breaks = fusion.get("vertical_breaks", 0)
+    datacache_limit = 128 if fusion_breaks > 5 else 256
 
     if se_queries > 256:
         notes.append(
-            f'CRITICAL: SE query count ({se_queries}) exceeds the datacache limit of 256. '
-            'Cache provides no benefit. Redesign required to reduce SE fan-out.'
+            f"CRITICAL: SE query count ({se_queries}) exceeds the datacache limit of 256. "
+            "Cache provides no benefit. Redesign required to reduce SE fan-out."
+        )
+    elif se_queries > datacache_limit:
+        fusion_note = (
+            f" (threshold tightened to {datacache_limit} due to {fusion_breaks} "
+            f"vertical fusion breaks)"
+            if datacache_limit < 256
+            else ""
+        )
+        notes.append(
+            f"High SE query count ({se_queries}){fusion_note}. "
+            "Investigate iterator structure — repeated sub-expressions should be "
+            "captured in VAR to avoid re-evaluation."
         )
     elif se_queries > 50:
         notes.append(
-            f'High SE query count ({se_queries}). Investigate iterator structure — '
-            'repeated sub-expressions should be captured in VAR to avoid re-evaluation.'
+            f"High SE query count ({se_queries}). Investigate iterator structure — "
+            "repeated sub-expressions should be captured in VAR to avoid re-evaluation."
         )
 
     if se_par < 1.0 and se_ms > 20:
-        notes.append(
-            f'SE parallelism ({se_par}x) is sequential — single-threaded SE execution.'
-        )
+        notes.append(f"SE parallelism ({se_par}x) is sequential — single-threaded SE execution.")
     elif 1.0 <= se_par < 2.0 and se_ms > 50:
         notes.append(
-            f'SE parallelism ({se_par}x) is limited — not fully utilizing CPU cores. '
-            'This can indicate FE serialization forcing sequential SE calls.'
+            f"SE parallelism ({se_par}x) is limited — not fully utilizing CPU cores. "
+            "This can indicate FE serialization forcing sequential SE calls."
         )
 
     # SE CPU utilization analysis
-    se_cpu = perf.get('se_cpu_ms', 0)
+    se_cpu = perf.get("se_cpu_ms", 0)
     if se_ms > 50 and se_cpu > 0:
         cpu_ratio = se_cpu / se_ms
         if cpu_ratio > 3.0:
             notes.append(
-                f'SE CPU time ({se_cpu}ms) is {cpu_ratio:.1f}x wall time ({se_ms}ms) — '
-                'heavy parallel CPU computation. Check for DISTINCTCOUNT or complex aggregations.'
+                f"SE CPU time ({se_cpu}ms) is {cpu_ratio:.1f}x wall time ({se_ms}ms) — "
+                "heavy parallel CPU computation. Check for DISTINCTCOUNT or complex aggregations."
             )
         elif cpu_ratio < 0.3 and se_ms > 100:
             notes.append(
-                f'SE CPU time ({se_cpu}ms) is only {cpu_ratio:.0%} of wall time ({se_ms}ms) — '
-                'possible I/O wait or lock contention.'
+                f"SE CPU time ({se_cpu}ms) is only {cpu_ratio:.0%} of wall time ({se_ms}ms) — "
+                "possible I/O wait or lock contention."
             )
 
     # Absolute time assessment
-    total_ms = perf.get('total_ms', 0)
+    total_ms = perf.get("total_ms", 0)
     if total_ms < 50:
-        notes.append(f'Fast query ({total_ms}ms) — SE/FE ratios are less meaningful at this speed.')
+        notes.append(f"Fast query ({total_ms}ms) — SE/FE ratios are less meaningful at this speed.")
     elif total_ms > 2000:
-        notes.append(f'Slow query ({total_ms}ms) — significant optimization opportunity.')
+        notes.append(f"Slow query ({total_ms}ms) — significant optimization opportunity.")
 
     # SE/FE ratio benchmark (ideal ~20% FE / 80% SE)
     ideal_fe = 20
     deviation = abs(fe_pct - ideal_fe)
     if deviation > 40:
-        notes.append(f'FE% ({fe_pct}%) is {deviation:.0f}% off ideal (20%). Major rebalancing needed.')
+        notes.append(
+            f"FE% ({fe_pct}%) is {deviation:.0f}% off ideal (20%). Major rebalancing needed."
+        )
     elif deviation > 20:
-        notes.append(f'FE% ({fe_pct}%) is {deviation:.0f}% off ideal (20%). Room for improvement.')
+        notes.append(f"FE% ({fe_pct}%) is {deviation:.0f}% off ideal (20%). Room for improvement.")
 
     # Datacache limit proximity
     if 200 < se_queries <= 256:
-        notes.append(f'SE queries ({se_queries}) approaching datacache limit of 256. Performance cliff ahead.')
+        notes.append(
+            f"SE queries ({se_queries}) approaching datacache limit of 256. Performance cliff ahead."
+        )
 
-    return {'profile': profile, 'notes': notes}
+    return {"profile": profile, "notes": notes}
 
 
 def _build_optimize_suggestions(
@@ -2701,10 +2560,14 @@ def _build_optimize_suggestions(
     callback_info: dict,
     static_callbacks: dict,
     perf: dict,
+    vertipaq_result: Optional[dict] = None,
 ) -> list:
     """
     Merge runtime CallbackDataID findings, static callback detections, BPA issues,
     and rewriter suggestions into a single prioritized optimization list.
+
+    Priority scoring includes cardinality-weighted boost: same anti-pattern on a
+    high-cardinality table ranks above the same issue on a small table.
 
     Priority order:
       0. Runtime CallbackDataID in SE trace (confirmed, always critical)
@@ -2717,120 +2580,144 @@ def _build_optimize_suggestions(
       7. Medium-confidence rewriter suggestions
     """
     suggestions = []
-    fe_pct = perf.get('fe_pct', 0) if perf else 0
+    fe_pct = perf.get("fe_pct", 0) if perf else 0
+
+    # Compute cardinality boost from VertiPaq analysis (0-5 range)
+    max_cardinality = 0
+    if vertipaq_result and vertipaq_result.get("success"):
+        col_analysis = vertipaq_result.get("column_analysis", {})
+        for col_data in col_analysis.values():
+            if isinstance(col_data, dict):
+                card = col_data.get("cardinality", 0)
+                if card > max_cardinality:
+                    max_cardinality = card
+    cardinality_boost = (
+        min(5, max(0, math.log10(max_cardinality) - 2)) if max_cardinality > 100 else 0
+    )
 
     # --- Source 1: Runtime CallbackDataID in SE trace ---
-    if callback_info.get('detected'):
-        for cb in callback_info.get('queries', []):
-            suggestions.append({
-                'priority': 0,
-                'severity': 'critical',
-                'category': 'callback_elimination',
-                'title': 'CallbackDataID detected in Storage Engine query (runtime)',
-                'description': (
-                    'A CallbackDataID forces the Formula Engine (single-threaded, uncached) '
-                    'to be invoked for every row during SE scan. '
-                    'This can increase query time by 100x–260x compared to a pure SE query. '
-                    f"Triggered in SE event line {cb.get('line')} ({cb.get('duration_ms')}ms). "
-                    'Common causes: ROUND/TRUNC/INT/CEILING/FLOOR inside SUMX, '
-                    'DIVIDE() anywhere, IF() inside iterators, text functions in row context.'
-                ),
-                'code_before': cb.get('snippet', ''),
-                'code_after': (
-                    '-- Pre-group by distinct values to minimize callback invocations:\n'
-                    'SUMX(\n'
-                    '    SUMMARIZE(FactTable, FactTable[ColumnWithLowCardinality]),\n'
-                    '    CALCULATE(SUM(FactTable[Qty])) * callback_function(FactTable[ColumnWithLowCardinality])\n'
-                    ')'
-                ),
-                'estimated_improvement': '10x–260x reduction in SE CPU time',
-                'confidence': 'high',
-                'timing_correlated': True
-            })
+    if callback_info.get("detected"):
+        for cb in callback_info.get("queries", []):
+            suggestions.append(
+                {
+                    "priority": 0,
+                    "severity": "critical",
+                    "category": "callback_elimination",
+                    "title": "CallbackDataID detected in Storage Engine query (runtime)",
+                    "description": (
+                        "A CallbackDataID forces the Formula Engine (single-threaded, uncached) "
+                        "to be invoked for every row during SE scan. "
+                        "This can increase query time by 100x–260x compared to a pure SE query. "
+                        f"Triggered in SE event line {cb.get('line')} ({cb.get('duration_ms')}ms). "
+                        "Common causes: ROUND/TRUNC/INT/CEILING/FLOOR inside SUMX, "
+                        "DIVIDE() anywhere, IF() inside iterators, text functions in row context."
+                    ),
+                    "code_before": cb.get("snippet", ""),
+                    "code_after": (
+                        "-- Pre-group by distinct values to minimize callback invocations:\n"
+                        "SUMX(\n"
+                        "    SUMMARIZE(FactTable, FactTable[ColumnWithLowCardinality]),\n"
+                        "    CALCULATE(SUM(FactTable[Qty])) * callback_function(FactTable[ColumnWithLowCardinality])\n"
+                        ")"
+                    ),
+                    "estimated_improvement": "10x–260x reduction in SE CPU time",
+                    "confidence": "high",
+                    "timing_correlated": True,
+                }
+            )
 
     # --- Source 2: Static callback detections from CallbackDetector ---
-    for cb_det in (static_callbacks.get('callback_detections') or []):
-        sev = cb_det.get('severity', 'high')
-        suggestions.append({
-            'priority': 1,
-            'severity': sev,
-            'category': 'callback_elimination',
-            'title': f"Callback risk [{cb_det.get('rule_id')}]: {cb_det.get('description', '')[:80]}",
-            'description': cb_det.get('description', ''),
-            'code_before': cb_det.get('match_text', ''),
-            'code_after': cb_det.get('fix_suggestion', ''),
-            'estimated_improvement': 'Eliminates per-row FE invocation from SE scan',
-            'confidence': 'high',
-            'timing_correlated': fe_pct > 50
-        })
+    for cb_det in static_callbacks.get("callback_detections") or []:
+        sev = cb_det.get("severity", "high")
+        suggestions.append(
+            {
+                "priority": 1,
+                "severity": sev,
+                "category": "callback_elimination",
+                "title": f"Callback risk [{cb_det.get('rule_id')}]: {cb_det.get('description', '')[:80]}",
+                "description": cb_det.get("description", ""),
+                "code_before": cb_det.get("match_text", ""),
+                "code_after": cb_det.get("fix_suggestion", ""),
+                "estimated_improvement": "Eliminates per-row FE invocation from SE scan",
+                "confidence": "high",
+                "timing_correlated": fe_pct > 50,
+            }
+        )
 
     # --- FE-bound timing context — which BPA categories to boost ---
     fe_correlated_categories = set()
     if fe_pct > 50:
-        fe_correlated_categories = {'performance', 'anti_pattern'}
+        fe_correlated_categories = {"performance", "anti_pattern"}
 
     # --- Source 3: BPA issues ---
-    severity_rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+    severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
-    for issue in (bpa_result.get('issues') or []):
-        sev = issue.get('severity', 'low')
-        cat = issue.get('category', '')
-        is_timing_correlated = (
-            cat in fe_correlated_categories
-            or sev in ('critical', 'high')
-        )
+    for issue in bpa_result.get("issues") or []:
+        sev = issue.get("severity", "low")
+        cat = issue.get("category", "")
+        is_timing_correlated = cat in fe_correlated_categories or sev in ("critical", "high")
 
         sev_rank = severity_rank.get(sev, 3)
         priority_base = sev_rank * 10
         if is_timing_correlated:
             priority_base -= 3
+        # Cardinality boost: high-cardinality tables get higher priority
+        priority_base -= int(cardinality_boost)
+        # FE boost: FE-bound queries with performance issues get extra priority
+        fe_boost = 0
+        if fe_pct > 50 and cat == "performance":
+            fe_boost = min(5, int((fe_pct - 50) / 10))
+            priority_base -= fe_boost
 
-        suggestions.append({
-            'priority': 10 + priority_base,
-            'severity': sev,
-            'category': cat,
-            'title': issue.get('title', ''),
-            'description': issue.get('description', ''),
-            'code_before': issue.get('code_example_before'),
-            'code_after': issue.get('code_example_after'),
-            'estimated_improvement': issue.get('estimated_improvement'),
-            'confidence': 'high',
-            'timing_correlated': is_timing_correlated
-        })
+        suggestions.append(
+            {
+                "priority": max(2, 10 + priority_base),  # Never displace callbacks (0-1)
+                "severity": sev,
+                "category": cat,
+                "title": issue.get("title", ""),
+                "description": issue.get("description", ""),
+                "code_before": issue.get("code_example_before"),
+                "code_after": issue.get("code_example_after"),
+                "estimated_improvement": issue.get("estimated_improvement"),
+                "confidence": "high",
+                "timing_correlated": is_timing_correlated,
+            }
+        )
 
     # --- Source 4: Code rewriter transformations ---
-    confidence_rank = {'high': 0, 'medium': 1, 'low': 2}
-    for t in (rewriter_result.get('transformations') or []):
-        conf = t.get('confidence', 'low')
-        if conf == 'low':
+    confidence_rank = {"high": 0, "medium": 1, "low": 2}
+    for t in rewriter_result.get("transformations") or []:
+        conf = t.get("confidence", "low")
+        if conf == "low":
             continue
-        suggestions.append({
-            'priority': 50 + confidence_rank.get(conf, 2),
-            'severity': 'medium' if conf == 'high' else 'low',
-            'category': 'code_rewrite',
-            'title': f"Code rewrite: {t.get('type', 'optimization')}",
-            'description': t.get('explanation', ''),
-            'code_before': t.get('original', ''),
-            'code_after': t.get('transformed', ''),
-            'estimated_improvement': t.get('estimated_improvement'),
-            'confidence': conf,
-            'timing_correlated': False
-        })
+        suggestions.append(
+            {
+                "priority": 50 + confidence_rank.get(conf, 2),
+                "severity": "medium" if conf == "high" else "low",
+                "category": "code_rewrite",
+                "title": f"Code rewrite: {t.get('type', 'optimization')}",
+                "description": t.get("explanation", ""),
+                "code_before": t.get("original", ""),
+                "code_after": t.get("transformed", ""),
+                "estimated_improvement": t.get("estimated_improvement"),
+                "confidence": conf,
+                "timing_correlated": False,
+            }
+        )
 
-    suggestions.sort(key=lambda x: x['priority'])
+    suggestions.sort(key=lambda x: x["priority"])
 
     # Deduplicate: if two suggestions have very similar titles, keep higher priority
-    import re as _re
-    _DEDUP_STRIP_RE = _re.compile(r'\[cb\d+\]:\s*|callback risk\s*', _re.IGNORECASE)
-    _DEDUP_CLEAN_RE = _re.compile(r'[^a-z0-9 ]')
-    _DEDUP_NOISE = {'code', 'rewrite', 'detected', 'found', 'risk', 'pattern'}
+    _DEDUP_STRIP_RE = re.compile(r"\[cb\d+\]:\s*|callback risk\s*", re.IGNORECASE)
+    _DEDUP_CLEAN_RE = re.compile(r"[^a-z0-9 ]")
+    _DEDUP_NOISE = {"code", "rewrite", "detected", "found", "risk", "pattern"}
     seen_sigs: set = set()
     deduped: list = []
     for s in suggestions:
-        title_key = _DEDUP_STRIP_RE.sub('', s.get('title', '')).lower().strip()
-        title_key = _DEDUP_CLEAN_RE.sub('', title_key)
+        title_key = _DEDUP_STRIP_RE.sub("", s.get("title", "")).lower().strip()
+        title_key = _DEDUP_CLEAN_RE.sub("", title_key)
         words = [w for w in title_key.split() if len(w) > 3 and w not in _DEDUP_NOISE]
-        sig = ' '.join(sorted(words[:5]))
+        sig = " ".join(sorted(words[:5]))
         if sig and sig in seen_sigs:
             continue
         if sig:
@@ -2839,7 +2726,7 @@ def _build_optimize_suggestions(
     suggestions = deduped
 
     for s in suggestions:
-        s.pop('priority', None)
+        s.pop("priority", None)
     return suggestions
 
 
@@ -2854,66 +2741,69 @@ def _build_next_steps(
 ) -> list:
     """Generate 2–5 actionable next steps based on findings."""
     steps = []
-    fe_pct = perf.get('fe_pct', 0) if perf else 0
-    se_queries = perf.get('se_queries', 0) if perf else 0
-    has_rewrites = any(o.get('category') == 'code_rewrite' for o in optimizations)
-    has_static_callbacks = bool(static_callbacks.get('summary', {}).get('total', 0))
+    fe_pct = perf.get("fe_pct", 0) if perf else 0
+    se_queries = perf.get("se_queries", 0) if perf else 0
+    has_rewrites = any(o.get("category") == "code_rewrite" for o in optimizations)
+    has_static_callbacks = bool(static_callbacks.get("summary", {}).get("total", 0))
 
     # SE event deep analysis guidance (highest priority if confirmed at runtime)
     if se_analysis:
-        if se_analysis.get('callbacks', {}).get('detected'):
-            cb = se_analysis['callbacks']
+        if se_analysis.get("callbacks", {}).get("detected"):
+            cb = se_analysis["callbacks"]
             steps.append(
                 f"Runtime CallbackDataID confirmed ({cb['total_count']} occurrences in SE events). "
                 "This is the #1 priority — eliminate callbacks via SUMMARIZE pre-grouping."
             )
-        fusion = se_analysis.get('fusion_opportunities', {})
-        if fusion.get('vertical_breaks', 0) > 2:
+        fusion = se_analysis.get("fusion_opportunities", {})
+        if fusion.get("vertical_breaks", 0) > 2:
             steps.append(
                 f"Vertical fusion broken ({fusion['vertical_breaks']} SE queries could be fused). "
                 "Check for IF/SWITCH returning different measures — restructure to CALCULATE pattern."
             )
 
-    if callback_info.get('detected') and not (se_analysis and se_analysis.get('callbacks', {}).get('detected')):
+    if callback_info.get("detected") and not (
+        se_analysis and se_analysis.get("callbacks", {}).get("detected")
+    ):
         steps.append(
-            'PRIORITY: Eliminate CallbackDataID — open DAX Studio Server Timings, '
-            'locate the SE query containing CallbackDataID, identify the triggering '
-            'function (ROUND/IF/DIVIDE inside iterator), and restructure using SUMMARIZE '
-            'to pre-group by distinct values.'
+            "PRIORITY: Eliminate CallbackDataID — open DAX Studio Server Timings, "
+            "locate the SE query containing CallbackDataID, identify the triggering "
+            "function (ROUND/IF/DIVIDE inside iterator), and restructure using SUMMARIZE "
+            "to pre-group by distinct values."
         )
-    elif has_static_callbacks and not (se_analysis and se_analysis.get('callbacks', {}).get('detected')):
+    elif has_static_callbacks and not (
+        se_analysis and se_analysis.get("callbacks", {}).get("detected")
+    ):
         steps.append(
-            'Callback risk detected in DAX expression. '
-            'Pass se_events from the visual trace to optimize for deep runtime confirmation.'
+            "Callback risk detected in DAX expression. "
+            "Pass se_events from the visual trace to optimize for deep runtime confirmation."
         )
 
     if fe_pct > 60:
         steps.append(
-            'FE-bound query: focus on pushing filter predicates to SE. '
-            'Replace FILTER(table, condition) with Boolean expression CALCULATE arguments. '
-            'Use KEEPFILTERS instead of FILTER(VALUES(...), ...).'
+            "FE-bound query: focus on pushing filter predicates to SE. "
+            "Replace FILTER(table, condition) with Boolean expression CALCULATE arguments. "
+            "Use KEEPFILTERS instead of FILTER(VALUES(...), ...)."
         )
 
     if se_queries > 50:
         steps.append(
-            f'High SE query count ({se_queries}): introduce VAR to capture repeated '
-            'sub-expressions (e.g., prior-year CALCULATE blocks used in both numerator '
-            'and denominator of DIVIDE).'
+            f"High SE query count ({se_queries}): introduce VAR to capture repeated "
+            "sub-expressions (e.g., prior-year CALCULATE blocks used in both numerator "
+            "and denominator of DIVIDE)."
         )
 
     # Context transition guidance
-    if context_result and context_result.get('max_nesting_level', 0) > 3:
+    if context_result and context_result.get("max_nesting_level", 0) > 3:
         steps.append(
             f"Deep CALCULATE nesting detected (depth {context_result['max_nesting_level']}). "
             "Flatten nested CALCULATE into single CALCULATE with multiple filter arguments."
         )
 
     # VertiPaq cardinality guidance
-    if vertipaq_result and vertipaq_result.get('high_cardinality_columns'):
-        high_card = vertipaq_result['high_cardinality_columns']
-        col_names = ', '.join(
-            c if isinstance(c, str) else c.get('column', str(c))
-            for c in high_card[:3]
+    if vertipaq_result and vertipaq_result.get("high_cardinality_columns"):
+        high_card = vertipaq_result["high_cardinality_columns"]
+        col_names = ", ".join(
+            c if isinstance(c, str) else c.get("column", str(c)) for c in high_card[:3]
         )
         steps.append(
             f"High-cardinality columns in DAX: {col_names}. "
@@ -2922,15 +2812,15 @@ def _build_next_steps(
 
     if has_rewrites:
         steps.append(
-            'A recommended_rewrite is available. Test it using '
-            'operation=compare with original_measure and optimized_expression '
-            'to benchmark the improvement.'
+            "A recommended_rewrite is available. Test it using "
+            "operation=compare with original_measure and optimized_expression "
+            "to benchmark the improvement."
         )
 
     if not steps:
         steps.append(
-            'No critical issues detected. This measure has good SE/FE balance. '
-            'Monitor performance if data volume increases significantly.'
+            "No critical issues detected. This measure has good SE/FE balance. "
+            "Monitor performance if data volume increases significantly."
         )
 
     return steps
@@ -2950,45 +2840,51 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
     fe_ms, se_ms. Optionally pass se_events for deep SE analysis.
     """
     try:
-        measure_name = (args.get('measure_name') or '').strip()
-        table_name = args.get('table_name')
-        compact = args.get('compact', True)
+        measure_name = (args.get("measure_name") or "").strip()
+        table_name = args.get("table_name")
+        compact = args.get("compact", True)
 
         if not measure_name:
             return {
-                'success': False,
-                'error': 'measure_name is required for optimize operation',
-                'hint': 'Example: {"operation": "optimize", "measure_name": "Net Asset Value"}'
+                "success": False,
+                "error": "measure_name is required for optimize operation",
+                "hint": 'Example: {"operation": "optimize", "measure_name": "Net Asset Value"}',
             }
 
         if not connection_state.is_connected():
             return {
-                'success': False,
-                'error': 'Not connected to Power BI model. Use connect_to_powerbi first.'
+                "success": False,
+                "error": "Not connected to Power BI model. Use connect_to_powerbi first.",
             }
 
         qe = connection_state.query_executor
         if not qe:
-            return ErrorHandler.handle_manager_unavailable('query_executor')
+            return ErrorHandler.handle_manager_unavailable("query_executor")
 
         # ── Step 1: Resolve measure expression ───────────────────────────────
         resolved = _resolve_measure_expression(measure_name, table_name, qe)
-        if not resolved.get('success'):
+        if not resolved.get("success"):
             return resolved
 
-        expression = resolved['expression']
-        measure_details = resolved['measure_details']
-        resolved_table = measure_details.get('table_name') or table_name or 'm Measure'
-        expression_source = resolved.get('expression_source', 'unknown')
+        expression = resolved["expression"]
+        measure_details = resolved["measure_details"]
+        resolved_table = measure_details.get("table_name") or table_name or "m Measure"
+        expression_source = resolved.get("expression_source", "unknown")
 
         # ── Step 2: Build perf dict from timing input params or cached trace ──
         perf: dict = {}
         timing_provided = False
-        timing_source = 'explicit_params'
+        timing_source = "explicit_params"
         timing_keys = [
-            'total_ms', 'fe_ms', 'se_ms', 'se_cpu_ms',
-            'fe_pct', 'se_pct', 'se_queries', 'se_cache_hits',
-            'se_parallelism',
+            "total_ms",
+            "fe_ms",
+            "se_ms",
+            "se_cpu_ms",
+            "fe_pct",
+            "se_pct",
+            "se_queries",
+            "se_cache_hits",
+            "se_parallelism",
         ]
         for key in timing_keys:
             val = args.get(key)
@@ -2996,121 +2892,136 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
                 perf[key] = val
                 timing_provided = True
 
-        se_events_input = args.get('se_events', [])
+        se_events_input = args.get("se_events", [])
 
         # Auto-retrieve from last trace run if no explicit timing provided
         if not timing_provided:
             cached = connection_state.get_cached_trace_result()
-            if cached and cached.get('performance'):
-                cached_perf = cached['performance']
+            if cached and cached.get("performance"):
+                cached_perf = cached["performance"]
                 for key in timing_keys:
                     val = cached_perf.get(key)
                     if val is not None:
                         perf[key] = val
                         timing_provided = True
                 if timing_provided:
-                    timing_source = 'cached_trace'
+                    timing_source = "cached_trace"
                     # Also grab SE events from cache if not explicitly provided
                     if not se_events_input:
-                        se_events_input = cached.get('se_events', [])
+                        se_events_input = cached.get("se_events", [])
 
         if not timing_provided:
             return {
-                'success': False,
-                'error': 'SE/FE timing data is required. Run operation=visual with trace=true first, '
-                         'then pass fe_pct, se_queries, total_ms, fe_ms, se_ms to optimize.',
-                'hint': 'Example: {"operation": "optimize", "measure_name": "Total Sales", '
-                        '"fe_pct": 75.2, "se_queries": 42, "total_ms": 1500, "fe_ms": 1130, "se_ms": 370}'
+                "success": False,
+                "error": "SE/FE timing data is required. Run operation=visual with trace=true first, "
+                "then pass fe_pct, se_queries, total_ms, fe_ms, se_ms to optimize.",
+                "hint": 'Example: {"operation": "optimize", "measure_name": "Total Sales", '
+                '"fe_pct": 75.2, "se_queries": 42, "total_ms": 1500, "fe_ms": 1130, "se_ms": 370}',
             }
 
         # ── Step 3: Static callback detection (DAX expression analysis) ───────
         try:
             from core.dax.callback_detector import CallbackDetector
+
             static_callbacks = CallbackDetector().detect_dict(expression)
         except Exception as ce:
-            logger.warning(f'Static callback detection failed: {ce}')
-            static_callbacks = {'callback_detections': [], 'summary': {'total': 0}}
+            logger.warning(f"Static callback detection failed: {ce}")
+            static_callbacks = {"callback_detections": [], "summary": {"total": 0}}
 
-        # ── Step 4: Context transition analysis ──────────────────────────────
-        context_result = None
-        try:
-            from core.dax.context_analyzer import DaxContextAnalyzer
-            ctx = DaxContextAnalyzer().analyze_context_transitions(expression)
-            context_result = {
-                'complexity_score': ctx.complexity_score,
-                'max_nesting_level': ctx.max_nesting_level,
-                'transition_count': len(ctx.transitions),
-                'transitions': [
-                    {'type': t.type.value, 'location': t.location,
-                     'function': t.function, 'nesting': t.nested_level}
-                    for t in ctx.transitions[:10]
-                ],
-                'warnings': [
-                    {'severity': w.severity, 'message': w.message}
-                    for w in ctx.warnings
-                ],
-            }
-        except Exception as ce:
-            logger.warning(f'Context analysis failed: {ce}')
-
-        # ── Step 5: VertiPaq column analysis ─────────────────────────────────
-        vertipaq_result = None
-        try:
-            from core.dax.vertipaq_analyzer import VertiPaqAnalyzer
-            vpaq = VertiPaqAnalyzer(connection_state)
-            vertipaq_result = vpaq.analyze_dax_columns(expression)
-        except Exception as ve:
-            logger.warning(f'VertiPaq analysis failed: {ve}')
-
-        # ── Step 6: Timing diagnosis ─────────────────────────────────────────
-        timing_diagnosis = _diagnose_timing(perf)
-
-        # ── Step 7: DAX best practices analysis ──────────────────────────────
-        from core.dax.dax_best_practices import DaxBestPracticesAnalyzer
-        bpa_result = DaxBestPracticesAnalyzer().analyze(
-            expression,
-            context_analysis=context_result,
-            vertipaq_analysis=vertipaq_result,
+        # ── Step 4-5: Context + VertiPaq analysis (shared pipeline) ─────────
+        from core.dax.analysis_pipeline import (
+            run_context_analysis,
+            run_vertipaq_analysis,
+            run_best_practices,
         )
 
-        # ── Step 8: Code rewriter ─────────────────────────────────────────────
+        _, context_result = run_context_analysis(expression)
+        vertipaq_result = run_vertipaq_analysis(expression, connection_state)
+
+        # ── Step 6: DAX best practices analysis (shared pipeline) ─────────
+        bpa_result = run_best_practices(expression, context_result, vertipaq_result) or {
+            "total_issues": 0,
+            "critical_issues": 0,
+            "issues": [],
+        }
+
+        # ── Step 7: Code rewriter ─────────────────────────────────────────────
         from core.dax.code_rewriter import DaxCodeRewriter
+
         rewriter_result = DaxCodeRewriter().rewrite_dax(expression)
 
-        # ── Step 9: SE event deep analysis ───────────────────────────────────
+        # ── Step 8: SE event deep analysis ───────────────────────────────────
         se_analysis = None
         if se_events_input:
             try:
                 from core.dax.se_event_analyzer import SeEventAnalyzer
+
                 se_analysis = SeEventAnalyzer().analyze(se_events_input, perf)
             except Exception as se_err:
-                logger.warning(f'SE event analysis failed: {se_err}')
+                logger.warning(f"SE event analysis failed: {se_err}")
+
+        # ── Step 9: Timing diagnosis (after SE analysis for fusion awareness) ─
+        timing_diagnosis = _diagnose_timing(perf, se_analysis=se_analysis)
+
+        # ── Step 9b: Optional cold/warm cache comparison ─────────────────────
+        cache_comparison_result = None
+        if args.get("cache_comparison") and se_events_input:
+            try:
+                from core.dax.se_event_analyzer import SeEventAnalyzer as _SeAnalyzer
+                from core.infrastructure.query_trace import NativeTraceRunner
+
+                conn_str = (
+                    connection_state.connection_manager.connection_string
+                    if connection_state.connection_manager
+                    else None
+                )
+                if conn_str and NativeTraceRunner.is_available():
+                    # Build a simple EVALUATE ROW query for the measure
+                    warm_query = f'EVALUATE ROW("Result", [{measure_name}])'
+                    # Run warm cache (no clear_cache)
+                    runner = NativeTraceRunner(conn_str)
+                    warm_result = runner.execute_with_trace(warm_query, clear_cache=False)
+                    if "_error" not in warm_result:
+                        warm_events = warm_result.get("se_events", [])
+                        cache_comparison_result = _SeAnalyzer.compare_cache_impact(
+                            se_events_input, warm_events
+                        )
+            except Exception as cc_err:
+                logger.warning(f"Cache comparison failed: {cc_err}")
 
         # ── Step 10: Synthesize suggestions ──────────────────────────────────
         # Extract runtime callback info from SE analysis (if available)
         callback_info: dict = {}
-        if se_analysis and se_analysis.get('callbacks', {}).get('detected'):
-            cb_data = se_analysis['callbacks']
+        if se_analysis and se_analysis.get("callbacks", {}).get("detected"):
+            cb_data = se_analysis["callbacks"]
             callback_info = {
-                'detected': True,
-                'count': cb_data.get('total_count', 0),
-                'queries': [
+                "detected": True,
+                "count": cb_data.get("total_count", 0),
+                "queries": [
                     {
-                        'line': q.get('line'),
-                        'duration_ms': q.get('duration_ms'),
-                        'snippet': q.get('snippet', '')
+                        "line": q.get("line"),
+                        "duration_ms": q.get("duration_ms"),
+                        "snippet": q.get("snippet", ""),
                     }
-                    for cb_type_list in cb_data.get('by_type', {}).values()
+                    for cb_type_list in cb_data.get("by_type", {}).values()
                     for q in cb_type_list
-                ]
+                ],
             }
         optimizations = _build_optimize_suggestions(
-            bpa_result, rewriter_result, callback_info, static_callbacks, perf
+            bpa_result,
+            rewriter_result,
+            callback_info,
+            static_callbacks,
+            perf,
+            vertipaq_result=vertipaq_result,
         )
 
         # ── Step 11: Next steps ──────────────────────────────────────────────
         next_steps = _build_next_steps(
-            optimizations, perf, callback_info, static_callbacks,
+            optimizations,
+            perf,
+            callback_info,
+            static_callbacks,
             context_result=context_result,
             vertipaq_result=vertipaq_result,
             se_analysis=se_analysis,
@@ -3118,11 +3029,13 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
 
         # ── Step 12: Build tl;dr ─────────────────────────────────────────────
         tl_dr_parts = []
-        if static_callbacks.get('summary', {}).get('critical', 0):
-            tl_dr_parts.append(f"{static_callbacks['summary']['critical']} critical callback patterns")
-        if bpa_result.get('critical_issues', 0):
+        if static_callbacks.get("summary", {}).get("critical", 0):
+            tl_dr_parts.append(
+                f"{static_callbacks['summary']['critical']} critical callback patterns"
+            )
+        if bpa_result.get("critical_issues", 0):
             tl_dr_parts.append(f"{bpa_result['critical_issues']} critical DAX anti-patterns")
-        fe_pct_val = perf.get('fe_pct', 0)
+        fe_pct_val = perf.get("fe_pct", 0)
         if fe_pct_val > 60:
             tl_dr_parts.append(f"FE-bound at {fe_pct_val}%")
         if tl_dr_parts:
@@ -3132,81 +3045,106 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
 
         # ── Step 13: Build response ──────────────────────────────────────────
         response: Dict[str, Any] = {
-            'success': True,
-            'tl_dr': tl_dr,
-            'measure': {
-                'name': measure_name,
-                'table': resolved_table,
-                'expression': expression,
-                'source': expression_source,
+            "success": True,
+            "tl_dr": tl_dr,
+            "measure": {
+                "name": measure_name,
+                "table": resolved_table,
+                "expression": expression,
+                "source": expression_source,
             },
-            'timing': perf,
-            'timing_source': timing_source,
-            'timing_diagnosis': timing_diagnosis,
-            'dax_analysis': {
-                'score': bpa_result.get('overall_score'),
-                'complexity': bpa_result.get('complexity_level'),
-                'total_issues': bpa_result.get('total_issues', 0),
-                'critical': bpa_result.get('critical_issues', 0),
-                'high': bpa_result.get('high_issues', 0),
-                'medium': bpa_result.get('medium_issues', 0),
-                'low': sum(1 for i in bpa_result.get('issues', [])
-                           if i.get('severity') in ('low', 'info')),
+            "timing": perf,
+            "timing_source": timing_source,
+            "timing_diagnosis": timing_diagnosis,
+            "dax_analysis": {
+                "score": bpa_result.get("overall_score"),
+                "complexity": bpa_result.get("complexity_level"),
+                "total_issues": bpa_result.get("total_issues", 0),
+                "critical": bpa_result.get("critical_issues", 0),
+                "high": bpa_result.get("high_issues", 0),
+                "medium": bpa_result.get("medium_issues", 0),
+                "low": sum(
+                    1 for i in bpa_result.get("issues", []) if i.get("severity") in ("low", "info")
+                ),
             },
-            'callback_analysis': {
-                'static_total': static_callbacks.get('summary', {}).get('total', 0),
-                'static_critical': static_callbacks.get('summary', {}).get('critical', 0),
+            "callback_analysis": {
+                "static_total": static_callbacks.get("summary", {}).get("total", 0),
+                "static_critical": static_callbacks.get("summary", {}).get("critical", 0),
             },
-            'optimizations': optimizations,
-            'next_steps': next_steps,
+            "optimizations": optimizations,
+            "next_steps": next_steps,
         }
 
         if context_result:
-            response['context_analysis'] = context_result
-        if vertipaq_result and vertipaq_result.get('success'):
-            response['vertipaq_analysis'] = vertipaq_result
+            response["context_analysis"] = context_result
+        if vertipaq_result and vertipaq_result.get("success"):
+            response["vertipaq_analysis"] = vertipaq_result
         if se_analysis:
-            response['se_analysis'] = se_analysis
+            response["se_analysis"] = se_analysis
+        if cache_comparison_result:
+            response["cache_comparison"] = cache_comparison_result
 
-        if rewriter_result.get('has_changes'):
-            response['recommended_rewrite'] = rewriter_result.get('rewritten_code')
+        if rewriter_result.get("has_changes"):
+            response["recommended_rewrite"] = rewriter_result.get("rewritten_code")
 
         # ── Compact mode: trim verbose sections ──────────────────────────────
         if compact:
             if len(optimizations) > 5:
-                response['optimizations'] = optimizations[:5]
-            if context_result and 'context_analysis' in response:
-                response['context_analysis'] = {
-                    'complexity_score': context_result.get('complexity_score'),
-                    'max_nesting_level': context_result.get('max_nesting_level'),
-                    'transition_count': context_result.get('transition_count'),
+                response["optimizations"] = optimizations[:5]
+            if context_result and "context_analysis" in response:
+                response["context_analysis"] = {
+                    "complexity_score": context_result.get("complexity_score"),
+                    "max_nesting_level": context_result.get("max_nesting_level"),
+                    "transition_count": context_result.get("transition_count"),
                 }
-            if se_analysis and 'se_analysis' in response:
-                response['se_analysis'] = {
-                    k: v for k, v in se_analysis.items()
-                    if v and v != {} and v != [] and v != {'detected': False, 'total_count': 0}
+            if se_analysis and "se_analysis" in response:
+                response["se_analysis"] = {
+                    k: v
+                    for k, v in se_analysis.items()
+                    if v and v != {} and v != [] and v != {"detected": False, "total_count": 0}
                 }
+
+        # ── Per-measure timing (opt-in, slow) ────────────────────────────────
+        if args.get("per_measure_trace"):
+            try:
+                # Extract measure refs from the expression
+                measure_refs = re.findall(r"(?<!\w)\[([^\]]+)\]", expression)
+                # Deduplicate and add the main measure
+                all_measures = list(dict.fromkeys([measure_name] + measure_refs))
+                # Limit to avoid excessive tracing
+                all_measures = all_measures[:10]
+                per_measure = _trace_measures_individually(
+                    all_measures, clear_cache=args.get("clear_cache", True)
+                )
+                if per_measure:
+                    response["per_measure_timing"] = per_measure
+                    response["per_measure_caveat"] = (
+                        "Individual traces lack the visual combined filter context. "
+                        "Timings are indicative, not exact replicas of visual performance."
+                    )
+            except Exception as pm_err:
+                logger.warning(f"Per-measure tracing failed: {pm_err}")
 
         return _compact_response(response, compact)
 
     except Exception as e:
-        logger.error(f'Error in handle_optimize_measure: {e}', exc_info=True)
-        return ErrorHandler.handle_unexpected_error('optimize_measure', e)
+        logger.error(f"Error in handle_optimize_measure: {e}", exc_info=True)
+        return ErrorHandler.handle_unexpected_error("optimize_measure", e)
 
 
 def handle_debug_operations(args: Dict[str, Any]) -> Dict[str, Any]:
     """Dispatch debug operations."""
-    operation = args.get('operation', 'visual')
+    operation = args.get("operation", "visual")
 
     dispatch = {
-        'visual': handle_debug_visual,
-        'compare': handle_compare_measures,
-        'drill': handle_drill_to_detail,
-        'analyze': handle_analyze_measure,
-        'debug_variable': _handle_debug_variable,
-        'step_variables': _handle_step_variables,
-        'run_dax': _handle_run_dax,
-        'optimize': handle_optimize_measure,
+        "visual": handle_debug_visual,
+        "compare": handle_compare_measures,
+        "drill": handle_drill_to_detail,
+        "analyze": handle_analyze_measure,
+        "debug_variable": _handle_debug_variable,
+        "step_variables": _handle_step_variables,
+        "run_dax": _handle_run_dax,
+        "optimize": handle_optimize_measure,
     }
 
     handler = dispatch.get(operation)
@@ -3214,26 +3152,23 @@ def handle_debug_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         return handler(args)
 
     return {
-        'success': False,
-        'error': (
-            f'Unknown operation: {operation}. '
-            f'Valid: {", ".join(dispatch.keys())}'
-        ),
+        "success": False,
+        "error": (f"Unknown operation: {operation}. " f'Valid: {", ".join(dispatch.keys())}'),
     }
 
 
 def handle_debug_config(args: Dict[str, Any]) -> Dict[str, Any]:
     """Dispatch debug config operations: set_path, status"""
-    operation = args.get('operation', 'status')
+    operation = args.get("operation", "status")
 
-    if operation == 'set_path':
+    if operation == "set_path":
         return handle_set_pbip_path(args)
-    elif operation == 'status':
+    elif operation == "status":
         return handle_get_debug_status(args)
     else:
         return {
-            'success': False,
-            'error': f'Unknown operation: {operation}. Valid: set_path, status'
+            "success": False,
+            "error": f"Unknown operation: {operation}. Valid: set_path, status",
         }
 
 
@@ -3242,48 +3177,131 @@ def register_debug_handlers(registry):
     tools = [
         ToolDefinition(
             name="09_Debug_Operations",
-            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze measure DAX (analyze), debug_variable (evaluate single VAR), step_variables (step through all VARs), run_dax (execute raw DEFINE...EVALUATE query), optimize (measure_name + SE/FE timing from prior visual trace → static CallbackDataID detection + context transition analysis + VertiPaq column cardinality + DAX anti-pattern analysis + prioritized optimization suggestions with before/after code. REQUIRES timing params: run visual with trace=true first, then pass fe_pct, se_queries, total_ms, fe_ms, se_ms. Optionally pass se_events for deep SE analysis.). Use trace=true on visual to get SE/FE timing analysis with the visual's real filter context; supply measures[] to override which measures are tested against that context.",
+            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze DAX (analyze), debug_variable, step_variables, run_dax, optimize. visual: use trace=true for SE/FE timing, measures[] to override. optimize: requires timing from prior trace (fe_pct, se_queries, total_ms, fe_ms, se_ms; optional: se_events).",
             handler=handle_debug_operations,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["visual", "compare", "drill", "analyze", "debug_variable", "step_variables", "run_dax", "optimize"], "default": "visual"},
-                    "query": {"type": "string", "description": "Raw DAX query (DEFINE…EVALUATE) to execute (run_dax)"},
+                    "operation": {
+                        "type": "string",
+                        "enum": [
+                            "visual",
+                            "compare",
+                            "drill",
+                            "analyze",
+                            "debug_variable",
+                            "step_variables",
+                            "run_dax",
+                            "optimize",
+                        ],
+                        "default": "visual",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Raw DAX query (DEFINE…EVALUATE) to execute (run_dax)",
+                    },
                     "page_name": {"type": "string"},
                     "visual_id": {"type": "string"},
                     "visual_name": {"type": "string"},
                     "measure_name": {"type": "string"},
-                    "measures": {"type": "array", "items": {"type": "string"}, "description": "Explicit measure names to use (visual) — overrides auto-discovery. Use with trace=true to get SE/FE analysis for specific measures with the visual's real filter context."},
+                    "measures": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Explicit measure names to use (visual) — overrides auto-discovery. Use with trace=true to get SE/FE analysis for specific measures with the visual's real filter context.",
+                    },
                     "table_name": {"type": "string", "description": "Table (analyze)"},
                     "include_slicers": {"type": "boolean"},
-                    "execute_query": {"type": "boolean", "description": "Execute query and return rows (visual)"},
-                    "execute_measure": {"type": "boolean", "description": "Execute measure (analyze)"},
-                    "trace": {"type": "boolean", "default": False, "description": "Run SE/FE trace analysis on the visual query (visual) or raw query (run_dax). Cold cache by default; combine with execute_query=true to also get row results."},
-                    "clear_cache": {"type": "boolean", "default": True, "description": "Clear VertiPaq cache before trace run for cold-cache timings (visual/run_dax, requires trace=true)"},
-                    "filters": {"type": "array", "items": {"type": "string"}, "description": "Manual DAX filters"},
+                    "execute_query": {
+                        "type": "boolean",
+                        "description": "Execute query and return rows (visual)",
+                    },
+                    "execute_measure": {
+                        "type": "boolean",
+                        "description": "Execute measure (analyze)",
+                    },
+                    "trace": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Run SE/FE trace analysis on the visual query (visual) or raw query (run_dax). Cold cache by default; combine with execute_query=true to also get row results.",
+                    },
+                    "clear_cache": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Clear VertiPaq cache before trace run for cold-cache timings (visual/run_dax, requires trace=true)",
+                    },
+                    "filters": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Manual DAX filters",
+                    },
                     "skip_auto_filters": {"type": "boolean"},
                     "compact": {"type": "boolean"},
-                    "original_measure": {"type": "string", "description": "Original measure (compare)"},
-                    "optimized_expression": {"type": "string", "description": "Optimized DAX (compare)"},
+                    "original_measure": {
+                        "type": "string",
+                        "description": "Original measure (compare)",
+                    },
+                    "optimized_expression": {
+                        "type": "string",
+                        "description": "Optimized DAX (compare)",
+                    },
                     "fact_table": {"type": "string", "description": "Fact table (drill)"},
                     "limit": {"type": "integer", "description": "Max rows (drill, default: 100)"},
-                    "variable_name": {"type": "string", "description": "Variable name (debug_variable)"},
-                    "max_rows": {"type": "integer", "default": 100, "description": "Max rows (debug_variable/step_variables)"},
-                    "total_ms": {"type": "number", "description": "Total query time ms from visual trace (optimize, required)"},
-                    "fe_ms": {"type": "number", "description": "Formula Engine time ms (optimize, required)"},
-                    "se_ms": {"type": "number", "description": "Storage Engine time ms (optimize, required)"},
+                    "variable_name": {
+                        "type": "string",
+                        "description": "Variable name (debug_variable)",
+                    },
+                    "max_rows": {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Max rows (debug_variable/step_variables)",
+                    },
+                    "total_ms": {
+                        "type": "number",
+                        "description": "Total query time ms from visual trace (optimize, required)",
+                    },
+                    "fe_ms": {
+                        "type": "number",
+                        "description": "Formula Engine time ms (optimize, required)",
+                    },
+                    "se_ms": {
+                        "type": "number",
+                        "description": "Storage Engine time ms (optimize, required)",
+                    },
                     "se_cpu_ms": {"type": "number", "description": "SE CPU time ms (optimize)"},
-                    "fe_pct": {"type": "number", "description": "FE % of total time (optimize, required)"},
+                    "fe_pct": {
+                        "type": "number",
+                        "description": "FE % of total time (optimize, required)",
+                    },
                     "se_pct": {"type": "number", "description": "SE % of total time (optimize)"},
-                    "se_queries": {"type": "integer", "description": "Number of SE queries (optimize, required)"},
+                    "se_queries": {
+                        "type": "integer",
+                        "description": "Number of SE queries (optimize, required)",
+                    },
                     "se_cache_hits": {"type": "integer", "description": "SE cache hits (optimize)"},
-                    "se_parallelism": {"type": "number", "description": "SE parallelism ratio from visual trace (optimize)"},
-                    "se_events": {"type": "array", "items": {"type": "object"}, "description": "SE event list from visual trace (optimize, optional for deep SE analysis)"}
+                    "se_parallelism": {
+                        "type": "number",
+                        "description": "SE parallelism ratio from visual trace (optimize)",
+                    },
+                    "se_events": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "SE event list from visual trace (optimize, optional for deep SE analysis)",
+                    },
+                    "cache_comparison": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Run cold+warm cache comparison to confirm datacache effectiveness (optimize, opt-in)",
+                    },
+                    "per_measure_trace": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Run individual traces per measure to isolate slow measures (optimize, opt-in, slow)",
+                    },
                 },
-                "required": []
+                "required": [],
             },
             category="debug",
-            sort_order=90
+            sort_order=90,
         ),
         ToolDefinition(
             name="09_Debug_Config",
@@ -3292,14 +3310,18 @@ def register_debug_handlers(registry):
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["set_path", "status"], "default": "status"},
+                    "operation": {
+                        "type": "string",
+                        "enum": ["set_path", "status"],
+                        "default": "status",
+                    },
                     "pbip_path": {"type": "string", "description": "PBIP folder path"},
-                    "compact": {"type": "boolean"}
+                    "compact": {"type": "boolean"},
                 },
-                "required": []
+                "required": [],
             },
             category="debug",
-            sort_order=91
+            sort_order=91,
         ),
         ToolDefinition(
             name="09_Validate",
@@ -3308,7 +3330,10 @@ def register_debug_handlers(registry):
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["cross_visual", "expected_value", "filter_permutation"]},
+                    "operation": {
+                        "type": "string",
+                        "enum": ["cross_visual", "expected_value", "filter_permutation"],
+                    },
                     "measure_name": {"type": "string"},
                     "page_name": {"type": "string"},
                     "page_names": {"type": "array", "items": {"type": "string"}},
@@ -3317,12 +3342,12 @@ def register_debug_handlers(registry):
                     "expected_value": {"type": ["number", "string"]},
                     "filters": {"type": "array", "items": {"type": "string"}},
                     "tolerance": {"type": "number"},
-                    "max_permutations": {"type": "integer"}
+                    "max_permutations": {"type": "integer"},
                 },
-                "required": ["operation"]
+                "required": ["operation"],
             },
             category="debug",
-            sort_order=92
+            sort_order=92,
         ),
         ToolDefinition(
             name="09_Profile",
@@ -3338,12 +3363,12 @@ def register_debug_handlers(registry):
                     "iterations": {"type": "integer"},
                     "include_slicers": {"type": "boolean"},
                     "filter_columns": {"type": "array", "items": {"type": "string"}},
-                    "max_combinations": {"type": "integer"}
+                    "max_combinations": {"type": "integer"},
                 },
-                "required": ["page_name"]
+                "required": ["page_name"],
             },
             category="debug",
-            sort_order=93
+            sort_order=93,
         ),
         ToolDefinition(
             name="09_Document",
@@ -3352,16 +3377,19 @@ def register_debug_handlers(registry):
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["page", "report", "measure_lineage", "filter_lineage"]},
+                    "operation": {
+                        "type": "string",
+                        "enum": ["page", "report", "measure_lineage", "filter_lineage"],
+                    },
                     "page_name": {"type": "string"},
                     "measure_name": {"type": "string"},
                     "lightweight": {"type": "boolean"},
-                    "include_ui_elements": {"type": "boolean"}
+                    "include_ui_elements": {"type": "boolean"},
                 },
-                "required": ["operation"]
+                "required": ["operation"],
             },
             category="debug",
-            sort_order=94
+            sort_order=94,
         ),
         ToolDefinition(
             name="09_Advanced_Analysis",
@@ -3370,24 +3398,30 @@ def register_debug_handlers(registry):
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["decompose", "contribution", "trend", "root_cause", "export"]},
+                    "operation": {
+                        "type": "string",
+                        "enum": ["decompose", "contribution", "trend", "root_cause", "export"],
+                    },
                     "page_name": {"type": "string"},
                     "visual_id": {"type": "string"},
                     "visual_name": {"type": "string"},
                     "dimension": {"type": "string"},
                     "date_column": {"type": "string"},
-                    "granularity": {"type": "string", "enum": ["day", "week", "month", "quarter", "year"]},
+                    "granularity": {
+                        "type": "string",
+                        "enum": ["day", "week", "month", "quarter", "year"],
+                    },
                     "baseline_filters": {"type": "array", "items": {"type": "string"}},
                     "comparison_filters": {"type": "array", "items": {"type": "string"}},
                     "dimensions": {"type": "array", "items": {"type": "string"}},
                     "top_n": {"type": "integer"},
-                    "format": {"type": "string", "enum": ["markdown", "json"]}
+                    "format": {"type": "string", "enum": ["markdown", "json"]},
                 },
-                "required": ["operation"]
+                "required": ["operation"],
             },
             category="debug",
-            sort_order=95
-        )
+            sort_order=95,
+        ),
     ]
 
     for tool in tools:

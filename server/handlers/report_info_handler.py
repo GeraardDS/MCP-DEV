@@ -11,11 +11,15 @@ Returns pure data about:
 from typing import Dict, Any, List, Optional
 import logging
 import os
-import re
 from pathlib import Path
 from server.registry import ToolDefinition
 from core.validation.error_handler import ErrorHandler
 from core.utilities.json_utils import load_json
+from core.utilities.pbip_utils import (
+    normalize_path as _normalize_path,
+    find_definition_folder as _find_definition_folder,
+    load_json_file as _load_json_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,69 +159,8 @@ def _find_all_report_definitions(pbip_path: str) -> List[Dict]:
     return results
 
 
-def _normalize_path(path: str) -> str:
-    """Normalize path to handle Unix-style paths on Windows"""
-    normalized_path = path
 
-    # Convert WSL/Unix paths to Windows paths on Windows systems
-    if re.match(r'^/mnt/([a-z])/', path, re.IGNORECASE):
-        drive_letter = re.match(r'^/mnt/([a-z])/', path, re.IGNORECASE).group(1)
-        rest_of_path = path[7:].replace('/', '\\')
-        normalized_path = f"{drive_letter.upper()}:\\{rest_of_path}"
-    elif path.startswith('/'):
-        normalized_path = path.replace('/', '\\')
-
-    return normalized_path
-
-
-def _find_definition_folder(pbip_path: str) -> Optional[Path]:
-    """Find the definition folder for a PBIP project"""
-    path = Path(_normalize_path(pbip_path))
-
-    if not path.exists():
-        return None
-
-    # If it's a .pbip file, look for .Report folder
-    if path.is_file() and path.suffix == '.pbip':
-        # Look for {name}.Report folder
-        report_folder = path.parent / f"{path.stem}.Report"
-        if report_folder.exists():
-            definition = report_folder / "definition"
-            if definition.exists():
-                return definition
-
-    # If it's a .Report folder
-    if path.is_dir() and path.name.endswith('.Report'):
-        definition = path / "definition"
-        if definition.exists():
-            return definition
-
-    # If it's already a definition folder
-    if path.is_dir() and path.name == "definition":
-        return path
-
-    # If it's a directory, search for .Report folders
-    if path.is_dir():
-        for item in path.iterdir():
-            if item.is_dir() and item.name.endswith('.Report'):
-                definition = item / "definition"
-                if definition.exists():
-                    return definition
-        # Also check if definition exists directly
-        definition = path / "definition"
-        if definition.exists():
-            return definition
-
-    return None
-
-
-def _load_json_file(file_path: Path) -> Optional[Dict]:
-    """Load JSON file safely"""
-    try:
-        return load_json(file_path)
-    except Exception as e:
-        logger.warning(f"Failed to load JSON from {file_path}: {e}")
-        return None
+# _normalize_path, _find_definition_folder, _load_json_file imported from core.utilities.pbip_utils
 
 
 def _extract_field_reference(field_data: Dict) -> Optional[Dict]:

@@ -42,6 +42,12 @@ from .code_rewriter import (
 from .visual_flow import VisualFlowDiagramGenerator, FlowStep
 from .callback_detector import CallbackDetector, CallbackDetection
 from .dax_rules_engine import DaxRulesEngine, DaxIssue
+from .analysis_pipeline import (
+    run_context_analysis,
+    run_vertipaq_analysis,
+    run_best_practices,
+    run_call_tree,
+)
 
 __all__ = [
     # Core analyzers
@@ -79,4 +85,9 @@ __all__ = [
     # Static analysis rules engine
     "DaxRulesEngine",
     "DaxIssue",
+    # Pipeline helpers
+    "run_context_analysis",
+    "run_vertipaq_analysis",
+    "run_best_practices",
+    "run_call_tree",
 ]

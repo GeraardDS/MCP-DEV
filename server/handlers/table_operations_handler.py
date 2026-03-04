@@ -21,14 +21,14 @@ def register_table_operations_handler(registry):
 
     tool = ToolDefinition(
         name="02_Table_Operations",
-        description="Unified table CRUD: list, describe, preview, sample_data, create, update, delete, rename, refresh.",
+        description="Unified table CRUD: list, describe, sample_data, create, update, delete, refresh.",
         handler=handle_table_operations,
         input_schema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["list", "describe", "preview", "sample_data", "create", "update", "delete", "rename", "refresh"],
+                    "enum": ["list", "describe", "sample_data", "create", "update", "delete", "refresh"],
                 },
                 "table_name": {
                     "type": "string",
@@ -36,7 +36,7 @@ def register_table_operations_handler(registry):
                 },
                 "new_name": {
                     "type": "string",
-                    "description": "New name (rename)"
+                    "description": "New name (update)"
                 },
                 "description": {
                     "type": "string",
@@ -52,7 +52,7 @@ def register_table_operations_handler(registry):
                 },
                 "max_rows": {
                     "type": "integer",
-                    "description": "Max rows (default: 10, max: 1000, preview/sample_data)",
+                    "description": "Max rows (default: 10, max: 1000, sample_data)",
                     "default": 10
                 },
                 "columns": {
