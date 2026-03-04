@@ -626,11 +626,15 @@ class VisualQueryBuilder:
             return None
 
     def _resolve_sort_by_columns(self, grouping_columns: List[str]) -> List[Tuple[str, str]]:
-        """Resolve SortByColumn for each grouping column from the TMDL model.
+        """Resolve SortByColumn for each grouping column.
 
         Power BI includes sort-by columns in SUMMARIZECOLUMNS group-by, TOPN,
         and ORDER BY. E.g. if 's Waterfall Bucket'[Bucket] has sortByColumn = Sort Nr,
         then [Sort Nr] appears in the query as a group-by column before [Bucket].
+
+        Uses two strategies:
+        1. Live model DMV query (most reliable when connected)
+        2. TMDL file parsing (offline fallback)
 
         Returns:
             List of (sort_column_ref, sorted_column_ref) pairs.
@@ -638,9 +642,125 @@ class VisualQueryBuilder:
         if not grouping_columns:
             return []
 
+        # Parse grouping columns into (table, column) pairs for lookup
+        parsed_cols = []
+        for col_ref in grouping_columns:
+            match = re.match(r"'([^']+)'\[([^\]]+)\]", col_ref)
+            if match:
+                parsed_cols.append((match.group(1), match.group(2), col_ref))
+
+        if not parsed_cols:
+            return []
+
+        # Strategy 1: DMV query on live model (most reliable)
+        sort_map = self._resolve_sort_by_via_dmv(parsed_cols)
+
+        # Strategy 2: TMDL fallback
+        if not sort_map:
+            sort_map = self._resolve_sort_by_via_tmdl()
+
+        if not sort_map:
+            return []
+
+        pairs = []
+        for table_name, col_name, col_ref in parsed_cols:
+            sort_col = sort_map.get((table_name, col_name))
+            if sort_col and sort_col != col_name:
+                sort_ref = f"'{table_name}'[{sort_col}]"
+                pairs.append((sort_ref, col_ref))
+
+        return pairs
+
+    def _resolve_sort_by_via_dmv(
+        self, parsed_cols: List[Tuple[str, str, str]]
+    ) -> Dict[Tuple[str, str], str]:
+        """Query live model DMV for SortByColumn info."""
+        if not self._query_executor:
+            return {}
+
+        try:
+            # Query TMSCHEMA_COLUMNS for SortByColumnID relationships
+            table_names = list({t for t, _, _ in parsed_cols})
+            table_filter = " OR ".join(
+                f'[ExplicitName] = "{t}"' for t in table_names
+            )
+            # Get table IDs first
+            table_dmv = self._query_executor.execute_query(
+                f"SELECT [ID], [ExplicitName] FROM $SYSTEM.TMSCHEMA_TABLES "
+                f"WHERE {table_filter}"
+            )
+            if not table_dmv:
+                return {}
+
+            table_id_map = {}
+            for row in table_dmv:
+                tid = row.get("ID") or row.get("[ID]")
+                tname = row.get("ExplicitName") or row.get("[ExplicitName]")
+                if tid is not None and tname:
+                    table_id_map[tid] = tname
+
+            if not table_id_map:
+                return {}
+
+            table_id_filter = " OR ".join(
+                f"[TableID] = {tid}" for tid in table_id_map
+            )
+            col_dmv = self._query_executor.execute_query(
+                f"SELECT [TableID], [ExplicitName], [SortByColumnID] "
+                f"FROM $SYSTEM.TMSCHEMA_COLUMNS "
+                f"WHERE ({table_id_filter}) AND [SortByColumnID] <> 0"
+            )
+            if not col_dmv:
+                return {}
+
+            # Build column ID -> name lookup for sort targets
+            col_ids_needed = set()
+            for row in col_dmv:
+                sbcid = row.get("SortByColumnID") or row.get("[SortByColumnID]")
+                if sbcid:
+                    col_ids_needed.add(int(sbcid))
+
+            if not col_ids_needed:
+                return {}
+
+            col_id_filter = " OR ".join(f"[ID] = {cid}" for cid in col_ids_needed)
+            sort_col_dmv = self._query_executor.execute_query(
+                f"SELECT [ID], [TableID], [ExplicitName] "
+                f"FROM $SYSTEM.TMSCHEMA_COLUMNS WHERE {col_id_filter}"
+            )
+            col_id_to_info = {}
+            for row in sort_col_dmv or []:
+                cid = row.get("ID") or row.get("[ID]")
+                tname = table_id_map.get(
+                    row.get("TableID") or row.get("[TableID]")
+                )
+                cname = row.get("ExplicitName") or row.get("[ExplicitName]")
+                if cid is not None and tname and cname:
+                    col_id_to_info[int(cid)] = (tname, cname)
+
+            # Build final sort map
+            sort_map: Dict[Tuple[str, str], str] = {}
+            for row in col_dmv:
+                tid = row.get("TableID") or row.get("[TableID]")
+                cname = row.get("ExplicitName") or row.get("[ExplicitName]")
+                sbcid = row.get("SortByColumnID") or row.get("[SortByColumnID]")
+                tname = table_id_map.get(tid)
+                if tname and cname and sbcid:
+                    sort_info = col_id_to_info.get(int(sbcid))
+                    if sort_info:
+                        sort_map[(tname, cname)] = sort_info[1]
+
+            return sort_map
+
+        except Exception as e:
+            self.logger.debug(f"DMV SortByColumn resolution failed: {e}")
+            return {}
+
+    def _resolve_sort_by_via_tmdl(self) -> Dict[Tuple[str, str], str]:
+        """Resolve SortByColumn from TMDL files (offline fallback)."""
         semantic_path = self._find_semantic_model_path()
         if not semantic_path:
-            return []
+            return {}
 
         try:
             from core.tmdl.unified_parser import UnifiedTmdlParser
@@ -648,34 +768,19 @@ class VisualQueryBuilder:
             parser = UnifiedTmdlParser()
             model = parser.parse_folder(str(semantic_path))
             if not model or not model.tables:
-                return []
+                return {}
 
-            # Build lookup: (table_name, column_name) -> sort_by_column_name
             sort_map: Dict[Tuple[str, str], str] = {}
             for table in model.tables:
                 for col in table.columns:
                     if col.sort_by_column:
                         sort_map[(table.name, col.name)] = col.sort_by_column
 
-            if not sort_map:
-                return []
-
-            pairs = []
-            for col_ref in grouping_columns:
-                match = re.match(r"'([^']+)'\[([^\]]+)\]", col_ref)
-                if not match:
-                    continue
-                table_name, col_name = match.group(1), match.group(2)
-                sort_col = sort_map.get((table_name, col_name))
-                if sort_col and sort_col != col_name:
-                    sort_ref = f"'{table_name}'[{sort_col}]"
-                    pairs.append((sort_ref, col_ref))
-
-            return pairs
+            return sort_map
 
         except Exception as e:
-            self.logger.debug(f"Error resolving SortByColumn: {e}")
-            return []
+            self.logger.debug(f"TMDL SortByColumn resolution failed: {e}")
+            return {}
 
     def _find_semantic_model_path(self) -> Optional[Path]:
         """Find the semantic model folder containing TMDL files."""
@@ -1047,13 +1152,17 @@ class VisualQueryBuilder:
         target_measure = target_measures[0]
 
         # Include grouped object measures (data labels, conditional formatting)
-        # These are measures bound to visual formatting properties, not in queryState
+        # These are measures bound to visual formatting properties, not in queryState.
+        # PBI wraps these in IGNORE() inside SUMMARIZECOLUMNS so they don't participate
+        # in auto-exist filtering (rows aren't removed when these return BLANK).
         object_measure_table_map: Dict[str, str] = {}
+        object_measure_names: set = set()  # Track which measures need IGNORE()
         if visual_info.object_measures:
             for entity, prop in visual_info.object_measures:
                 ref = f"[{prop}]"
                 if ref not in target_measures:
                     target_measures.append(ref)
+                    object_measure_names.add(prop)
                     if entity:
                         object_measure_table_map[prop] = entity
 
@@ -1161,6 +1270,7 @@ class VisualQueryBuilder:
             scalar_measures=scalar_measure_refs,
             scalar_format_string_measures=scalar_format_string_measures,
             scalar_measure_table_map=scalar_measure_table_map,
+            ignore_measure_names=object_measure_names,
         )
 
         # Build filter breakdown for documentation
@@ -1347,6 +1457,7 @@ class VisualQueryBuilder:
         scalar_measures: Optional[List[str]] = None,
         scalar_format_string_measures: Optional[List[str]] = None,
         scalar_measure_table_map: Optional[Dict[str, str]] = None,
+        ignore_measure_names: Optional[set] = None,
     ) -> str:
         """
         Build a DAX query that reproduces the visual's data.
@@ -1417,17 +1528,10 @@ class VisualQueryBuilder:
             if f.composite_columns and f.composite_tuples is not None:
                 treatas_expr = self._build_composite_treatas(f)
             else:
-                # Boolean columns always include BLANK() in the TREATAS set — Power BI
-                # adds it at query time to handle NULL rows in boolean-type columns.
-                # Value-based heuristic: if all values are TRUE/FALSE, treat as boolean
-                # even when column type detection fails (DMV returns unexpected format).
-                col_type = self.converter.get_column_type(f.table, f.column)
-                is_boolean_values = bool(f.values) and all(
-                    str(v).upper() in ("TRUE", "FALSE")
-                    for v in f.values
-                    if v is not None and not (hasattr(v, "value") and v.value is None)
-                )
-                include_blank = (col_type == "boolean") or is_boolean_values or f.has_null_values
+                # Only include BLANK() in TREATAS when the filter actually contains
+                # null values — PBI does NOT automatically add BLANK() for boolean
+                # columns unless the slicer selection includes null/blank.
+                include_blank = f.has_null_values
                 values_set = self._format_values_as_treatas_set(
                     f.values, include_blank=include_blank
                 )
@@ -1470,6 +1574,10 @@ class VisualQueryBuilder:
             sc_args.append(f"        {var_name}")
 
         # 4c. Measure name-expression pairs (table-qualified when available)
+        # Object measures (data labels, conditional formatting) are wrapped in IGNORE()
+        # so they don't participate in auto-exist filtering — PBI removes rows where
+        # non-IGNORE measures return BLANK, but keeps rows for IGNORE-wrapped ones.
+        _ignore_names = ignore_measure_names or set()
         for m in measures:
             m_name = m.strip("[]")
             alias = _sanitize_alias(m_name)
@@ -1477,7 +1585,10 @@ class VisualQueryBuilder:
                 m_ref = f"'{measure_table_map[m_name]}'[{m_name}]"
             else:
                 m_ref = m
-            sc_args.append(f'        "{alias}", {m_ref}')
+            if m_name in _ignore_names:
+                sc_args.append(f'        "{alias}", IGNORE({m_ref})')
+            else:
+                sc_args.append(f'        "{alias}", {m_ref}')
 
         # 4d. Format string companion measures wrapped in IGNORE()
         for fs_ref in format_string_measures or []:
@@ -2397,17 +2508,20 @@ TOPN(
                 target = scalar_measures_set if key in SCALAR_OBJECT_KEYS else grouped_measures_set
                 _walk_for_measure_refs(value, target)
 
-        # Filter out measures already in queryState projections
+        # Grouped object measures: only include those NOT already in queryState
         object_measure_list = [
             (entity, prop)
             for entity, prop in grouped_measures_set
             if f"[{prop}]" not in query_measure_names
         ]
-        scalar_measure_list = [
-            (entity, prop)
-            for entity, prop in scalar_measures_set
-            if f"[{prop}]" not in query_measure_names
-        ]
+        # Scalar measures: ALWAYS include (even if in queryState projections).
+        # PBI evaluates scalar measures (titles, axis bounds) in a separate EVALUATE
+        # without group-by columns, regardless of whether they appear in queryState.
+        # If a scalar measure is also in queryState, remove it from the main measures
+        # list so it doesn't end up in the grouped SUMMARIZECOLUMNS.
+        scalar_measure_list = list(scalar_measures_set)
+        scalar_prop_names = {f"[{prop}]" for _, prop in scalar_measures_set}
+        measures = [m for m in measures if m not in scalar_prop_names]
 
         # Get title
         title = None
