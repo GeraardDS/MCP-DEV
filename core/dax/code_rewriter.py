@@ -155,6 +155,16 @@ class DaxCodeRewriter:
         if has_var and not has_return:
             warnings.append("VAR declaration without matching RETURN statement")
 
+        # Check for extended column refs used outside iterator scope (top-level VAR)
+        top_level_var_pattern = re.compile(
+            r"^\s*VAR\s+\w+\s*=\s*\[@[^\]]+\]", re.IGNORECASE | re.MULTILINE
+        )
+        if top_level_var_pattern.search(dax):
+            warnings.append(
+                "Extended column reference [@...] assigned to top-level VAR — "
+                "these only exist inside the iterator that created them"
+            )
+
         return warnings
 
     def _extract_repeated_measures(self, dax: str) -> str:
@@ -191,6 +201,20 @@ class DaxCodeRewriter:
         if not repeated_measures:
             return dax
 
+        # Filter out measures that appear as CALCULATE first argument —
+        # extracting these to a top-level VAR changes semantics because
+        # CALCULATE modifies filter context before evaluating its first arg,
+        # but VARs are evaluated once at definition time
+        safe_measures = {}
+        for measure, count in repeated_measures.items():
+            if self._is_calculate_first_arg(dax, measure):
+                continue
+            safe_measures[measure] = count
+
+        repeated_measures = safe_measures
+        if not repeated_measures:
+            return dax
+
         # Generate variables for repeated measures
         var_lines = []
         var_mapping = {}
@@ -214,17 +238,21 @@ class DaxCodeRewriter:
         if var_lines:
             # Check if already has VAR statements
             if "VAR" in dax.upper():
-                # Insert after existing VARs
-                return_pos = new_dax.upper().find("RETURN")
+                # Insert before the top-level RETURN (not nested RETURNs or
+                # RETURN inside comments/strings)
+                return_pos = self._find_top_level_return(new_dax)
                 if return_pos != -1:
-                    existing_vars = new_dax[:return_pos].strip()
-                    return_part = new_dax[return_pos:].strip()
+                    existing_vars = new_dax[:return_pos].rstrip()
+                    return_part = new_dax[return_pos:]
                     rewritten = f"{existing_vars}\n" + "\n".join(var_lines) + f"\n{return_part}"
                 else:
                     rewritten = "\n".join(var_lines) + f"\nRETURN\n{new_dax}"
             else:
-                # Add VAR structure
-                rewritten = "\n".join(var_lines) + f"\nRETURN\n{new_dax}"
+                # Add VAR structure — insert after leading comments
+                insert_pos = self._find_var_insertion_point(new_dax)
+                leading = new_dax[:insert_pos]
+                body = new_dax[insert_pos:]
+                rewritten = leading + "\n".join(var_lines) + f"\nRETURN\n{body}"
 
             self.transformations.append(
                 Transformation(
@@ -393,6 +421,11 @@ class DaxCodeRewriter:
 
         Returns count of standalone occurrences.
         """
+        # Extended column references ([@Column]) are ADDCOLUMNS row-level refs,
+        # NOT measures — they only exist inside the iterator that created them
+        if ref_name.startswith("@"):
+            return 0
+
         # Pattern for any occurrence of [ref_name]
         any_ref_pattern = rf"\[\s*{re.escape(ref_name)}\s*\]"
 
@@ -418,6 +451,129 @@ class DaxCodeRewriter:
             standalone_count += 1
 
         return standalone_count
+
+    @staticmethod
+    def _find_top_level_return(dax: str) -> int:
+        """Find the position of the top-level RETURN keyword in DAX.
+
+        Skips RETURN that appears:
+        - Inside // line comments
+        - Inside /* */ block comments
+        - Inside string literals ("...")
+        - Inside nested parentheses (e.g., ADDCOLUMNS inline VAR/RETURN)
+
+        Returns the char position of 'R' in the top-level RETURN, or -1.
+        """
+        i = 0
+        length = len(dax)
+        paren_depth = 0
+
+        while i < length:
+            ch = dax[i]
+
+            # Skip string literals
+            if ch == '"':
+                i += 1
+                while i < length and dax[i] != '"':
+                    i += 1
+                i += 1  # skip closing quote
+                continue
+
+            # Skip line comments
+            if ch == '/' and i + 1 < length and dax[i + 1] == '/':
+                i += 2
+                while i < length and dax[i] != '\n':
+                    i += 1
+                continue
+
+            # Skip block comments
+            if ch == '/' and i + 1 < length and dax[i + 1] == '*':
+                i += 2
+                while i < length and not (dax[i] == '*' and i + 1 < length and dax[i + 1] == '/'):
+                    i += 1
+                i += 2  # skip */
+                continue
+
+            # Track parenthesis depth
+            if ch == '(':
+                paren_depth += 1
+                i += 1
+                continue
+            if ch == ')':
+                paren_depth -= 1
+                i += 1
+                continue
+
+            # Check for RETURN keyword at depth 0
+            if paren_depth == 0 and dax[i:i + 6].upper() == 'RETURN':
+                # Verify it's a word boundary (not part of a larger identifier)
+                before_ok = (i == 0 or not dax[i - 1].isalnum() and dax[i - 1] != '_')
+                after_pos = i + 6
+                after_ok = (after_pos >= length or not dax[after_pos].isalnum() and dax[after_pos] != '_')
+                if before_ok and after_ok:
+                    return i
+
+            i += 1
+
+        return -1
+
+    @staticmethod
+    def _find_var_insertion_point(dax: str) -> int:
+        """Find the correct position to insert new VAR declarations.
+
+        Skips leading comments (// and /* */) and blank lines.
+        Returns the char position where VARs should be inserted.
+        """
+        i = 0
+        length = len(dax)
+
+        while i < length:
+            # Skip whitespace
+            if dax[i] in (' ', '\t', '\r', '\n'):
+                i += 1
+                continue
+
+            # Skip line comments
+            if dax[i] == '/' and i + 1 < length and dax[i + 1] == '/':
+                i += 2
+                while i < length and dax[i] != '\n':
+                    i += 1
+                if i < length:
+                    i += 1  # skip the newline
+                continue
+
+            # Skip block comments
+            if dax[i] == '/' and i + 1 < length and dax[i + 1] == '*':
+                i += 2
+                while i < length and not (dax[i] == '*' and i + 1 < length and dax[i + 1] == '/'):
+                    i += 1
+                if i < length:
+                    i += 2  # skip */
+                continue
+
+            # Found non-comment content
+            break
+
+        return i
+
+    def _is_calculate_first_arg(self, dax: str, measure_name: str) -> bool:
+        """Check if [measure_name] appears as the first argument of any CALCULATE.
+
+        If so, extracting it to a top-level VAR would be semantically wrong because
+        CALCULATE changes the filter context before evaluating its first argument,
+        but a VAR is evaluated once at definition time with the ambient context.
+
+        Returns True if the measure should NOT be extracted.
+        """
+        ref_pattern = rf"\[\s*{re.escape(measure_name)}\s*\]"
+        for match in re.finditer(ref_pattern, dax):
+            start = match.start()
+            # Look backwards from the match to see if it's preceded by CALCULATE(
+            prefix = dax[:start].rstrip()
+            # Check for CALCULATE( possibly with whitespace
+            if re.search(r"CALCULATE\s*\(\s*$", prefix, re.IGNORECASE):
+                return True
+        return False
 
     def _replace_standalone_measures(self, dax: str, var_mapping: Dict[str, str]) -> str:
         """
