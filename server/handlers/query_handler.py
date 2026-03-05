@@ -62,17 +62,33 @@ def handle_run_dax_trace(args: Dict[str, Any]) -> Dict[str, Any]:
             f"SE cache: {perf['se_cache_hits']}"
         )
 
+        # Deduplicate xmSQL query text in SE events
+        raw_se_events = result.get('se_events', [])
+        query_lookup = []
+        query_to_idx = {}
+        compact_se = []
+        for evt in raw_se_events:
+            qt = evt.get("query", "")
+            if qt not in query_to_idx:
+                query_to_idx[qt] = len(query_lookup)
+                query_lookup.append(qt)
+            ce = {k: v for k, v in evt.items() if k != "query"}
+            ce["query_idx"] = query_to_idx[qt]
+            compact_se.append(ce)
+
         trace_data = {
             'runner': 'native',
             'performance': perf,
-            'se_events': result.get('se_events', []),
+            'se_queries_lookup': query_lookup,
+            'se_events': compact_se,
+            '_se_events_raw': raw_se_events,
             'cache_cleared': result.get('cache_cleared', False),
             'summary': summary,
         }
         # Cache for auto-retrieval by optimize
         connection_state.store_trace_result(trace_data)
 
-        return {'success': True, **trace_data}
+        return {'success': True, **{k: v for k, v in trace_data.items() if not k.startswith('_')}}
 
     except ImportError:
         return {'success': False, 'error': 'NativeTraceRunner not available. Ensure core/infrastructure/query_trace.py exists.'}

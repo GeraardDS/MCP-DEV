@@ -100,10 +100,27 @@ def _build_trace_response(trace_result: dict) -> dict:
         "se_pct": trace_result.get("se_pct", 0.0),
     }
     se_events_list = trace_result.get("se_events", [])
+
+    # Deduplicate xmSQL query text: store unique queries in a lookup,
+    # reference by index in each event to avoid ~70-85% size bloat.
+    query_lookup: list = []
+    query_to_idx: dict = {}
+    compact_se_events: list = []
+    for evt in se_events_list:
+        query_text = evt.get("query", "")
+        if query_text not in query_to_idx:
+            query_to_idx[query_text] = len(query_lookup)
+            query_lookup.append(query_text)
+        compact_evt = {k: v for k, v in evt.items() if k != "query"}
+        compact_evt["query_idx"] = query_to_idx[query_text]
+        compact_se_events.append(compact_evt)
+
     response = {
         "runner": "native",
         "performance": perf,
-        "se_events": se_events_list,
+        "se_queries_lookup": query_lookup,
+        "se_events": compact_se_events,
+        "_se_events_raw": se_events_list,  # Internal: full events for cache consumers
         "cache_cleared": trace_result.get("cache_cleared", False),
         "summary": (
             f"Total: {perf['total_ms']}ms | "
@@ -113,7 +130,7 @@ def _build_trace_response(trace_result: dict) -> dict:
             f"SE cache: {perf['se_cache_hits']}"
         ),
     }
-    # Deep SE event analysis
+    # Deep SE event analysis (uses original list with inline query text)
     if se_events_list:
         try:
             from core.dax.se_event_analyzer import SeEventAnalyzer
@@ -657,9 +674,12 @@ def _execute_visual_query(
                         response["se_fe_trace"] = {"error": trace_result["_error"]}
                     else:
                         trace_response = _build_trace_response(trace_result)
-                        response["se_fe_trace"] = trace_response
-                        # Cache for auto-retrieval by optimize
+                        # Cache full response (with _se_events_raw) for optimize
                         connection_state.store_trace_result(trace_response)
+                        # Strip internal keys before sending to user
+                        response["se_fe_trace"] = {
+                            k: v for k, v in trace_response.items() if not k.startswith('_')
+                        }
             except Exception as te:
                 logger.error(f"SE/FE trace failed: {te}", exc_info=True)
                 response["se_fe_trace"] = {"error": str(te)}
@@ -2356,9 +2376,12 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
                     response["se_fe_trace"] = {"error": trace_result["_error"]}
                 else:
                     trace_response = _build_trace_response(trace_result)
-                    response["se_fe_trace"] = trace_response
-                    # Cache for auto-retrieval by optimize
+                    # Cache full response (with _se_events_raw) for optimize
                     connection_state.store_trace_result(trace_response)
+                    # Strip internal keys before sending to user
+                    response["se_fe_trace"] = {
+                        k: v for k, v in trace_response.items() if not k.startswith('_')
+                    }
         except Exception as te:
             logger.error(f"SE/FE trace failed: {te}", exc_info=True)
             response["se_fe_trace"] = {"error": str(te)}
@@ -2907,8 +2930,9 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
                 if timing_provided:
                     timing_source = "cached_trace"
                     # Also grab SE events from cache if not explicitly provided
+                    # Use _se_events_raw (full query text) for analyzer compatibility
                     if not se_events_input:
-                        se_events_input = cached.get("se_events", [])
+                        se_events_input = cached.get("_se_events_raw") or cached.get("se_events", [])
 
         if not timing_provided:
             return {
