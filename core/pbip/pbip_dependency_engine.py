@@ -608,6 +608,13 @@ class PbipDependencyEngine:
                         if field_key:
                             measures_in_visuals.add(self._normalize_key(field_key))
 
+        # Build normalized measure_to_measure lookup for O(1) recursive resolution.
+        # Maps normalized_key -> list of normalized dependency keys.
+        normalized_m2m: Dict[str, List[str]] = {}
+        for orig_key, dep_list in self.measure_to_measure.items():
+            norm_key = self._normalize_key(orig_key)
+            normalized_m2m[norm_key] = [self._normalize_key(d) for d in dep_list]
+
         # Now recursively find all measures that these depend on (transitive closure)
         # If measure A is used in a visual and depends on measure B, then both A and B are used
         def add_dependencies_recursively(measure_key_normalized: str):
@@ -616,44 +623,22 @@ class PbipDependencyEngine:
                 return  # Already processed
             used_measures_normalized.add(measure_key_normalized)
 
-            # Find the original key to look up dependencies
-            # Check both normalized and original forms
-            deps = []
-            for orig_key, dep_list in self.measure_to_measure.items():
-                if self._normalize_key(orig_key) == measure_key_normalized:
-                    deps = dep_list
-                    break
-
-            for dep_key in deps:
-                add_dependencies_recursively(self._normalize_key(dep_key))
+            for dep_key in normalized_m2m.get(measure_key_normalized, []):
+                add_dependencies_recursively(dep_key)
 
         # Process all measures that are directly used in visuals
         for measure_key in measures_in_visuals:
             add_dependencies_recursively(measure_key)
 
-        # ALSO mark as used any measure that is referenced by another used measure (transitive)
-        # A measure is used if any measure that uses it is itself used
-        changed = True
-        while changed:
-            changed = False
-            for orig_key in self.measure_to_measure_reverse.keys():
-                normalized = self._normalize_key(orig_key)
-                if normalized not in used_measures_normalized:
-                    # Check if any measure that uses this one is itself used
-                    users = self.measure_to_measure_reverse.get(orig_key, [])
-                    for user_key in users:
-                        if self._normalize_key(user_key) in used_measures_normalized:
-                            used_measures_normalized.add(normalized)
-                            changed = True
-                            break
-
         # Build set of used columns (normalized)
         used_columns_normalized = set()
 
-        # Used in measures (from DAX expressions - explicit column references)
-        for deps in self.measure_to_column.values():
-            for d in deps:
-                used_columns_normalized.add(self._normalize_key(d))
+        # Used in USED measures only (from DAX expressions - explicit column references).
+        # Columns referenced only by unused measures are themselves unused.
+        for measure_key, col_deps in self.measure_to_column.items():
+            if self._normalize_key(measure_key) in used_measures_normalized:
+                for d in col_deps:
+                    used_columns_normalized.add(self._normalize_key(d))
 
         # NOTE: Table-level DAX references (REMOVEFILTERS, ALL, ALLSELECTED, FILTER, etc.)
         # do NOT mark all columns of the referenced table as used.
@@ -661,10 +646,9 @@ class PbipDependencyEngine:
         # columns are consumed by the model. Only explicit column references
         # ('Table'[Column]) in DAX expressions count as column usage.
 
-        # Used by other columns (calculated columns)
-        for column_key in self.column_to_measure.keys():
-            if self.column_to_measure[column_key]:  # If this column is referenced by any measure/column
-                used_columns_normalized.add(self._normalize_key(column_key))
+        # Used by calculated columns — a column referenced by a calculated column
+        # expression is used only if the calc column itself is used. We defer this
+        # check to after all other column usage sources are collected (see below).
 
         # Used in relationships
         # TMDL parser stores from_column/to_column as full 'Table[Column]' references
@@ -777,6 +761,26 @@ class PbipDependencyEngine:
             # NOTE: Only the columns explicitly referenced in RLS filter expressions
             # are marked as used (handled above). Having an RLS filter on a table does
             # NOT mean all columns in that table are used.
+
+        # Propagate column usage through calculated column dependencies.
+        # If calc column C is used (in a visual, relationship, etc.) and its DAX
+        # references column D, then D is also used. Iterate until stable.
+        # column_to_measure stores: referenced_column -> [referrers] where referrers
+        # can be measure keys OR calculated column keys (from _analyze_column_usage).
+        changed = True
+        while changed:
+            changed = False
+            for column_key, referrers in self.column_to_measure.items():
+                col_norm = self._normalize_key(column_key)
+                if col_norm in used_columns_normalized:
+                    continue  # Already marked used
+                for referrer in referrers:
+                    ref_norm = self._normalize_key(referrer)
+                    # Referrer is either a used measure or a used column
+                    if ref_norm in used_measures_normalized or ref_norm in used_columns_normalized:
+                        used_columns_normalized.add(col_norm)
+                        changed = True
+                        break
 
         # Find unused by comparing normalized keys
         unused_measures = []
