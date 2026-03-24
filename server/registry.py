@@ -24,6 +24,7 @@ class ToolCategory(Enum):
     PBIP = "pbip"              # PBIP analysis, report info, slicers, visuals
     DOCS = "docs"              # Documentation generation
     DEBUG = "debug"            # Debug tools
+    AUTHORING = "authoring"    # PBIP report authoring & prototyping
 
 
 # Define which tools belong to each category (for deferred loading)
@@ -81,6 +82,10 @@ CATEGORY_TOOLS = {
         "09_Document",
         "09_Advanced_Analysis",
     ],
+    ToolCategory.AUTHORING: [
+        "11_PBIP_Authoring",
+        "11_PBIP_Prototype",
+    ],
 }
 
 
@@ -102,6 +107,7 @@ CATEGORY_INFO = {
     ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis, SVG visuals", "tool_count": 8},
     ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs, visual editing", "tool_count": 3},
     ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation", "tool_count": 6},
+    ToolCategory.AUTHORING: {"name": "Report Authoring", "description": "Create, clone, prototype PBIP report pages and visuals", "tool_count": 2},
 }
 
 

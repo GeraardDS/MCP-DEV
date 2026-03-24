@@ -44,6 +44,10 @@ from server.handlers.transaction_management_handler import register_transaction_
 # SVG Visual Generation
 from server.handlers.svg_handler import register_svg_operations_handler
 
+# PBIP Authoring & Prototyping
+from server.handlers.authoring_handler import register_authoring_handler
+from server.handlers.prototype_handler import register_prototype_handler
+
 def register_all_handlers(registry):
     """Register all handlers with the registry"""
     register_connection_handlers(registry)
@@ -82,6 +86,10 @@ def register_all_handlers(registry):
 
     # SVG Visual Generation
     register_svg_operations_handler(registry)
+
+    # PBIP Authoring & Prototyping
+    register_authoring_handler(registry)
+    register_prototype_handler(registry)
 
 __all__ = [
     'register_all_handlers',

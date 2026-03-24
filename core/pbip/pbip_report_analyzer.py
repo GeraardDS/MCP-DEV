@@ -514,9 +514,10 @@ class PbirReportAnalyzer:
 
             # Common projection types
             projection_types = [
-                "Category", "Y", "Values", "Rows", "Columns",
+                "Category", "Y", "Y2", "Values", "Rows", "Columns",
                 "Legend", "Tooltips", "Details", "X", "Size",
-                "Gradient", "Play", "SecondaryValues"
+                "Gradient", "Play", "SecondaryValues", "Data",
+                "Series", "Breakdown", "Analyze", "ExplainBy"
             ]
 
             for proj_type in projection_types:
@@ -654,6 +655,18 @@ class PbirReportAnalyzer:
                             measures.add((entity, prop))
                         else:
                             columns.add((entity, prop))
+
+            # Check selector.metadata strings (e.g. "m Measure.00_CurrencyFlow % of FX")
+            # These reference measures/columns used for conditional formatting targets
+            selector = obj.get("selector")
+            if isinstance(selector, dict):
+                metadata = selector.get("metadata", "")
+                if isinstance(metadata, str) and "." in metadata:
+                    dot_idx = metadata.index(".")
+                    table = metadata[:dot_idx].strip()
+                    prop = metadata[dot_idx + 1:].strip()
+                    if table and prop:
+                        measures.add((table, prop))
 
             # Recurse into all dict values
             for value in obj.values():
