@@ -514,6 +514,70 @@ def template_visual_group(name: Optional[str] = None) -> Dict[str, Any]:
     return v
 
 
+def template_button_slicer(visual_id: Optional[str] = None) -> Dict[str, Any]:
+    """Template for button slicer visual (GA Oct 2025, schema 2.3.0+)."""
+    vid = visual_id or generate_visual_id()
+    return {
+        "$schema": VISUAL_SCHEMA,
+        "name": vid,
+        "position": {"x": 0, "y": 0, "width": 300, "height": 60, "z": 0, "tabOrder": 0},
+        "visual": {
+            "visualType": "buttonSlicer",
+            "query": {"queryState": {"Values": {"projections": []}}},
+            "objects": {},
+            "visualContainerObjects": {},
+        },
+    }
+
+
+def template_text_slicer(visual_id: Optional[str] = None) -> Dict[str, Any]:
+    """Template for text slicer visual (preview Nov 2024, schema 1.4.0+)."""
+    vid = visual_id or generate_visual_id()
+    return {
+        "$schema": VISUAL_SCHEMA,
+        "name": vid,
+        "position": {"x": 0, "y": 0, "width": 200, "height": 48, "z": 0, "tabOrder": 0},
+        "visual": {
+            "visualType": "textSlicer",
+            "query": {"queryState": {"Values": {"projections": []}}},
+            "objects": {},
+            "visualContainerObjects": {},
+        },
+    }
+
+
+def template_list_slicer(visual_id: Optional[str] = None) -> Dict[str, Any]:
+    """Template for list slicer visual (preview Nov 2024, schema 1.4.0+)."""
+    vid = visual_id or generate_visual_id()
+    return {
+        "$schema": VISUAL_SCHEMA,
+        "name": vid,
+        "position": {"x": 0, "y": 0, "width": 200, "height": 300, "z": 0, "tabOrder": 0},
+        "visual": {
+            "visualType": "listSlicer",
+            "query": {"queryState": {"Values": {"projections": []}}},
+            "objects": {},
+            "visualContainerObjects": {},
+        },
+    }
+
+
+def template_input_slicer(visual_id: Optional[str] = None) -> Dict[str, Any]:
+    """Template for input slicer visual (GA Feb 2026, schema 2.6.0+)."""
+    vid = visual_id or generate_visual_id()
+    return {
+        "$schema": VISUAL_SCHEMA,
+        "name": vid,
+        "position": {"x": 0, "y": 0, "width": 200, "height": 48, "z": 0, "tabOrder": 0},
+        "visual": {
+            "visualType": "inputSlicer",
+            "query": {"queryState": {"Values": {"projections": []}}},
+            "objects": {},
+            "visualContainerObjects": {},
+        },
+    }
+
+
 # --- Template Registry ---
 
 TEMPLATE_REGISTRY: Dict[str, Callable[[Optional[str]], Dict[str, Any]]] = {
@@ -543,6 +607,10 @@ TEMPLATE_REGISTRY: Dict[str, Callable[[Optional[str]], Dict[str, Any]]] = {
     "gauge": template_gauge,
     # Slicers
     "slicer": template_slicer,
+    "buttonSlicer": template_button_slicer,
+    "textSlicer": template_text_slicer,
+    "listSlicer": template_list_slicer,
+    "inputSlicer": template_input_slicer,
     # Layout
     "shape": template_shape,
     "textbox": template_textbox,
