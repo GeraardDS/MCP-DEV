@@ -34,6 +34,7 @@ from server.handlers.svg_handler import register_svg_operations_handler
 
 # PBIP Prototyping (kept from authoring — prototype is a distinct workflow)
 from server.handlers.prototype_handler import register_prototype_handler
+from server.handlers.authoring_handler import register_authoring_handler
 
 # Consolidated PBIP/Report tools (v12 consolidation)
 from server.handlers.report_operations_handler import register_report_operations_handler
@@ -93,6 +94,9 @@ def register_all_handlers(registry):
 
     # PBIP Prototyping
     register_prototype_handler(registry)
+
+    # PBIP Authoring (page/visual cloning, creation, deletion, templates)
+    register_authoring_handler(registry)
 
 __all__ = [
     'register_all_handlers',
