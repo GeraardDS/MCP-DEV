@@ -28,8 +28,7 @@
 20. [09_Document](#09_document)
 21. [10_Show_User_Guide](#10_show_user_guide)
 22. [11_PBIP_Authoring](#11_pbip_authoring)
-23. [11_PBIP_Prototype](#11_pbip_prototype)
-24. [SVG_Visual_Operations](#svg_visual_operations)
+23. [SVG_Visual_Operations](#svg_visual_operations)
 
 ---
 
@@ -46,7 +45,7 @@
 | **PBIP** | 07_Report/PBIP/Page/Visual/Bookmark/Theme_Operations, SVG_Visual_Operations | No |
 | **Docs** | 08_Documentation_Word | Yes |
 | **Debug** | 09_Debug/Validate/Profile/Document | Yes |
-| **Authoring** | 11_PBIP_Authoring, 11_PBIP_Prototype | No (Prototype needs live for data) |
+| **Authoring** | 11_PBIP_Authoring | No |
 
 ---
 
@@ -151,11 +150,59 @@ Unified CRUD for tables, columns, measures, relationships, and calculation group
 | `delete` | Delete a calculation group |
 | `list_items` | List items in a calculation group |
 
+#### `partition`
+| Operation | Description |
+|-----------|-------------|
+| `list` | List partitions for a table |
+| `describe` | Get partition details |
+| `refresh` | Refresh a specific partition |
+
+#### `hierarchy`
+| Operation | Description |
+|-----------|-------------|
+| `list` | List hierarchies for a table |
+| `describe` | Get hierarchy details |
+| `create` | Create a hierarchy |
+| `delete` | Delete a hierarchy |
+
+#### `perspective`
+| Operation | Description |
+|-----------|-------------|
+| `list` | List all perspectives |
+| `describe` | Get perspective details |
+| `create` | Create a perspective |
+| `delete` | Delete a perspective |
+
+#### `culture`
+| Operation | Description |
+|-----------|-------------|
+| `list` | List all cultures/translations |
+| `describe` | Get culture details |
+| `create` | Create a culture |
+| `delete` | Delete a culture |
+| `set_translation` | Set a translation for an object |
+
+#### `named_expression`
+| Operation | Description |
+|-----------|-------------|
+| `list` | List all named expressions |
+| `describe` | Get named expression details |
+| `create` | Create a named expression |
+| `update` | Update a named expression |
+| `delete` | Delete a named expression |
+
+#### `ols_rule`
+| Operation | Description |
+|-----------|-------------|
+| `list` | List OLS rules |
+| `set` | Set an OLS rule |
+| `remove` | Remove an OLS rule |
+
 ### Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `object_type` | `"table"` \| `"column"` \| `"measure"` \| `"relationship"` \| `"calculation_group"` | — | **Required.** Object type |
+| `object_type` | `"table"` \| `"column"` \| `"measure"` \| `"relationship"` \| `"calculation_group"` \| `"partition"` \| `"hierarchy"` \| `"perspective"` \| `"culture"` \| `"named_expression"` \| `"ols_rule"` | — | **Required.** Object type |
 | `operation` | string | — | Operation (varies by object_type) |
 | `table_name` | string | — | Table name |
 | `column_name` | string | — | Column name |
@@ -428,6 +475,7 @@ When `operation` is set, `analysis_mode` is ignored:
 | `dependencies` | Dependency graph for a measure/table |
 | `impact` | Impact analysis (what breaks if I change X?) |
 | `export` | Export dependency graph to CSV |
+| `list_udfs` | List all DAX user-defined functions via INFO.USERDEFINEDFUNCTIONS() |
 
 ### Parameters
 
@@ -529,7 +577,7 @@ Model analysis: quick overview, full BPA analysis, and model comparison.
 |-----------|-------------|----------|
 | `simple` | Quick analysis (8 modes + insights) | 2-5s |
 | `full` | Complete BPA + performance analysis | 10-180s |
-| `compare` | Compare two open models | 5-30s |
+| `compare` | Compare two open models (roles, perspectives, measures, tables) | 5-30s |
 
 ### Simple Analysis Modes
 
@@ -579,6 +627,8 @@ Model analysis: quick overview, full BPA analysis, and model comparison.
 // Compare two models
 {"operation": "compare", "old_port": 52345, "new_port": 52678}
 ```
+
+> **v7.1.0 model diff engine:** Role comparison now detects modified roles (filter expression diffs, member diffs). Perspective comparison now detects modified perspectives (added/removed objects).
 
 ---
 
@@ -755,7 +805,7 @@ Page CRUD, display settings, drillthrough/tooltip configuration, visual interact
 | `level` | `"report"` \| `"page"` \| `"visual"` \| `"all"` | `"all"` | Filter scope level |
 | `visual_name` | string | — | Visual name (filter visual level) |
 | `filter_name` | string | — | Filter name/ID |
-| `filter_type` | `"Categorical"` \| `"Advanced"` \| `"TopN"` \| `"RelativeDate"` | `"Categorical"` | Filter type |
+| `filter_type` | `"Categorical"` \| `"Advanced"` \| `"TopN"` \| `"RelativeDate"` \| `"VisualTopN"` | `"Categorical"` | Filter type |
 | `values` | string[] | — | Filter values |
 | `operator` | string | — | Advanced operator |
 | `top_n` | integer | — | TopN count |
@@ -787,6 +837,8 @@ Page CRUD, display settings, drillthrough/tooltip configuration, visual interact
 **Category:** PBIP | **Requires:** PBIP files on disk
 
 Visual CRUD, positioning, formatting, field binding, sorting, actions, code injection, slicer configuration, visual calculations, templates, measure replacement, and cross-visual sync.
+
+> **v7.1.0 notes:** `list` output now includes `has_mobile_layout` per visual. PBIR annotations are read from `visual.json`, `page.json`, and `report.json`. `SummarizeVisualContainer` is recognized as a visual group type.
 
 ### Operations
 
@@ -1149,6 +1201,8 @@ None.
 
 Create, clone, and delete pages/visuals in PBIP reports. Includes visual templates.
 
+> **v7.1.0 notes:** Visual schema bumped to 2.7.0 (was 2.6.0). 4 new slicer templates added: `buttonSlicer`, `textSlicer`, `listSlicer`, `inputSlicer`. Total templates: 32 (was 28).
+
 ### Operations
 
 | Operation | Description |
@@ -1188,36 +1242,6 @@ Create, clone, and delete pages/visuals in PBIP reports. Includes visual templat
 | `group_name` | string | — | Group display name |
 | `formatting` | array | — | `[{config_type, property_name, value}]` |
 | `delete_children` | boolean | true | Delete group children |
-
----
-
-## 11_PBIP_Prototype
-
-**Category:** Authoring | **Requires:** PBIP files + optional live connection for data
-
-Generate and prototype Power BI report pages: spec-based generation, interactive HTML prototype, and HTML-to-PBIP translation.
-
-### Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `generate_from_spec` | Create a PBIP page from a structured JSON specification |
-| `generate_html` | Generate an interactive HTML prototype from a PBIP page |
-| `apply_html` | Apply HTML prototype changes back to PBIP files |
-
-### Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `pbip_path` | string | — | **Required.** PBIP path |
-| `operation` | string | — | **Required.** Operation |
-| `spec` | object | — | Page specification (generate_from_spec) |
-| `page_name` | string | — | Page name (generate_html) |
-| `output_path` | string | — | Custom HTML output path |
-| `auto_open` | boolean | true | Auto-open in browser |
-| `include_data` | boolean | false | Include live data from PBI |
-| `state` | object | — | Exported state JSON (apply_html) |
-| `dry_run` | boolean | false | Preview changes |
 
 ---
 
@@ -1272,6 +1296,12 @@ SVG visual generation: 40+ DAX measure templates for KPIs, sparklines, gauges, a
 
 ---
 
+## MCP Annotations
+
+All 23 tools carry `idempotentHint` and `openWorldHint` MCP annotations. Three tools additionally expose `outputSchema`: `01_Connection`, `04_Run_DAX`, `10_Show_User_Guide`.
+
+---
+
 ## Quick Reference: Requires Connection vs Offline
 
 | Offline (PBIP only) | Live Connection Required |
@@ -1285,11 +1315,11 @@ SVG visual generation: 40+ DAX measure templates for KPIs, sparklines, gauges, a
 | 07_Bookmark_Operations | 05_Column_Usage_Mapping (live ops) |
 | 07_Theme_Operations | 06_Analysis_Operations |
 | 11_PBIP_Authoring | 08_Documentation_Word |
-| 11_PBIP_Prototype (no data) | 09_Debug_Operations |
-| SVG_Visual_Operations (templates) | 09_Validate |
-| 10_Show_User_Guide | 09_Profile |
+| SVG_Visual_Operations (templates) | 09_Debug_Operations |
+| 10_Show_User_Guide | 09_Validate |
+| | 09_Profile |
 | | 09_Document |
 
 ---
 
-*Generated for MCP-PowerBi-Finvision v7.0.0 — 23 tools, 150+ operations*
+*Generated for MCP-PowerBi-Finvision v7.1.0 — 23 tools, 150+ operations*
