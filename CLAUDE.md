@@ -88,18 +88,31 @@ def register_foo_handler(registry):
 
 Tools are grouped by `ToolCategory` enum in `server/registry.py` (CORE, MODEL, BATCH, QUERY, DAX, ANALYSIS, PBIP, DOCS, DEBUG, AUTHORING). A pre-computed `_TOOL_TO_CATEGORY` reverse lookup provides O(1) category resolution. Tool names follow the pattern `NN_Tool_Name` where NN indicates category order.
 
-The PBIP category (07_*) was consolidated in v12 to provide comprehensive report manipulation:
+**v13 consolidation (38→23 tools):**
 
-- `07_PBIP_Operations` — Model analysis, validation, comparison, docs, git_diff, full HTML report
-- `07_Report_Operations` — Report info, measure_usage, rename, rebind, backup, restore, schema discovery, extension measures
-- `07_Page_Operations` — Page CRUD, reorder, resize, display options, background, drillthrough, tooltip, interactions
-- `07_Visual_Operations` — Visual CRUD, position, formatting, alignment, field binding, sort, actions, code injection, slicer config, visual calcs, templates
-- `07_Visual_Sync` — Cross-visual: replace_measure, sync_visual, sync_column_widths, sync_formatting
-- `07_Filter_Operations` — Filter CRUD at report/page/visual level
+- `01_Connection` — Detect PBI instances + connect (merged from 2 tools)
+- `02_Model_Operations` — Unified CRUD: table/column/measure/relationship/calc_group (merged from 5 tools)
+- `02_TMDL_Operations` — TMDL export, find/replace, bulk rename, migration
+- `03_Batch_Operations` — Batch create/update/delete (transactions internalized)
+- `04_Run_DAX` — DAX execution with trace analysis
+- `04_Query_Operations` — Data sources, M expressions, search, roles, RLS, search_string
+- `05_DAX_Intelligence` — DAX analysis, optimization, dependencies, impact, export
+- `05_Column_Usage_Mapping` — Column/measure usage analysis + CSV export
+- `06_Analysis_Operations` — BPA, model analysis, model comparison
+- `07_Report_Operations` — Report info, measure_usage, rename, rebind, backup, restore, schema, extension measures
+- `07_PBIP_Operations` — Model analysis, validation, comparison, docs, git_diff, dependency HTML, aggregation
+- `07_Page_Operations` — Page CRUD, display, filters, interactions
+- `07_Visual_Operations` — Visual CRUD, formatting, data binding, sync, interactions, templates
 - `07_Bookmark_Operations` — Bookmark CRUD + HTML analysis
-- `07_Theme_Operations` — Theme colors, formatting, fonts, text classes, conditional formatting CRUD
-- `07_PBIP_Dependency_Analysis` — Interactive HTML dependency viewer
-- `07_Analyze_Aggregation` — Aggregation analysis
+- `07_Theme_Operations` — Theme colors, formatting, fonts, text classes, CF rules
+- `08_Documentation_Word` — Word doc generation
+- `09_Debug_Operations` — Visual debug, SE/FE trace, compare, drill, audit, config
+- `09_Validate` — Cross-visual validation, expected values, filter permutations
+- `09_Profile` — Performance profiling, decomposition, contribution, trends, root cause
+- `09_Document` — Page/report documentation, measure/filter lineage
+- `10_Show_User_Guide` — User guide
+- `11_PBIP_Authoring` — Page/visual cloning, creation, deletion, templates
+- `11_PBIP_Prototype` — HTML report prototype generation
 - `SVG_Visual_Operations` — SVG measure templates (40+)
 
 ### Key Singletons
