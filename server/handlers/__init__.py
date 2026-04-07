@@ -36,10 +36,7 @@ from server.handlers.authoring_handler import register_authoring_handler
 # Consolidated PBIP/Report tools (v12 consolidation)
 from server.handlers.report_operations_handler import register_report_operations_handler
 from server.handlers.page_operations_handler import register_page_operations_handler
-from server.handlers.visual_operations_handler import (
-    register_visual_operations_handler,
-    register_visual_sync_handler,
-)
+from server.handlers.visual_operations_handler import register_visual_operations_handler
 from server.handlers.bookmark_operations_handler import register_bookmark_operations_handler
 from server.handlers.theme_operations_handler import register_theme_operations_handler
 
@@ -77,7 +74,6 @@ def register_all_handlers(registry):
     register_report_operations_handler(registry)
     register_page_operations_handler(registry)
     register_visual_operations_handler(registry)
-    register_visual_sync_handler(registry)
     register_bookmark_operations_handler(registry)
     register_theme_operations_handler(registry)
 

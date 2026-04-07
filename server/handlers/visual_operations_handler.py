@@ -2179,6 +2179,10 @@ def handle_visual_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         'configure_slicer': _op_configure_slicer,
         'list_templates': _op_list_templates,
         'get_template': _op_get_template,
+        'replace_measure': _op_replace_measure,
+        'sync_visual': _op_sync_visual,
+        'sync_column_widths': _op_sync_column_widths,
+        'sync_formatting': _op_sync_formatting,
     }
     op_func = ops.get(operation)
     if not op_func:
@@ -2287,53 +2291,8 @@ def _op_sync_formatting(args: Dict[str, Any], definition_path: Path) -> Dict[str
     return result
 
 
-def handle_visual_sync(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Dispatch for visual sync operations."""
-    operation = args.get('operation')
-    pbip_path = args.get('pbip_path')
-
-    if not pbip_path:
-        return {
-            'success': False,
-            'error': (
-                'pbip_path parameter is required'
-                ' - path to PBIP project, .Report folder,'
-                ' or definition folder'
-            ),
-        }
-
-    if not operation:
-        return {
-            'success': False,
-            'error': 'operation parameter is required',
-        }
-
-    resolved = resolve_definition_path(pbip_path)
-    if 'error' in resolved:
-        return {'success': False, 'error': resolved['error']}
-    definition_path = resolved['path']
-
-    ops = {
-        'replace_measure': _op_replace_measure,
-        'sync_visual': _op_sync_visual,
-        'sync_column_widths': _op_sync_column_widths,
-        'sync_formatting': _op_sync_formatting,
-    }
-    op_func = ops.get(operation)
-    if not op_func:
-        valid = ", ".join(ops)
-        return {
-            'success': False,
-            'error': (
-                f'Unknown operation: {operation}.'
-                f' Valid: {valid}'
-            ),
-        }
-    return op_func(args, definition_path)
-
-
 def register_visual_operations_handler(registry):
-    """Register visual operations handler (expanded v12)."""
+    """Register visual operations handler (expanded v12, includes sync ops)."""
     from server.tool_schemas import TOOL_SCHEMAS
 
     tool = ToolDefinition(
@@ -2341,7 +2300,8 @@ def register_visual_operations_handler(registry):
         description=(
             "Visual operations: list, create, delete, position, config, formatting, "
             "align, field binding, sort, actions, code injection, slicer config, "
-            "visual calcs, templates."
+            "visual calcs, templates, replace_measure, sync_visual, "
+            "sync_column_widths, sync_formatting."
         ),
         handler=handle_visual_operations,
         input_schema=TOOL_SCHEMAS.get('visual_operations', {}),
@@ -2350,24 +2310,4 @@ def register_visual_operations_handler(registry):
         annotations={"readOnlyHint": False, "destructiveHint": True},
     )
     registry.register(tool)
-    logger.info("Registered visual_operations handler (v12)")
-
-
-def register_visual_sync_handler(registry):
-    """Register visual sync handler (replace, sync)."""
-    from server.tool_schemas import TOOL_SCHEMAS
-
-    tool = ToolDefinition(
-        name="07_Visual_Sync",
-        description=(
-            "Cross-visual sync: replace_measure, sync_visual, "
-            "sync_column_widths, sync_formatting."
-        ),
-        handler=handle_visual_sync,
-        input_schema=TOOL_SCHEMAS.get('visual_sync', {}),
-        category="pbip",
-        sort_order=74,
-        annotations={"readOnlyHint": False, "destructiveHint": True},
-    )
-    registry.register(tool)
-    logger.info("Registered visual_sync handler (v12)")
+    logger.info("Registered visual_operations handler (v12 + sync ops)")

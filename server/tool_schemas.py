@@ -116,7 +116,7 @@ TOOL_SCHEMAS = {
         "type": "object",
         "properties": {
             "pbip_path": {"type": "string", "description": "Path to PBIP/Report folder"},
-            "operation": {"type": "string", "enum": ["list", "create", "create_group", "delete", "update_position", "update_visual_config", "update_formatting", "align", "add_field", "remove_field", "set_sort", "set_action", "inject_code", "manage_visual_calcs", "configure_slicer", "list_templates", "get_template"], "default": "list"},
+            "operation": {"type": "string", "enum": ["list", "create", "create_group", "delete", "update_position", "update_visual_config", "update_formatting", "align", "add_field", "remove_field", "set_sort", "set_action", "inject_code", "manage_visual_calcs", "configure_slicer", "list_templates", "get_template", "replace_measure", "sync_visual", "sync_column_widths", "sync_formatting"], "default": "list"},
             "display_title": {"type": "string", "description": "Filter by title"},
             "visual_type": {"type": "string", "description": "Filter/set visual type"},
             "visual_name": {"type": "string", "description": "Filter by visual ID"},
@@ -166,38 +166,24 @@ TOOL_SCHEMAS = {
             "entity": {"type": "string", "description": "Slicer entity filter"},
             "property": {"type": "string", "description": "Slicer property filter"},
             "formatting_target": {"type": "string", "enum": ["title", "subtitle", "divider", "background", "border", "shadow", "padding", "spacing", "header", "tooltip", "legend", "categoryAxis", "valueAxis", "labels"], "description": "Formatting target (update_formatting)"},
-            "formatting_properties": {"type": "object", "description": "Properties to set on target {show, text, fontSize, fontColor, ...}"}
-        },
-        "required": ["pbip_path"]
-    },
-
-    # Visual Sync (cross-visual operations, moved to pbip category)
-    'visual_sync': {
-        "type": "object",
-        "properties": {
-            "pbip_path": {"type": "string", "description": "Path to PBIP/Report folder"},
-            "operation": {"type": "string", "enum": ["replace_measure", "sync_visual", "sync_column_widths", "sync_formatting"]},
-            "display_title": {"type": "string", "description": "Filter by title"},
-            "visual_type": {"type": "string", "description": "Filter by type"},
-            "visual_name": {"type": "string", "description": "Filter by visual ID"},
-            "page_name": {"type": "string", "description": "Filter by page"},
-            "dry_run": {"type": "boolean", "default": False},
-            "summary_only": {"type": "boolean", "default": True},
+            "formatting_properties": {"type": "object", "description": "Properties to set on target {show, text, fontSize, fontColor, ...}"},
             "source_entity": {"type": "string", "description": "Source table (replace_measure)"},
             "source_property": {"type": "string", "description": "Source measure (replace_measure)"},
             "target_entity": {"type": "string", "description": "Target table (replace_measure)"},
             "target_property": {"type": "string", "description": "Target measure (replace_measure)"},
             "new_display_name": {"type": "string", "description": "New display name (replace_measure)"},
-            "source_visual_name": {"type": "string", "description": "Source visual ID (sync)"},
-            "source_page": {"type": "string", "description": "Source page (sync)"},
-            "target_display_title": {"type": "string", "description": "Target visual title (sync)"},
-            "target_visual_type": {"type": "string", "description": "Target visual type (sync)"},
-            "sync_position": {"type": "boolean", "default": True},
-            "sync_children": {"type": "boolean", "default": True},
-            "target_pages": {"type": "array", "items": {"type": "string"}, "description": "Target pages (sync)"},
+            "source_visual_name": {"type": "string", "description": "Source visual ID (sync ops)"},
+            "source_page": {"type": "string", "description": "Source page (sync ops)"},
+            "target_visual_name": {"type": "string", "description": "Target visual ID (sync_formatting)"},
+            "target_page": {"type": "string", "description": "Target page (sync_formatting)"},
+            "target_display_title": {"type": "string", "description": "Target visual title filter (sync_visual, sync_column_widths)"},
+            "target_visual_type": {"type": "string", "description": "Target visual type filter (sync_visual, sync_column_widths)"},
+            "target_pages": {"type": "array", "items": {"type": "string"}, "description": "Limit sync to these pages"},
+            "sync_position": {"type": "boolean", "default": True, "description": "Also sync position (sync_visual)"},
+            "sync_children": {"type": "boolean", "default": True, "description": "Sync child visuals of groups (sync_visual)"},
             "formatting_types": {"type": "array", "items": {"type": "string"}, "description": "Formatting types to sync"}
         },
-        "required": ["pbip_path", "operation"]
+        "required": ["pbip_path"]
     },
 
     # Filter Operations (new)
