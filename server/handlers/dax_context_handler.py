@@ -126,7 +126,7 @@ def _validate_dax_syntax(expression: str) -> Tuple[bool, str]:
         Tuple of (is_valid, error_message)
     """
     if not connection_state.is_connected():
-        return False, "Not connected to Power BI instance. Please connect using tool '01_Connect_To_Instance' first."
+        return False, "Not connected to Power BI instance. Please connect using tool '01_Connection' first."
 
     qe = connection_state.query_executor
     if not qe:

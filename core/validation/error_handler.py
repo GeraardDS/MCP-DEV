@@ -282,7 +282,7 @@ class ErrorHandler:
             'recovery_steps': [
                 '1. Verify Power BI Desktop is still running',
                 '2. Check if the model is still open',
-                '3. Use 01_Connect_To_Instance to reconnect',
+                '3. Use 01_Connection to reconnect',
                 '4. Retry the failed operation'
             ],
             'auto_reconnect': 'The server will attempt automatic reconnection on next operation'
@@ -299,7 +299,7 @@ class ErrorHandler:
             error_type='connection_lost',
             suggestions=[
                 'The connection to Power BI Desktop was unexpectedly closed',
-                'Use 01_Connect_To_Instance to re-establish the connection',
+                'Use 01_Connection to re-establish the connection',
                 'If this happens frequently, check Power BI Desktop stability'
             ],
             context=context
@@ -321,7 +321,7 @@ class ErrorHandler:
             error_type='reconnection_failed',
             suggestions=[
                 'The server attempted automatic reconnection but failed',
-                'Manually reconnect using 01_Connect_To_Instance',
+                'Manually reconnect using 01_Connection',
                 'Verify Power BI Desktop is running with model open'
             ],
             context={
@@ -331,8 +331,8 @@ class ErrorHandler:
                     '1. Ensure Power BI Desktop is running',
                     '2. Ensure a .pbix file is open',
                     '3. Wait for the model to fully load',
-                    '4. Use 01_Detect_PBI_Instances to verify instance availability',
-                    '5. Use 01_Connect_To_Instance to establish new connection'
+                    '4. Use 01_Connection to verify instance availability',
+                    '5. Use 01_Connection to establish new connection'
                 ]
             }
         ).to_dict()

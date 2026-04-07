@@ -1,6 +1,6 @@
-# MCP-PowerBi-Finvision v7.0.0 — Complete Tool Reference
+# MCP-PowerBi-Finvision v7.1.0 — Complete Tool Reference
 
-> **24 registered MCP tools** across 11 categories, providing 150+ operations for Power BI Desktop analysis, DAX debugging, TMDL editing, PBIP report authoring, and offline model analysis.
+> **23 registered MCP tools** across 10 categories, providing 150+ operations for Power BI Desktop analysis, DAX debugging, TMDL editing, PBIP report authoring, and offline model analysis.
 
 ---
 

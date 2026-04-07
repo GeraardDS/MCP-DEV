@@ -167,7 +167,7 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
         # Fast path: Skip validation for read-only metadata tools (5-15% speedup)
         fast_path_tools = {
             'list_tables', 'list_columns', 'list_measures', 'list_relationships',
-            'detect_powerbi_desktop', '03_List_Relationships', '01_Detect_PBI_Instances',
+            'detect_powerbi_desktop', '03_List_Relationships', '01_Connection',
             '10_Show_User_Guide'
         }
 
