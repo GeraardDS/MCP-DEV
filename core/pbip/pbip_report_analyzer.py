@@ -356,7 +356,7 @@ class PbirReportAnalyzer:
         "shape", "basicShape", "image", "textbox",
         "button", "actionButton",
         "bookmarkNavigator", "pageNavigator", "navigatorButton",
-        "visualGroup", "group",
+        "visualGroup", "group", "SummarizeVisualContainer",
         "slicer", "advancedSlicerVisual",
         "multiRowCard",  # Multi-row cards are typically label/context displays
     }
@@ -391,6 +391,9 @@ class PbirReportAnalyzer:
                 is_visual_group = True
             else:
                 visual_type = data.get("visual", {}).get("visualType", "")
+                # SummarizeVisualContainer is a container type like visualGroup
+                if visual_type == "SummarizeVisualContainer":
+                    is_visual_group = True
 
             # Determine if this is a data-bearing visual
             is_data_visual = self._is_data_visual(visual_type, data)
@@ -450,8 +453,10 @@ class PbirReportAnalyzer:
         Returns:
             True if this is a data-bearing visual
         """
-        # Visual groups are never data visuals
+        # Visual groups and summary containers are never data visuals
         if "visualGroup" in data:
+            return False
+        if visual_type == "SummarizeVisualContainer":
             return False
 
         # Empty type with no visual property is a group/container

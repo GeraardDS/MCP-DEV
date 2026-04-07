@@ -1078,7 +1078,10 @@ def _op_sync_visual(args: Dict[str, Any], definition_path: Path) -> Dict[str, An
 
     # Check if source is a visual group and find children
     source_children = []
-    is_group = 'visualGroup' in source_data.get('visual', {})
+    is_group = (
+        'visualGroup' in source_data
+        or source_data.get('visual', {}).get('visualType') == 'SummarizeVisualContainer'
+    )
     if is_group and sync_children:
         source_children = _find_child_visuals(source_visual_id, source_visuals_path)
 
