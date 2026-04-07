@@ -66,7 +66,7 @@ TOOL_SCHEMAS = {
     'page_operations': {
         "type": "object",
         "properties": {
-            "operation": {"type": "string", "enum": ["list", "create", "clone", "delete", "reorder", "resize", "set_display", "set_background", "set_wallpaper", "set_drillthrough", "set_tooltip", "hide", "show", "set_interaction", "bulk_set_interactions"], "default": "list"},
+            "operation": {"type": "string", "enum": ["list", "create", "clone", "delete", "reorder", "resize", "set_display", "set_background", "set_wallpaper", "set_drillthrough", "set_tooltip", "hide", "show", "set_interaction", "bulk_set_interactions", "list_interactions"], "default": "list"},
             "pbip_path": {"type": "string", "description": "Path to PBIP/Report folder"},
             "page_name": {"type": "string", "description": "Page display name or ID"},
             "page_id": {"type": "string", "description": "Page ID (alternative to page_name)"},

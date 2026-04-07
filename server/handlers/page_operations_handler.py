@@ -18,6 +18,7 @@ Operations:
 - show: Show page
 - set_interaction: Set interaction between two visuals (from slicer_handler)
 - bulk_set_interactions: Bulk set interactions (from slicer_handler)
+- list_interactions: List visual interactions on a page (from slicer_handler)
 """
 from typing import Dict, Any, List
 import logging
@@ -57,6 +58,7 @@ def handle_page_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         "show": _op_show,
         "set_interaction": _op_set_interaction,
         "bulk_set_interactions": _op_bulk_set_interactions,
+        "list_interactions": _op_list_interactions,
     }
 
     handler = ops.get(operation)
@@ -192,6 +194,19 @@ def _op_bulk_set_interactions(args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": f"Could not find definition folder in: {args['pbip_path']}"}
 
     return _slicer_bulk_set(args, definition_path)
+
+
+def _op_list_interactions(args: Dict[str, Any]) -> Dict[str, Any]:
+    """List visual interactions on a page — delegates to slicer_operations_handler."""
+    from server.handlers.slicer_operations_handler import (
+        _op_list_interactions as _slicer_list_interactions,
+    )
+
+    definition_path = find_definition_folder(args["pbip_path"])
+    if not definition_path:
+        return {"success": False, "error": f"Could not find definition folder in: {args['pbip_path']}"}
+
+    return _slicer_list_interactions(args, definition_path)
 
 
 # --- New operations (dispatch to domain engine) ---
