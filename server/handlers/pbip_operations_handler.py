@@ -721,13 +721,26 @@ def handle_pbip_operations(args: Dict[str, Any]) -> Dict[str, Any]:
 
     all_ops = {**analysis_ops, **query_ops}
     handler = all_ops.get(operation)
-    if not handler:
-        valid = ", ".join(all_ops)
-        return {
-            "success": False,
-            "error": f"Unknown operation: {operation}. Valid: {valid}",
-        }
-    return handler(args)
+    if handler:
+        return handler(args)
+
+    # Delegated operations (absorbed from standalone tools)
+    if operation == "dependency_html":
+        from server.handlers.hybrid_analysis_handler import handle_generate_pbip_dependency_diagram
+        # Bridge: pbip_path -> pbip_folder_path expected by the original handler
+        delegated = dict(args)
+        if "pbip_path" in delegated and "pbip_folder_path" not in delegated:
+            delegated["pbip_folder_path"] = delegated["pbip_path"]
+        return handle_generate_pbip_dependency_diagram(delegated)
+    elif operation == "aggregation_analysis":
+        from server.handlers.aggregation_handler import handle_aggregation_analysis
+        return handle_aggregation_analysis(args)
+
+    valid = ", ".join(list(all_ops) + ["dependency_html", "aggregation_analysis"])
+    return {
+        "success": False,
+        "error": f"Unknown operation: {operation}. Valid: {valid}",
+    }
 
 
 def register_pbip_operations_handler(registry):
@@ -738,7 +751,8 @@ def register_pbip_operations_handler(registry):
             "Offline PBIP analysis and queries (no live connection needed):"
             " analyze, validate_model, compare_models, generate_documentation,"
             " query_dependencies, query_measures, query_relationships,"
-            " query_unused, scan_broken_refs, git_diff."
+            " query_unused, scan_broken_refs, git_diff,"
+            " dependency_html, aggregation_analysis."
         ),
         handler=handle_pbip_operations,
         input_schema={
@@ -752,6 +766,7 @@ def register_pbip_operations_handler(registry):
                         "query_dependencies", "query_measures",
                         "query_relationships", "query_unused",
                         "scan_broken_refs", "git_diff",
+                        "dependency_html", "aggregation_analysis",
                     ],
                 },
                 "pbip_path": {
@@ -759,6 +774,7 @@ def register_pbip_operations_handler(registry):
                     "description": (
                         "Path to .pbip file, project directory,"
                         " or .SemanticModel folder"
+                        " (also used as pbip_folder_path for dependency_html)"
                     ),
                 },
                 "output_path": {
@@ -805,6 +821,41 @@ def register_pbip_operations_handler(registry):
                     "description": (
                         "DAX expression regex search"
                         " (query_measures)"
+                    ),
+                },
+                "main_item": {
+                    "type": "string",
+                    "description": (
+                        "Initial selected item in dependency diagram"
+                        " (dependency_html)"
+                    ),
+                },
+                "auto_open": {
+                    "type": "boolean",
+                    "description": (
+                        "Auto-open HTML in browser after generation"
+                        " (dependency_html)"
+                    ),
+                },
+                "output_format": {
+                    "type": "string",
+                    "enum": ["summary", "detailed", "html", "json"],
+                    "description": (
+                        "Report format (aggregation_analysis)"
+                    ),
+                },
+                "include_visual_details": {
+                    "type": "boolean",
+                    "description": (
+                        "Include per-visual details in output"
+                        " (aggregation_analysis)"
+                    ),
+                },
+                "page_filter": {
+                    "type": "string",
+                    "description": (
+                        "Filter pages by name substring"
+                        " (aggregation_analysis)"
                     ),
                 },
             },

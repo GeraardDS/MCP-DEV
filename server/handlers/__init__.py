@@ -11,8 +11,6 @@ from server.handlers.pbip_operations_handler import register_pbip_operations_han
 from server.handlers.tmdl_handler import register_tmdl_operations_handler
 from server.handlers.dax_context_handler import register_dax_handlers
 from server.handlers.user_guide_handler import register_user_guide_handlers
-from server.handlers.hybrid_analysis_handler import register_hybrid_analysis_handlers
-from server.handlers.aggregation_handler import register_aggregation_handler
 from server.handlers.debug_handler import register_debug_handlers
 
 # Phase 1 Consolidated Operations (Tool Consolidation Plan)
@@ -75,8 +73,6 @@ def register_all_handlers(registry):
 
     # PBIP model analysis
     register_pbip_operations_handler(registry)
-    register_hybrid_analysis_handlers(registry)
-    register_aggregation_handler(registry)
 
     # Consolidated PBIP/Report tools (v12)
     register_report_operations_handler(registry)
