@@ -1,5 +1,7 @@
 """
-INTERNAL ONLY — not exposed as a public MCP tool.
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
+
 Provides handle_search_string and handle_search_objects for query_handler.py.
 """
 from typing import Dict, Any

@@ -1,11 +1,12 @@
 """
-Dependencies Handler
-Handles measure dependency analysis with professional formatted output
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
+
+Handles measure dependency analysis; consumed by dax_context_handler.py (05_DAX_Intelligence).
 """
 from typing import Dict, Any, List, Tuple
 import logging
 import threading
-from server.registry import ToolDefinition
 from core.infrastructure.connection_state import connection_state
 from core.validation.error_handler import ErrorHandler
 from core.utilities.diagram_html_generator import generate_dependency_html
@@ -539,28 +540,3 @@ def handle_dax_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
-def register_dependencies_handlers(registry):
-    """Register consolidated DAX operations handler"""
-
-    tool = ToolDefinition(
-        name="05_DAX_Operations",
-        description="DAX operations: dependencies (with diagram), impact analysis, export measures to CSV",
-        handler=handle_dax_operations,
-        input_schema={
-            "type": "object",
-            "properties": {
-                "operation": {"type": "string", "enum": ["dependencies", "impact", "export"]},
-                "table": {"type": "string", "description": "Table name"},
-                "measure": {"type": "string", "description": "Measure name"},
-                "include_diagram": {"type": "boolean", "description": "Include Mermaid diagram", "default": True},
-                "output_path": {"type": "string", "description": "CSV output path"}
-            },
-            "required": ["operation"]
-        },
-        category="dax",
-        sort_order=51,
-        annotations={"readOnlyHint": True},
-    )
-
-    registry.register(tool)
-    logger.info("Registered dax_operations handler")

@@ -1,22 +1,14 @@
 """
-Filter Operations Handler
-CRUD operations for filters at report, page, and visual levels.
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
 
-Operations:
-- list: List filters at specified level
-- add: Add a new filter
-- set: Update filter values
-- clear: Remove all filters at level
-- hide: Hide filter in filter pane
-- unhide: Show filter in filter pane
-- lock: Lock filter (prevent user changes)
-- unlock: Unlock filter
+Filter CRUD operations for report, page, and visual levels;
+consumed by page_operations_handler.py and visual_operations_handler.py.
 """
 from typing import Dict, Any
 import logging
 from pathlib import Path
 
-from server.registry import ToolDefinition
 from core.utilities.pbip_utils import find_definition_folder
 
 logger = logging.getLogger(__name__)
@@ -231,26 +223,3 @@ def _op_unlock(args: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
-# --- Registration ---
-
-
-def register_filter_operations_handler(registry):
-    """Register the filter operations tool."""
-    from server.tool_schemas import TOOL_SCHEMAS
-
-    registry.register(
-        ToolDefinition(
-            name="07_Filter_Operations",
-            description=(
-                "Filter CRUD: list, add, set, clear, hide/unhide, "
-                "lock/unlock at report/page/visual level."
-            ),
-            handler=handle_filter_operations,
-            input_schema=TOOL_SCHEMAS.get("filter_operations", {}),
-            category="pbip",
-            sort_order=75,
-            annotations={"readOnlyHint": False, "destructiveHint": True},
-        )
-    )
-
-    logger.info("Registered filter_operations handler")

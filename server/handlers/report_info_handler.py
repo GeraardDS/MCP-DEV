@@ -1,5 +1,7 @@
 """
-INTERNAL ONLY — not exposed as a public MCP tool.
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
+
 Provides handle_report_info and handle_report_measure_usage for report_operations_handler.py
 (07_Report_Operations.info and .measure_usage operations).
 """
@@ -7,7 +9,6 @@ from typing import Dict, Any, List, Optional
 import logging
 import os
 from pathlib import Path
-from server.registry import ToolDefinition
 from core.validation.error_handler import ErrorHandler
 from core.utilities.json_utils import load_json
 from core.utilities.pbip_utils import (
@@ -854,19 +855,3 @@ def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def register_report_info_handler(registry):
-    """Register report info handler"""
-    from server.tool_schemas import TOOL_SCHEMAS
-
-    tool = ToolDefinition(
-        name="07_Report_Info",
-        description="Report analysis: info (pages/visuals/filters), measure_usage (measures per page, CSV export).",
-        handler=handle_report_info,
-        input_schema=TOOL_SCHEMAS.get('report_info', {}),
-        category="pbip",
-        sort_order=71,  # 07 = PBIP Analysis
-        annotations={"readOnlyHint": True},
-    )
-    registry.register(tool)
-
-    logger.info("Registered report_info handler")

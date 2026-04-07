@@ -1,5 +1,7 @@
 """
-INTERNAL ONLY — not exposed as a public MCP tool.
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
+
 Called by analysis_handler.py (06_Analysis_Operations.compare mode).
 """
 from typing import Dict, Any

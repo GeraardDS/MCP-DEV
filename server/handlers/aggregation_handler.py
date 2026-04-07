@@ -1,7 +1,8 @@
 """
-Aggregation Analysis Handler
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
 
-MCP tool handler for aggregation analysis of Power BI PBIP models.
+Aggregation analysis for Power BI PBIP models; consumed by pbip_operations_handler.py.
 """
 
 import logging
@@ -172,22 +173,6 @@ def _strip_visual_details(json_data: Dict) -> Dict:
                 for v in page.get("visuals", [])
             ]
     return json_data
-
-
-def register_aggregation_handler(registry) -> None:
-    """Register aggregation analysis handler with the tool registry."""
-    from server.registry import ToolDefinition
-
-    tool = ToolDefinition(
-        name="07_Analyze_Aggregation",
-        description="Analyze aggregation table usage, optimization opportunities, and row savings.",
-        handler=handle_aggregation_analysis,
-        input_schema=get_aggregation_schema(),
-        category="pbip",
-        sort_order=78,  # 07 = PBIP Analysis (bumped to avoid conflict with Visual_Sync)
-        annotations={"readOnlyHint": True},
-    )
-    registry.register(tool)
 
 
 def get_aggregation_schema() -> Dict[str, Any]:
