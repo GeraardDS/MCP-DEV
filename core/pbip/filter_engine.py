@@ -301,6 +301,36 @@ def _build_filter_dict(
             ],
         }
 
+    elif filter_type == "VisualTopN":
+        # VisualTopN: filter to top/bottom N items by a measure
+        top_count = values[0] if values else 10
+        order_by_expr = by_field or field
+        filt["filter"] = {
+            "Version": 2,
+            "From": [{"Name": alias, "Entity": table, "Type": 0}],
+            "Where": [
+                {
+                    "Condition": {
+                        "Top": {
+                            "Count": top_count,
+                            "Expression": column_expr,
+                            "OrderBy": [
+                                {
+                                    "Direction": 2 if operator == "BottomN" else 1,
+                                    "Expression": {
+                                        "Column": {
+                                            "Expression": {"SourceRef": {"Source": alias}},
+                                            "Property": order_by_expr,
+                                        }
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                }
+            ],
+        }
+
     elif filter_type == "RelativeDate":
         # Basic relative-date skeleton; callers typically provide
         # values = [n_periods] and operator = "InLast" / "InThis" / "InNext"
@@ -462,13 +492,13 @@ def add_filter(
         level: ``'report'``, ``'page'``, or ``'visual'``.
         table: Source table name.
         field: Column or measure name.
-        filter_type: ``'Categorical'``, ``'Advanced'``, ``'TopN'``, ``'RelativeDate'``.
+        filter_type: ``'Categorical'``, ``'Advanced'``, ``'TopN'``, ``'VisualTopN'``, ``'RelativeDate'``.
         values: Filter values (semantics depend on *filter_type*).
         page_name: Required for page/visual level.
         visual_name: Required for visual level.
-        operator: Comparison operator for Advanced, direction for TopN, anchor for RelativeDate.
+        operator: Comparison operator for Advanced, direction for TopN/VisualTopN, anchor for RelativeDate.
         by_table: Table of the ordering measure (TopN only).
-        by_field: Ordering measure name (TopN only).
+        by_field: Ordering measure name (TopN/VisualTopN only).
 
     Returns:
         ``{success, filter_id}`` or ``{error}``.
