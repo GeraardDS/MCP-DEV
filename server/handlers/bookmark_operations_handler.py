@@ -197,7 +197,12 @@ def register_bookmark_operations_handler(registry):
             input_schema=TOOL_SCHEMAS.get("bookmark_operations", {}),
             category="pbip",
             sort_order=76,
-            annotations={"readOnlyHint": False, "destructiveHint": True},
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+                "openWorldHint": True,
+            },
         )
     )
 

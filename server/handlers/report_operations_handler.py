@@ -231,7 +231,12 @@ def register_report_operations_handler(registry):
             input_schema=TOOL_SCHEMAS.get("report_operations", {}),
             category="pbip",
             sort_order=71,
-            annotations={"readOnlyHint": False, "destructiveHint": True},
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
+                "openWorldHint": True,
+            },
         )
     )
 

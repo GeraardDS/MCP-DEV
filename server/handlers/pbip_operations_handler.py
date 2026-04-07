@@ -863,7 +863,12 @@ def register_pbip_operations_handler(registry):
         },
         category="pbip",
         sort_order=70,
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     registry.register(tool)
     logger.info("Registered unified pbip_operations handler")

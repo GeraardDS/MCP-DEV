@@ -66,7 +66,12 @@ def register_batch_operations_handler(registry):
         },
         category="batch",
         sort_order=30,  # 03 = Batch & Transactions
-        annotations={"readOnlyHint": False, "destructiveHint": True},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
     )
 
     registry.register(tool)

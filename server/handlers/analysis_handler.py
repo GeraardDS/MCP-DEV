@@ -947,7 +947,12 @@ def register_analysis_handlers(registry):
         },
         category="analysis",
         sort_order=60,
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
     )
 
     registry.register(tool)

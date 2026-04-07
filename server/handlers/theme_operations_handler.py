@@ -320,7 +320,12 @@ def register_theme_operations_handler(registry):
             input_schema=TOOL_SCHEMAS.get("theme_operations", {}),
             category="pbip",
             sort_order=77,
-            annotations={"readOnlyHint": False, "destructiveHint": True},
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+                "openWorldHint": True,
+            },
         )
     )
 

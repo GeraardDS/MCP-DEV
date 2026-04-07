@@ -3840,7 +3840,12 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=90,
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
         ),
         ToolDefinition(
             name="09_Validate",
@@ -3867,7 +3872,12 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=92,
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
         ),
         ToolDefinition(
             name="09_Profile",
@@ -3911,7 +3921,12 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=93,
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
         ),
         ToolDefinition(
             name="09_Document",
@@ -3933,7 +3948,12 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=94,
-            annotations={"readOnlyHint": False},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
         ),
     ]
 

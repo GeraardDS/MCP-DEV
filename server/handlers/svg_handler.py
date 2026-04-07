@@ -84,7 +84,12 @@ def register_svg_operations_handler(registry):
         },
         category="pbip",
         sort_order=50,
-        annotations={"readOnlyHint": False},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
 
     registry.register(tool)

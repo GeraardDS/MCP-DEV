@@ -1328,7 +1328,12 @@ def register_dax_handlers(registry):
             input_schema=TOOL_SCHEMAS.get('dax_intelligence', {}),
             category="dax",
             sort_order=50,  # 05 = DAX Intelligence
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
         ),
     ]
 

@@ -541,6 +541,11 @@ def register_authoring_handler(registry):
             input_schema=AUTHORING_SCHEMA,
             category="authoring",
             sort_order=1100,
-            annotations={"readOnlyHint": False, "destructiveHint": True},
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+                "openWorldHint": False,
+            },
         )
     )

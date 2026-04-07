@@ -2307,7 +2307,12 @@ def register_visual_operations_handler(registry):
         input_schema=TOOL_SCHEMAS.get('visual_operations', {}),
         category="pbip",
         sort_order=73,
-        annotations={"readOnlyHint": False, "destructiveHint": True},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
     )
     registry.register(tool)
     logger.info("Registered visual_operations handler (v12 + sync ops)")

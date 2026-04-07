@@ -169,7 +169,12 @@ def register_model_operations_handler(registry):
         },
         category="model",
         sort_order=20,
-        annotations={"readOnlyHint": False, "destructiveHint": True},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
     )
     registry.register(tool)
     logger.info("Registered unified model_operations handler")
