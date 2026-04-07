@@ -233,20 +233,10 @@ def get_line_column(text: str, position: int) -> Tuple[int, int]:
 
 
 def validate_dax_identifier(name: str) -> bool:
-    """
-    Validate a DAX identifier name.
+    """Validate DAX identifier against strict naming pattern (letters, digits, underscores).
 
-    A valid DAX identifier must:
-    - Start with a letter (a-z, A-Z) or underscore
-    - Contain only letters, digits, and underscores
-    - Not be empty
-    - Not contain spaces or special characters
-
-    Args:
-        name: Identifier name to validate
-
-    Returns:
-        True if the identifier is valid, False otherwise
+    NOTE: For loose safety-only validation (length/null checks),
+    see dax_validator.validate_identifier() instead.
     """
     if not name:
         return False
