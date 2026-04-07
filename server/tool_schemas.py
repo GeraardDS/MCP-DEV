@@ -8,15 +8,20 @@ TOOL_SCHEMAS = {
     'dax_intelligence': {
         "type": "object",
         "properties": {
-            "expression": {"type": "string", "description": "DAX expression OR measure name (auto-detects)"},
+            "expression": {"type": "string", "description": "DAX expression OR measure name (auto-detects). Not required for dependency operations."},
             "analysis_mode": {"type": "string", "enum": ["all", "analyze", "debug", "report"], "default": "all"},
             "skip_validation": {"type": "boolean", "default": False},
             "output_format": {"type": "string", "enum": ["friendly", "steps"], "default": "friendly"},
             "include_optimization": {"type": "boolean", "default": True},
             "include_profiling": {"type": "boolean", "default": True},
-            "breakpoints": {"type": "array", "description": "Char positions for debugging", "items": {"type": "integer"}}
+            "breakpoints": {"type": "array", "description": "Char positions for debugging", "items": {"type": "integer"}},
+            "operation": {"type": "string", "enum": ["dependencies", "impact", "export"], "description": "Dependency operation. When set, analysis_mode is ignored."},
+            "table": {"type": "string", "description": "Table name (for dependencies/impact)"},
+            "measure": {"type": "string", "description": "Measure name (for dependencies/impact)"},
+            "include_diagram": {"type": "boolean", "description": "Include Mermaid diagram (for dependencies)", "default": True},
+            "output_path": {"type": "string", "description": "CSV output path (for export)"}
         },
-        "required": ["expression"]
+        "required": []
     },
 
     # PBIP Dependency Analysis (1 tool)

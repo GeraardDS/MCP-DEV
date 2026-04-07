@@ -5,7 +5,6 @@ Individual handler modules for different tool categories
 from server.handlers.connection_handler import register_connection_handlers
 from server.handlers.query_handler import register_query_handlers
 from server.handlers.analysis_handler import register_analysis_handlers
-from server.handlers.dependencies_handler import register_dependencies_handlers
 from server.handlers.column_usage_handler import register_column_usage_handler
 from server.handlers.documentation_handler import register_documentation_handlers
 from server.handlers.pbip_operations_handler import register_pbip_operations_handler
@@ -67,7 +66,6 @@ def register_all_handlers(registry):
     # Query & search
     register_query_handlers(registry)
     register_analysis_handlers(registry)
-    register_dependencies_handlers(registry)
     register_column_usage_handler(registry)
     register_documentation_handlers(registry)
     register_tmdl_operations_handler(registry)

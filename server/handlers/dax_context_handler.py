@@ -506,13 +506,18 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
     """
     Unified DAX Intelligence Tool
 
-    Combines validation, analysis, and debugging into a single intelligent tool.
+    Combines validation, analysis, debugging, and dependency operations into a single tool.
 
-    Modes:
+    Modes (analysis_mode):
     - 'all' (DEFAULT): Runs ALL analysis modes - analyze + debug + report
     - 'analyze': Context transition analysis with anti-patterns
     - 'debug': Step-by-step debugging with friendly/steps output
     - 'report': Comprehensive report with optimization + profiling
+
+    Dependency operations (operation):
+    - 'dependencies': Measure dependency tree with Mermaid diagram
+    - 'impact': Impact analysis — what depends on a measure
+    - 'export': Export all measures to CSV
 
     Smart measure detection: Automatically fetches measure expressions if a measure name is provided.
     Auto-skips validation for auto-fetched measures (already in model, must be valid).
@@ -524,6 +529,12 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
     if not connection_state.is_connected():
         return ErrorHandler.handle_not_connected()
 
+    # Dependency operations: delegate early before expression is required
+    operation = args.get('operation')
+    if operation in ('dependencies', 'impact', 'export'):
+        from server.handlers.dependencies_handler import handle_dax_operations
+        return handle_dax_operations(args)
+
     expression = args.get('expression')
     analysis_mode = args.get('analysis_mode', 'all')  # Default to 'all' mode (analyze + debug + report)
     skip_validation = args.get('skip_validation', False)
@@ -531,7 +542,7 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
     if not expression:
         return {
             'success': False,
-            'error': 'expression parameter is required'
+            'error': 'expression parameter is required. For dependency ops use operation=dependencies|impact|export.'
         }
 
     # Smart measure detection: Check if expression looks like a measure name rather than DAX code
@@ -1312,7 +1323,7 @@ def register_dax_handlers(registry):
     tools = [
         ToolDefinition(
             name="05_DAX_Intelligence",
-            description="DAX analysis: context transitions, anti-patterns, VertiPaq, call tree, optimized code.",
+            description="DAX analysis and dependency operations: context transitions, anti-patterns, VertiPaq, call tree, optimized code, dependency trees, impact analysis, export.",
             handler=handle_dax_intelligence,
             input_schema=TOOL_SCHEMAS.get('dax_intelligence', {}),
             category="dax",
