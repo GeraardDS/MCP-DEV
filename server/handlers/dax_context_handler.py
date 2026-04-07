@@ -399,76 +399,6 @@ def handle_debug_dax_context(args: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
-def _merge_and_deduplicate_issues(best_practices_result, rules_analysis, anti_patterns, expression):
-    """Merge issues from all analyzers, deduplicate by rule_id, group occurrences, annotate false positives."""
-    # Known false positives — patterns that are structurally necessary in certain contexts
-    FALSE_POSITIVE_CONTEXTS = {
-        'PERF_CALCULATETABLE_FILTER': {
-            'trigger': '@',  # Extended columns in FILTER can't be CALCULATETABLE boolean filters
-            'note': 'FILTER on extended column [@col] — CALCULATETABLE cannot filter extended columns directly'
-        },
-        'CORR_IFERROR_USAGE': {
-            'trigger': 'XIRR',  # XIRR can fail legitimately, no alternative
-            'note': 'IFERROR on XIRR is unavoidable — XIRR can fail when no solution exists'
-        },
-        'PERF_UNNECESSARY_ITERATOR': {
-            'trigger': '@',  # SUMX over extended columns can't use SUM
-            'note': 'SUM cannot operate on extended columns ([@col]) — SUMX is required'
-        },
-        'PY_SUMX_SINGLE_COLUMN': {
-            'trigger': '@',
-            'note': 'SUM cannot operate on extended columns ([@col]) — SUMX is required'
-        },
-    }
-
-    all_issues = {}  # keyed by rule_id
-
-    # Collect from best_practices
-    if best_practices_result:
-        for issue in best_practices_result.get('issues', []):
-            rid = issue.get('rule_id', issue.get('title', 'unknown'))
-            if rid not in all_issues:
-                all_issues[rid] = {
-                    'rule_id': rid,
-                    'severity': issue.get('severity', 'medium'),
-                    'title': issue.get('title', ''),
-                    'desc': issue.get('desc', ''),
-                    'fix': issue.get('fix_suggestion', ''),
-                    'occurrences': 0
-                }
-            all_issues[rid]['occurrences'] += 1
-
-    # Collect from static_analysis (skip if already seen by rule_id)
-    if rules_analysis:
-        for issue in rules_analysis.get('issues', []):
-            rid = issue.get('rule_id', issue.get('desc', 'unknown')[:50])
-            if rid not in all_issues:
-                all_issues[rid] = {
-                    'rule_id': rid,
-                    'severity': issue.get('severity', 'medium'),
-                    'title': issue.get('title', rid),
-                    'desc': issue.get('desc', ''),
-                    'fix': issue.get('fix_suggestion', ''),
-                    'occurrences': 1
-                }
-
-    # Annotate false positives
-    for rid, ctx in FALSE_POSITIVE_CONTEXTS.items():
-        if rid in all_issues and ctx['trigger'] in expression:
-            all_issues[rid]['false_positive'] = ctx['note']
-            all_issues[rid]['severity'] = 'info'  # Downgrade to info
-
-    # Sort by severity
-    severity_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
-    sorted_issues = sorted(all_issues.values(), key=lambda x: severity_order.get(x['severity'], 5))
-
-    return {
-        'total': len(sorted_issues),
-        'score': best_practices_result.get('overall_score', 0) if best_practices_result else None,
-        'health_score': rules_analysis.get('health_score') if rules_analysis else None,
-        'items': sorted_issues
-    }
-
 
 def _format_debug_steps_friendly(expression: str, steps) -> str:
     """Format debug steps in a user-friendly way"""
@@ -639,25 +569,14 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
     measure_table = None
     warnings = []
 
-    # Operators/symbols that definitely indicate a DAX expression (not a measure name)
-    dax_expression_indicators = ['=', '+', '-', '*', '/', '[', '(', ')', '{', '}',
-                                  '&&', '||', '<', '>', '<=', '>=', '<>']
-
-    # DAX keywords checked with word boundary matching to avoid false positives
-    # e.g. "Return" in "Period Return TWR" should NOT trigger keyword detection
+    # For short expressions (< 150 chars), always try fuzzy name match FIRST.
+    # Measure names can contain DAX keywords ("Period Return"), operators/parens
+    # ("NAV TWR (%) Axis (cumul)"), slashes ("Rental Yield/Purchase Value").
+    # Only skip name resolution for clearly multi-line DAX code.
     import re as _re
-    dax_keyword_pattern = _re.compile(
-        r'(?<![A-Za-z_])(CALCULATE|FILTER|SUMX?|AVERAGE|COUNTROWS?|SWITCH|VAR\s|'
-        r'RETURN\s|ALL|VALUES|DISTINCT|RELATED|SELECTEDVALUE|DIVIDE|EVALUATE)(?![A-Za-z_])',
-        _re.IGNORECASE
-    )
-
-    # Check if this looks like a simple measure name (not a DAX expression)
     is_likely_measure_name = (
-        len(expression) < 150 and  # Measure names are typically short
-        not dax_keyword_pattern.search(expression) and  # No word-boundary DAX keywords
-        not any(op in expression for op in dax_expression_indicators) and  # No operators
-        expression.count('(') == 0  # No function calls
+        len(expression) < 150 and
+        '\n' not in expression.strip()  # Multi-line = definitely DAX code
     )
 
     if is_likely_measure_name:
@@ -791,38 +710,34 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
     # Step 2: Route to appropriate analysis mode
     try:
         if analysis_mode == 'all':
-            # Run all modes: analyze, debug, and report
+            # ── Single unified analyzer replaces 3 overlapping analyzers ──
             from core.dax import DaxContextAnalyzer, DaxContextDebugger
-            from core.dax.analysis_pipeline import (
-                run_context_analysis, run_vertipaq_analysis,
-                run_best_practices, run_call_tree,
-            )
+            from core.dax.analysis_pipeline import run_context_analysis, run_vertipaq_analysis, run_call_tree
+
             analyzer = DaxContextAnalyzer()
             debugger = DaxContextDebugger()
 
-            # Run analyze mode (shared pipeline - returns raw object + dict)
+            # 1. Context transitions (for annotated code + transition list)
             result_analyze, _ = run_context_analysis(expression)
             if result_analyze is None:
-                # Fallback: create minimal result for downstream consumers
                 result_analyze = analyzer.analyze_context_transitions(expression)
-            anti_patterns = analyzer.detect_dax_anti_patterns(expression)
-
-            # Run static analysis rules engine
-            rules_analysis = None
-            try:
-                from core.dax.dax_rules_engine import DaxRulesEngine
-                rules_analysis = DaxRulesEngine().analyze(expression)
-            except Exception as e:
-                logger.warning(f"Rules engine analysis not available: {e}")
-
-            # Generate annotated DAX code for visual display
             annotated_dax = analyzer.format_dax_with_annotations(expression, result_analyze.transitions)
 
-            # VertiPaq + best practices (shared pipeline)
+            # 2. VertiPaq column analysis
             vertipaq_analysis = run_vertipaq_analysis(expression, connection_state)
-            context_dict = result_analyze.to_dict() if hasattr(result_analyze, 'to_dict') else result_analyze
-            best_practices_result = run_best_practices(expression, context_dict, vertipaq_analysis)
 
+            # 3. Unified analyzer — single pass, 42 JSON + 17 Python rules, 266-function DB
+            unified_result = None
+            try:
+                from core.dax.analyzer.unified_analyzer import DaxUnifiedAnalyzer
+                from core.dax.analyzer.models import AnalysisContext
+                ctx = AnalysisContext(vertipaq_data=vertipaq_analysis)
+                unified_result = DaxUnifiedAnalyzer().analyze(expression, ctx)
+            except Exception as e:
+                logger.warning(f"Unified analyzer failed: {e}")
+
+            # 4. Code rewriter + improvements
+            anti_patterns = analyzer.detect_dax_anti_patterns(expression)
             improvements = debugger.generate_improved_dax(
                 dax_expression=expression,
                 context_analysis=result_analyze,
@@ -831,66 +746,49 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                 connection_state=connection_state
             )
 
-            # Run debug mode
-            steps = debugger.step_through(
-                dax_expression=expression,
-                breakpoints=args.get('breakpoints')
-            )
-
-            debug_steps_data = None
-            if steps:
-                debug_steps_data = [
-                    {
-                        'step_number': step.step_number,
-                        'code_fragment': step.code_fragment,
-                        'filter_context': step.filter_context,
-                        'row_context': step.row_context,
-                        'intermediate_result': step.intermediate_result,
-                        'explanation': step.explanation,
-                        'execution_time_ms': step.execution_time_ms
-                    }
-                    for step in steps
-                ]
-
-            # Call tree analysis (shared pipeline)
+            # 5. Call tree
             call_tree_data = run_call_tree(expression, connection_state)
-            total_iterations = call_tree_data.get('total_iterations', 0) if call_tree_data else 0
 
-            # Combine all articles from various sources
-            all_articles = []
+            # ── Build response from unified result ──
+            if unified_result:
+                issues_list = []
+                for issue in unified_result.issues:
+                    d = {
+                        'rule_id': issue.rule_id,
+                        'severity': issue.severity,
+                        'title': issue.title,
+                        'desc': issue.description,
+                        'fix': issue.fix_suggestion
+                    }
+                    if issue.flagged_function:
+                        d['function'] = issue.flagged_function
+                        if issue.se_classification:
+                            d['se'] = issue.se_classification
+                        if issue.callback_risk and issue.callback_risk != "none":
+                            d['callback_risk'] = issue.callback_risk
+                    if issue.estimated_improvement:
+                        d['improvement'] = issue.estimated_improvement
+                    issues_list.append(d)
 
-            # From anti-pattern detection
-            if anti_patterns.get('articles'):
-                all_articles.extend(anti_patterns['articles'])
+                issues_data = {
+                    'total': unified_result.total_issues,
+                    'health_score': unified_result.health_score,
+                    'items': issues_list
+                }
+            else:
+                issues_data = {'total': 0, 'health_score': None, 'items': []}
 
-            # From best practices analyzer
-            if best_practices_result and best_practices_result.get('articles_referenced'):
-                all_articles.extend(best_practices_result['articles_referenced'])
-
-            # Deduplicate articles by URL
-            seen_urls = set()
-            unique_articles = []
-            for article in all_articles:
-                url = article.get('url', '')
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    unique_articles.append(article)
-
-            # Combine all results in structured format
             response = {
                 'success': True,
                 'validation': validation_result,
                 'mode': 'all',
-
                 'annotated_dax_code': {
                     'code': annotated_dax,
                     'legend': {
                         '🔄': 'Iterator (row context)',
                         '📊': 'Measure ref (implicit CALCULATE)',
                         '⚡': 'Explicit CALCULATE/CALCULATETABLE',
-                        '🔴': 'HIGH impact',
-                        '🟡': 'MEDIUM impact',
-                        '🟢': 'LOW impact'
+                        '🔴': 'HIGH impact', '🟡': 'MEDIUM impact', '🟢': 'LOW impact'
                     }
                 },
                 'analysis_summary': {
@@ -901,20 +799,11 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     'improvements': improvements.get('improvements_count', 0)
                 },
                 'context_transitions': [
-                    {
-                        'fn': t.function,
-                        'line': t.line,
-                        'type': t.type.value,
-                        'impact': t.performance_impact.value,
-                        'why': t.explanation
-                    }
+                    {'fn': t.function, 'line': t.line, 'type': t.type.value,
+                     'impact': t.performance_impact.value, 'why': t.explanation}
                     for t in result_analyze.transitions
                 ],
-                # ── Merge & deduplicate issues from all analyzers ──
-                # Collect issues from best_practices + static_analysis + anti_patterns
-                'issues': _merge_and_deduplicate_issues(
-                    best_practices_result, rules_analysis, anti_patterns, expression
-                ),
+                'issues': issues_data,
                 'anti_patterns': {
                     'patterns_detected': anti_patterns.get('patterns_detected', 0),
                     'pattern_matches': anti_patterns.get('pattern_matches', {}),
@@ -929,29 +818,31 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                 'call_tree': call_tree_data.get('visualization', '') if call_tree_data else None
             }
 
-            # Add optional sections only when they have data
+            # Optional sections
             if vertipaq_analysis and vertipaq_analysis.get('columns_analyzed', 0) > 0:
                 response['vertipaq'] = {
                     'columns': vertipaq_analysis.get('column_analysis', {}),
                     'total_size_mb': vertipaq_analysis.get('total_size_mb', 0),
                     'high_cardinality': vertipaq_analysis.get('high_cardinality_columns', [])
                 }
-
             if measure_name:
                 response['measure'] = measure_name
                 response['table'] = measure_table
 
-            # Only include articles with actual pattern matches (strip full content, keep url+title)
-            matched_articles = [
-                {'title': a.get('title', ''), 'url': a.get('url', '')}
-                for a in unique_articles if a.get('matched_patterns')
-            ]
-            if matched_articles:
-                response['articles'] = matched_articles
+            # Articles: collect from unified result issues only
+            if unified_result:
+                seen_urls = set()
+                articles = []
+                for issue in unified_result.issues:
+                    for ref in (issue.references or []):
+                        url = ref.get('url', '')
+                        if url and url not in seen_urls:
+                            seen_urls.add(url)
+                            articles.append({'title': ref.get('title', ''), 'url': url})
+                if articles:
+                    response['articles'] = articles
 
-            # Strip None values
             response = {k: v for k, v in response.items() if v is not None}
-
             return response
 
         elif analysis_mode == 'analyze':

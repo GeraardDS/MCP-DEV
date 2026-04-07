@@ -60,6 +60,11 @@ class AnalysisIssue:
     match_text: Optional[str] = None
     line: int = 0
 
+    # Function classification (populated when a specific function is flagged)
+    flagged_function: Optional[str] = None  # e.g. "IF", "FORMAT", "DIVIDE"
+    se_classification: Optional[str] = None  # se_safe | fe_only | expression_dependent
+    callback_risk: Optional[str] = None  # none | low | medium | high
+
     # ------------------------------------------------------------------
     # Legacy conversion
     # ------------------------------------------------------------------
@@ -97,6 +102,12 @@ class AnalysisIssue:
             d["trace_detail"] = self.trace_detail
         if self.match_text is not None:
             d["match_text"] = self.match_text
+        if self.flagged_function is not None:
+            d["flagged_function"] = self.flagged_function
+            if self.se_classification:
+                d["se_classification"] = self.se_classification
+            if self.callback_risk and self.callback_risk != "none":
+                d["callback_risk"] = self.callback_risk
 
         return d
 

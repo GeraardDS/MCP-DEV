@@ -94,13 +94,19 @@ class IfSwitchInIteratorRule(PythonRule):
                 for t in expr_tokens
                 if t.type in (TokenType.KEYWORD, TokenType.FUNCTION)
             }
-            if branching & {"IF", "SWITCH"}:
+            flagged = branching & {"IF", "SWITCH"}
+            if flagged:
+                fn_name = sorted(flagged)[0]  # deterministic pick
+                fn_info = function_db.lookup(fn_name) if function_db else None
                 issues.append(
                     self._make_issue(
-                        f"IF/SWITCH inside {tokens[idx].value.upper()} forces row-by-row "
+                        f"{fn_name} inside {tokens[idx].value.upper()} forces row-by-row "
                         f"FE evaluation (CallbackDataID in query plan).",
                         "Move branching outside the iterator or "
                         "pre-compute the condition in a column with ADDCOLUMNS.",
+                        flagged_function=fn_name,
+                        se_classification=fn_info.se_pushable if fn_info else "fe_only",
+                        callback_risk=fn_info.callback_risk if fn_info else "high",
                     )
                 )
         return issues
@@ -122,12 +128,16 @@ class DivideInIteratorRule(PythonRule):
             if len(args) < 2:
                 continue
             if self._tokens_contain_function(args[1], {"DIVIDE"}):
+                fn_info = function_db.lookup("DIVIDE") if function_db else None
                 issues.append(
                     self._make_issue(
                         f"DIVIDE inside {tokens[idx].value.upper()} creates a "
                         f"CallbackDataID in the SE query plan.",
                         "Use the / operator instead (handle BLANK separately) "
                         "or pre-compute the ratio.",
+                        flagged_function="DIVIDE",
+                        se_classification=fn_info.se_pushable if fn_info else "fe_only",
+                        callback_risk=fn_info.callback_risk if fn_info else "high",
                     )
                 )
         return issues
@@ -165,16 +175,26 @@ class UnnecessaryIteratorRule(PythonRule):
 
     @staticmethod
     def _is_simple_column_ref(expr_tokens: List[Token]) -> bool:
-        """True if *expr_tokens* is only a single column reference."""
-        # Filter out any stray whitespace/newline (should already be stripped).
+        """True if *expr_tokens* is only a single physical column reference.
+
+        Extended columns ([@col] from ADDCOLUMNS) return False — SUM cannot
+        operate on extended columns, so SUMX is required for those.
+        """
         meaningful = [t for t in expr_tokens if t.type not in (TokenType.WHITESPACE,)]
         if not meaningful:
             return False
+
+        # Extended column references ([@col]) — NOT replaceable with SUM
+        for t in meaningful:
+            if t.type == TokenType.COLUMN_REF and t.value.startswith("[@"):
+                return False
+            if t.type == TokenType.QUALIFIED_REF and "[@" in t.value:
+                return False
+
         # Single QUALIFIED_REF  e.g. Sales[Amount]
         if len(meaningful) == 1 and meaningful[0].type == TokenType.QUALIFIED_REF:
             return True
-        # IDENTIFIER + COLUMN_REF  e.g. Sales [Amount] (unlikely after tokenize_code
-        # but handle defensively).
+        # IDENTIFIER + COLUMN_REF  e.g. Sales [Amount]
         if (
             len(meaningful) == 2
             and meaningful[0].type == TokenType.IDENTIFIER

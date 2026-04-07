@@ -101,10 +101,15 @@ class VertiPaqAnalyzer:
         self.connection_state = connection_state
         self._column_cache: Dict[str, ColumnMetrics] = {}
         self._cache_loaded = False
+        self._dmv_diagnostic: Optional[str] = None
 
     def load_column_metrics(self) -> bool:
         """
-        Load column metrics from DMVs
+        Load column metrics using DAX INFO functions.
+
+        Uses INFO.STORAGETABLECOLUMNS() for dictionary/encoding metadata
+        and INFO.STORAGETABLECOLUMNSEGMENTS() for size/cardinality data.
+        Falls back to $SYSTEM DMV if DAX INFO functions fail.
 
         Returns:
             True if successful, False otherwise
@@ -119,8 +124,128 @@ class VertiPaqAnalyzer:
                 logger.warning("Query executor not available")
                 return False
 
-            # Query DMVs for column statistics
-            # Remove WHERE clause to capture all column types
+            # Step 1: Load column metadata via DAX INFO function
+            col_query = """
+            EVALUATE
+            SELECTCOLUMNS(
+                INFO.STORAGETABLECOLUMNS(),
+                "TableName", [DIMENSION_NAME],
+                "ColumnName", [ATTRIBUTE_NAME],
+                "ColumnType", [COLUMN_TYPE],
+                "DataType", [DATATYPE],
+                "Encoding", [COLUMN_ENCODING],
+                "DictSize", [DICTIONARY_SIZE]
+            )
+            """
+            col_result = qe.validate_and_execute_dax(col_query)
+
+            if not col_result.get("success") or not col_result.get("rows"):
+                err = col_result.get("error", "No results")
+                logger.warning(f"INFO.STORAGETABLECOLUMNS() failed: {err}")
+                self._dmv_diagnostic = f"DAX INFO columns failed: {err}"
+                return self._load_column_metrics_dmv_fallback(qe)
+
+            # Step 2: Load segment data for size and cardinality approximation
+            seg_data = {}  # keyed by "TableName.ColumnName"
+            seg_query = """
+            EVALUATE
+            SELECTCOLUMNS(
+                INFO.STORAGETABLECOLUMNSEGMENTS(),
+                "TableName", [DIMENSION_NAME],
+                "ColID", [COLUMN_ID],
+                "Rows", [RECORDS_COUNT],
+                "UsedSize", [USED_SIZE],
+                "Bits", [BITS_COUNT]
+            )
+            """
+            seg_result = qe.validate_and_execute_dax(seg_query)
+            if seg_result.get("success") and seg_result.get("rows"):
+                for row in seg_result["rows"]:
+                    # Keys are bracketed: [TableName], [ColID], etc.
+                    table = str(row.get("[TableName]", row.get("TableName", "")))
+                    col_id = str(row.get("[ColID]", row.get("ColID", "")))
+                    # COLUMN_ID format: "ColumnName (id)" — extract the name
+                    col_name = col_id.rsplit(" (", 1)[0] if " (" in col_id else col_id
+                    # Skip hierarchy columns (POS_TO_ID, ID_TO_POS)
+                    if col_name in ("POS_TO_ID", "ID_TO_POS"):
+                        continue
+                    key = f"{table}.{col_name}"
+                    rows_val = int(row.get("[Rows]", row.get("Rows", 0)))
+                    size_val = int(row.get("[UsedSize]", row.get("UsedSize", 0)))
+                    bits_val = int(row.get("[Bits]", row.get("Bits", 0)))
+                    if key not in seg_data:
+                        seg_data[key] = {"rows": rows_val, "size": size_val, "bits": bits_val}
+                    else:
+                        seg_data[key]["size"] += size_val
+                        seg_data[key]["bits"] = max(seg_data[key]["bits"], bits_val)
+
+            # Step 3: Build column cache from combined data
+            self._column_cache.clear()
+            skipped = 0
+
+            for row in col_result["rows"]:
+                # Keys are bracketed: [TableName], [ColumnName], etc.
+                table_name = str(row.get("[TableName]", row.get("TableName", "")))
+                column_name = str(row.get("[ColumnName]", row.get("ColumnName", "")))
+                column_type = str(row.get("[ColumnType]", row.get("ColumnType", "BASIC_DATA")))
+
+                # Skip internal columns
+                if column_type in ("ROWNUM", "HIERARCHY_DATAID_TO_POSITION",
+                                   "HIERARCHY_POSITION_TO_DATAID"):
+                    skipped += 1
+                    continue
+                if column_name.startswith("RowNumber"):
+                    skipped += 1
+                    continue
+
+                # Normalize column name: strip spaces from hyphenated RowNumber IDs
+                col_name_clean = column_name.replace(" - ", "-").replace("- ", "-")
+
+                # Look up segment data
+                seg_key = f"{table_name}.{column_name}"
+                seg = seg_data.get(seg_key, {})
+
+                # Cardinality from bits: 2^bits gives max distinct values
+                bits = seg.get("bits", 0)
+                cardinality = min(2 ** bits, seg.get("rows", 0)) if bits > 0 else 0
+
+                encoding_val = str(row.get("[Encoding]", row.get("Encoding", "0")))
+                encoding_map = {"0": "hash", "1": "value", "2": "value"}
+                encoding = encoding_map.get(encoding_val, f"type_{encoding_val}")
+                if column_type == "CALCULATED":
+                    encoding = f"{encoding} (calc)"
+
+                dict_size = int(row.get("[DictSize]", row.get("DictSize", 0)))
+                seg_size = seg.get("size", 0)
+
+                metrics = ColumnMetrics(
+                    table_name=table_name,
+                    column_name=column_name,
+                    cardinality=cardinality,
+                    size_bytes=seg_size + dict_size,
+                    data_type=str(row.get("[DataType]", row.get("DataType", "unknown"))),
+                    encoding=encoding,
+                    dictionary_size_bytes=dict_size,
+                    hierarchy_size_bytes=0,
+                )
+
+                self._column_cache[metrics.full_name] = metrics
+
+            self._cache_loaded = True
+            self._dmv_diagnostic = f"DAX INFO: {len(self._column_cache)} columns loaded"
+            logger.info(
+                f"Loaded metrics for {len(self._column_cache)} columns via DAX INFO (skipped {skipped} internal)"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Error loading VertiPaq metrics: {e}", exc_info=True)
+            self._dmv_diagnostic = f"Exception: {e}"
+            return False
+
+    def _load_column_metrics_dmv_fallback(self, qe) -> bool:
+        """Fallback: try $SYSTEM.DISCOVER_STORAGE_TABLE_COLUMNS DMV (SSAS only)."""
+        try:
             dmv_query = """
             SELECT
                 [DIMENSION_NAME] as TableName,
@@ -134,38 +259,21 @@ class VertiPaqAnalyzer:
                 [COLUMN_TYPE] as ColumnType
             FROM $SYSTEM.DISCOVER_STORAGE_TABLE_COLUMNS
             """
-
             result = qe.execute_dmv_query(dmv_query)
-
-            if not result.get("success"):
-                logger.error(f"DMV query failed: {result.get('error', 'Unknown error')}")
+            if not result.get("success") or not result.get("data"):
+                self._dmv_diagnostic = f"DMV fallback also failed: {result.get('error', 'no data')}"
                 return False
 
-            if not result.get("data"):
-                logger.warning("DMV query returned no data")
-                return False
-
-            # Process DMV results
             self._column_cache.clear()
-            skipped_columns = 0
-
+            skipped = 0
             for row in result["data"]:
                 table_name = row.get("TableName", "")
                 column_name = row.get("ColumnName", "")
                 column_type = row.get("ColumnType", "BASIC_DATA")
-
-                # Skip internal/system columns (RowNumber columns)
-                if column_type == "ROWNUM" or column_name.startswith("RowNumber-"):
-                    skipped_columns += 1
+                if column_type == "ROWNUM" or column_name.startswith("RowNumber"):
+                    skipped += 1
                     continue
-
-                # Add column type info to encoding for better visibility
                 encoding = row.get("Encoding", "unknown")
-                if column_type == "CALCULATED":
-                    encoding = f"{encoding} (Calculated Column)"
-                elif column_type == "UNKNOWN":
-                    encoding = f"{encoding} (Type Unknown)"
-
                 metrics = ColumnMetrics(
                     table_name=table_name,
                     column_name=column_name,
@@ -176,13 +284,11 @@ class VertiPaqAnalyzer:
                     dictionary_size_bytes=int(row.get("DictionarySizeBytes", 0)),
                     hierarchy_size_bytes=int(row.get("HierarchySizeBytes", 0)),
                 )
-
                 self._column_cache[metrics.full_name] = metrics
 
             self._cache_loaded = True
-            logger.info(
-                f"Loaded metrics for {len(self._column_cache)} columns (skipped {skipped_columns} internal columns)"
-            )
+            self._dmv_diagnostic = f"DMV fallback: {len(self._column_cache)} columns"
+            logger.info(f"Loaded {len(self._column_cache)} columns via $SYSTEM DMV fallback (skipped {skipped})")
             return True
 
         except Exception as e:
@@ -347,10 +453,13 @@ class VertiPaqAnalyzer:
 
             # Add warning if no metrics were available
             if metrics_available_count == 0:
+                diag = self._dmv_diagnostic or "unknown"
+                cache_info = f"cache_loaded={self._cache_loaded}, cache_size={len(self._column_cache)}"
+                sample_refs = list(column_refs)[:3]
+                sample_cache = list(self._column_cache.keys())[:3] if self._column_cache else []
                 result["warning"] = (
-                    "No VertiPaq metrics available for any columns. "
-                    "This could mean: (1) Only measures are referenced, (2) DMV access failed, "
-                    "or (3) Column references couldn't be matched to model columns."
+                    f"No VertiPaq metrics matched. DMV: {diag}. {cache_info}. "
+                    f"Refs: {sample_refs}. Cache sample: {sample_cache}."
                 )
                 logger.warning(result["warning"])
 
