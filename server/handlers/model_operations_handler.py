@@ -1,6 +1,7 @@
 """
 Model Operations Handler
-Unified CRUD for tables, columns, measures, relationships, and calculation groups.
+Unified CRUD for tables, columns, measures, relationships, calculation groups,
+partitions, hierarchies, perspectives, cultures, named expressions, and OLS rules.
 Replaces 5 separate handlers with a single object_type + operation dispatcher.
 """
 from typing import Dict, Any
@@ -11,6 +12,12 @@ from core.operations.column_operations import ColumnOperationsHandler
 from core.operations.measure_operations import MeasureOperationsHandler
 from core.operations.relationship_operations import RelationshipOperationsHandler
 from core.operations.calculation_group_operations import CalculationGroupOperationsHandler
+from core.operations.partition_crud_manager import PartitionCrudManager
+from core.operations.hierarchy_crud_manager import HierarchyCrudManager
+from core.operations.perspective_crud_manager import PerspectiveCrudManager
+from core.operations.culture_crud_manager import CultureCrudManager
+from core.operations.named_expression_crud_manager import NamedExpressionCrudManager
+from core.operations.ols_crud_manager import OlsCrudManager
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +28,12 @@ _handlers = {
     "measure": MeasureOperationsHandler(),
     "relationship": RelationshipOperationsHandler(),
     "calculation_group": CalculationGroupOperationsHandler(),
+    "partition": PartitionCrudManager(),
+    "hierarchy": HierarchyCrudManager(),
+    "perspective": PerspectiveCrudManager(),
+    "culture": CultureCrudManager(),
+    "named_expression": NamedExpressionCrudManager(),
+    "ols_rule": OlsCrudManager(),
 }
 
 # Valid operations per object_type (for error messages)
@@ -30,7 +43,75 @@ _valid_operations = {
     "measure": ["list", "get", "create", "update", "delete", "rename", "move"],
     "relationship": ["list", "get", "find", "create", "update", "delete", "activate", "deactivate"],
     "calculation_group": ["list", "create", "delete", "list_items"],
+    "partition": ["list", "describe", "refresh"],
+    "hierarchy": ["list", "describe", "create", "delete"],
+    "perspective": ["list", "describe", "create", "delete"],
+    "culture": ["list", "describe", "create", "delete", "set_translation"],
+    "named_expression": ["list", "describe", "create", "update", "delete"],
+    "ols_rule": ["list", "set", "remove"],
 }
+
+
+def _dispatch_new_type(manager, object_type: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch operations for new TOM object types."""
+    operation = args.get("operation", "list")
+    dispatch_map = {
+        "partition": {
+            "list": lambda: manager.list_partitions(args.get("table_name")),
+            "describe": lambda: manager.describe_partition(args.get("table_name"), args.get("partition_name")),
+            "refresh": lambda: manager.refresh_partition(args.get("table_name"), args.get("partition_name")),
+        },
+        "hierarchy": {
+            "list": lambda: manager.list_hierarchies(args.get("table_name")),
+            "describe": lambda: manager.describe_hierarchy(args.get("table_name"), args.get("hierarchy_name")),
+            "create": lambda: manager.create_hierarchy(
+                args.get("table_name"), args.get("hierarchy_name"), args.get("levels", []),
+                description=args.get("description"), display_folder=args.get("display_folder"),
+                hidden=args.get("hidden")),
+            "delete": lambda: manager.delete_hierarchy(args.get("table_name"), args.get("hierarchy_name")),
+        },
+        "perspective": {
+            "list": lambda: manager.list_perspectives(),
+            "describe": lambda: manager.describe_perspective(args.get("perspective_name")),
+            "create": lambda: manager.create_perspective(args.get("perspective_name"), description=args.get("description")),
+            "delete": lambda: manager.delete_perspective(args.get("perspective_name")),
+        },
+        "culture": {
+            "list": lambda: manager.list_cultures(),
+            "describe": lambda: manager.describe_culture(args.get("culture_name")),
+            "create": lambda: manager.create_culture(args.get("culture_name")),
+            "delete": lambda: manager.delete_culture(args.get("culture_name")),
+            "set_translation": lambda: manager.set_translation(
+                args.get("culture_name"), args.get("object_type_target"), args.get("name"),
+                args.get("property_name"), args.get("value"), table_name=args.get("table_name")),
+        },
+        "named_expression": {
+            "list": lambda: manager.list_expressions(),
+            "describe": lambda: manager.describe_expression(args.get("expression_name")),
+            "create": lambda: manager.create_expression(
+                args.get("expression_name"), args.get("expression"), description=args.get("description")),
+            "update": lambda: manager.update_expression(
+                args.get("expression_name"), args.get("expression"), description=args.get("description")),
+            "delete": lambda: manager.delete_expression(args.get("expression_name")),
+        },
+        "ols_rule": {
+            "list": lambda: manager.list_ols_rules(args.get("role_name")),
+            "set": lambda: manager.set_ols_rule(
+                args.get("role_name"), args.get("table_name"), args.get("column_name"),
+                args.get("permission", "None")),
+            "remove": lambda: manager.remove_ols_rule(
+                args.get("role_name"), args.get("table_name"), args.get("column_name")),
+        },
+    }
+    ops = dispatch_map.get(object_type, {})
+    handler_fn = ops.get(operation)
+    if not handler_fn:
+        return {
+            "success": False,
+            "error": f"Unknown operation '{operation}' for {object_type}",
+            "valid_operations": list(ops.keys()),
+        }
+    return handler_fn()
 
 
 def handle_model_operations(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -60,7 +141,11 @@ def handle_model_operations(args: Dict[str, Any]) -> Dict[str, Any]:
             "valid_operations": valid_ops,
         }
 
-    # Delegate to the existing handler — it already knows how to dispatch operations
+    # New TOM types don't have execute() — dispatch directly
+    if object_type in ("partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule"):
+        return _dispatch_new_type(handler, object_type, args)
+
+    # Existing types use the execute() pattern
     return handler.execute(args)
 
 
@@ -68,14 +153,15 @@ def register_model_operations_handler(registry):
     """Register unified model operations handler"""
     tool = ToolDefinition(
         name="02_Model_Operations",
-        description="Unified CRUD for tables, columns, measures, relationships, and calculation groups. Specify object_type + operation.",
+        description="Unified CRUD for tables, columns, measures, relationships, calculation groups, partitions, hierarchies, perspectives, cultures, named expressions, and OLS rules. Specify object_type + operation.",
         handler=handle_model_operations,
         input_schema={
             "type": "object",
             "properties": {
                 "object_type": {
                     "type": "string",
-                    "enum": ["table", "column", "measure", "relationship", "calculation_group"],
+                    "enum": ["table", "column", "measure", "relationship", "calculation_group",
+                             "partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule"],
                     "description": "Type of model object to operate on"
                 },
                 "operation": {
@@ -164,6 +250,45 @@ def register_model_operations_handler(registry):
                 # Pagination (shared)
                 "page_size": {"type": "integer", "description": "Page size for list operations"},
                 "next_token": {"type": "string", "description": "Pagination token"},
+                # Partition-specific
+                "partition_name": {"type": "string", "description": "Partition name"},
+                # Hierarchy-specific
+                "hierarchy_name": {"type": "string", "description": "Hierarchy name"},
+                "levels": {
+                    "type": "array",
+                    "description": "Hierarchy levels (create)",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "column": {"type": "string"}
+                        }
+                    }
+                },
+                # Perspective-specific
+                "perspective_name": {"type": "string", "description": "Perspective name"},
+                # Culture-specific
+                "culture_name": {"type": "string", "description": "Culture name (e.g. 'fr-FR')"},
+                "object_type_target": {
+                    "type": "string",
+                    "enum": ["table", "column", "measure", "hierarchy"],
+                    "description": "Target object type (set_translation)"
+                },
+                "property_name": {
+                    "type": "string",
+                    "enum": ["caption", "description", "display_folder"],
+                    "description": "Property to translate (set_translation)"
+                },
+                "value": {"type": "string", "description": "Translation value"},
+                # Named expression-specific
+                "expression_name": {"type": "string", "description": "Named expression name"},
+                # OLS-specific
+                "role_name": {"type": "string", "description": "Security role name"},
+                "permission": {
+                    "type": "string",
+                    "enum": ["None", "Read", "Default"],
+                    "description": "OLS permission level"
+                },
             },
             "required": ["object_type"]
         },

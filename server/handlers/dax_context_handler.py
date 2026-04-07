@@ -502,6 +502,19 @@ def _wrap_text(text: str, width: int = 80, indent: int = 0) -> list:
 
     return wrapper.wrap(text)
 
+def _handle_list_udfs(args: Dict[str, Any]) -> Dict[str, Any]:
+    """List all DAX user-defined functions in the model."""
+    executor = connection_state.query_executor
+    if not executor:
+        return {"success": False, "error": "Not connected"}
+    try:
+        result = executor.execute_dax("EVALUATE INFO.USERDEFINEDFUNCTIONS()")
+        return {"success": True, "udfs": result.get("results", []), "count": result.get("row_count", 0)}
+    except Exception:
+        return {"success": True, "udfs": [], "count": 0,
+                "note": "UDFs not supported in this model or DAX version"}
+
+
 def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
     """
     Unified DAX Intelligence Tool
@@ -534,6 +547,9 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
     if operation in ('dependencies', 'impact', 'export'):
         from server.handlers.dependencies_handler import handle_dax_operations
         return handle_dax_operations(args)
+
+    if operation == 'list_udfs':
+        return _handle_list_udfs(args)
 
     expression = args.get('expression')
     analysis_mode = args.get('analysis_mode', 'all')  # Default to 'all' mode (analyze + debug + report)

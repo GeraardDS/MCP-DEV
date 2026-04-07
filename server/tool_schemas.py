@@ -15,7 +15,7 @@ TOOL_SCHEMAS = {
             "include_optimization": {"type": "boolean", "default": True},
             "include_profiling": {"type": "boolean", "default": True},
             "breakpoints": {"type": "array", "description": "Char positions for debugging", "items": {"type": "integer"}},
-            "operation": {"type": "string", "enum": ["dependencies", "impact", "export"], "description": "Dependency operation. When set, analysis_mode is ignored."},
+            "operation": {"type": "string", "enum": ["dependencies", "impact", "export", "list_udfs"], "description": "Dependency/model operation. When set, analysis_mode is ignored."},
             "table": {"type": "string", "description": "Table name (for dependencies/impact)"},
             "measure": {"type": "string", "description": "Measure name (for dependencies/impact)"},
             "include_diagram": {"type": "boolean", "description": "Include Mermaid diagram (for dependencies)", "default": True},
