@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MCP-PowerBi-Finvision v7.0.0 — User Guide</title>
+<title>MCP-PowerBi-Finvision v7.1.0 — User Guide</title>
 <style>
   :root {
     --bg: #0f1117;
@@ -415,7 +415,7 @@
 <nav class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <h1>Finvision MCP</h1>
-    <div class="version">v7.0.0 &mdash; 23 Tools &bull; 150+ Operations</div>
+    <div class="version">v7.1.0 &mdash; 23 Tools &bull; 150+ Operations</div>
   </div>
   <div class="sidebar-search">
     <input type="text" id="navSearch" placeholder="Search tools..." oninput="filterNav(this.value)">
@@ -425,6 +425,7 @@
     <div class="nav-group-title">Getting Started</div>
     <a class="nav-item" href="#hero">Overview</a>
     <a class="nav-item" href="#quickstart">Quick Start</a>
+    <a class="nav-item" href="#whats-new">What's New in v7.1.0</a>
   </div>
 
   <div class="nav-group">
@@ -479,7 +480,6 @@
   <div class="nav-group">
     <div class="nav-group-title">Authoring</div>
     <a class="nav-item" href="#11_PBIP_Authoring">11_PBIP_Authoring <span class="nav-badge badge-offline">Offline</span></a>
-    <a class="nav-item" href="#11_PBIP_Prototype">11_PBIP_Prototype <span class="nav-badge badge-both">Both</span></a>
     <a class="nav-item" href="#SVG_Visual_Operations">SVG_Visual_Operations <span class="nav-badge badge-both">Both</span></a>
   </div>
 </nav>
@@ -523,6 +523,48 @@
           <td>02_TMDL, 07_* series, 11_* series, SVG templates</td>
         </tr>
       </table>
+    </div>
+  </section>
+
+  <!-- ==================== What's New in v7.1.0 ==================== -->
+  <section class="tool-section" id="whats-new">
+    <div class="tool-header"><h2>What's New in v7.1.0</h2></div>
+
+    <div class="card">
+      <h3>MCP Protocol</h3>
+      <table class="param-table">
+        <tr><th>Feature</th><th>Details</th></tr>
+        <tr><td>Tool annotations</td><td>All 23 tools now carry <code>idempotentHint</code> and <code>openWorldHint</code> annotations for improved client behaviour</td></tr>
+        <tr><td>Structured output schemas</td><td>3 tools expose <code>outputSchema</code> for validated, typed responses</td></tr>
+        <tr><td>SDK requirement</td><td>MCP SDK &gt;= 1.23.0 required</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>02_Model_Operations — New Object Types</h3>
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px">6 new object types added: <code>partition</code>, <code>hierarchy</code>, <code>perspective</code>, <code>culture</code>, <code>named_expression</code>, <code>ols_rule</code>.</p>
+    </div>
+
+    <div class="card">
+      <h3>PBIR Improvements</h3>
+      <table class="param-table">
+        <tr><th>Area</th><th>Details</th></tr>
+        <tr><td>Visual schema</td><td>Updated to 2.7.0 (was 2.6.0)</td></tr>
+        <tr><td>Slicer templates</td><td>4 new: <code>buttonSlicer</code>, <code>textSlicer</code>, <code>listSlicer</code>, <code>inputSlicer</code></td></tr>
+        <tr><td>Filter types</td><td><code>VisualTopN</code> filter type now supported</td></tr>
+        <tr><td>Containers</td><td><code>SummarizeVisualContainer</code> recognized</td></tr>
+        <tr><td>Annotations</td><td>PBIR annotations read from visuals, pages, and reports</td></tr>
+        <tr><td>Mobile layout</td><td><code>mobile.json</code> handled in clone, delete, and info operations</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Other Changes</h3>
+      <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+        <li><strong>05_DAX_Intelligence</strong> &mdash; new <code>list_udfs</code> operation for DAX UDF awareness</li>
+        <li><strong>06_Analysis_Operations</strong> &mdash; role and perspective comparison now fully implemented</li>
+        <li><strong>11_PBIP_Prototype</strong> &mdash; tool removed (23 tools total, unchanged count)</li>
+      </ul>
     </div>
   </section>
 
@@ -586,7 +628,7 @@
       <span class="tool-tag tag-model">Model</span>
       <span class="tool-tag tag-live">Live Connection</span>
     </div>
-    <p class="tool-desc">Unified CRUD for all model objects: tables, columns, measures, relationships, and calculation groups. The workhorse tool for model inspection and modification.</p>
+    <p class="tool-desc">Unified CRUD for all model objects: tables, columns, measures, relationships, calculation groups, partitions, hierarchies, perspectives, cultures, named expressions, and OLS rules. The workhorse tool for model inspection and modification.</p>
 
     <div class="card">
       <h3>Object Types &amp; Operations</h3>
@@ -597,6 +639,12 @@
         <tr><td class="param-name">measure</td><td>list, get, create, update, delete, rename, move</td></tr>
         <tr><td class="param-name">relationship</td><td>list, get, find, create, update, delete, activate, deactivate</td></tr>
         <tr><td class="param-name">calculation_group</td><td>list, create, delete, list_items</td></tr>
+        <tr><td class="param-name">partition</td><td>list, describe, refresh</td></tr>
+        <tr><td class="param-name">hierarchy</td><td>list, describe, create, delete</td></tr>
+        <tr><td class="param-name">perspective</td><td>list, describe, create, delete</td></tr>
+        <tr><td class="param-name">culture</td><td>list, describe, create, delete, set_translation</td></tr>
+        <tr><td class="param-name">named_expression</td><td>list, describe, create, update, delete</td></tr>
+        <tr><td class="param-name">ols_rule</td><td>list, set, remove</td></tr>
       </table>
     </div>
 
@@ -620,7 +668,7 @@
       <div class="detail-content">
         <table class="param-table">
           <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
-          <tr><td class="param-name">object_type <span class="param-required">REQUIRED</span></td><td class="param-type">enum</td><td>table | column | measure | relationship | calculation_group</td></tr>
+          <tr><td class="param-name">object_type <span class="param-required">REQUIRED</span></td><td class="param-type">enum</td><td>table | column | measure | relationship | calculation_group | partition | hierarchy | perspective | culture | named_expression | ols_rule</td></tr>
           <tr><td class="param-name">operation</td><td class="param-type">string</td><td>Operation (varies by object_type)</td></tr>
           <tr><td class="param-name">table_name</td><td class="param-type">string</td><td>Table name</td></tr>
           <tr><td class="param-name">expression</td><td class="param-type">string</td><td>DAX expression</td></tr>
@@ -819,6 +867,7 @@
         <div class="op-chip"><code>dependencies</code><span class="op-desc">Dependency graph</span></div>
         <div class="op-chip"><code>impact</code><span class="op-desc">Impact analysis</span></div>
         <div class="op-chip"><code>export</code><span class="op-desc">Export to CSV</span></div>
+        <div class="op-chip"><code>list_udfs</code><span class="op-desc">List DAX UDFs</span></div>
       </div>
     </div>
 
@@ -832,6 +881,7 @@
           <li><strong>Impact analysis</strong> &mdash; answer "what breaks if I change this table/measure?"</li>
           <li><strong>Mermaid diagrams</strong> &mdash; visual dependency graphs</li>
           <li><strong>Optimization suggestions</strong> &mdash; get concrete DAX improvement recommendations</li>
+          <li><strong>List UDFs</strong> &mdash; enumerate DAX user-defined functions for UDF-aware analysis</li>
         </ul>
       </div>
     </details>
@@ -876,7 +926,7 @@
         <tr><th>Operation</th><th>Simple Modes</th></tr>
         <tr><td class="param-name">simple</td><td>all, tables, stats, measures, measure, columns, relationships, roles, database, calculation_groups, storage</td></tr>
         <tr><td class="param-name">full</td><td>Scopes: all, best_practices, performance, integrity &mdash; Depths: fast, balanced, deep</td></tr>
-        <tr><td class="param-name">compare</td><td>Requires old_port and new_port of two running PBI instances</td></tr>
+        <tr><td class="param-name">compare</td><td>Requires old_port and new_port of two running PBI instances. Includes role and perspective comparison.</td></tr>
       </table>
     </div>
 
@@ -887,7 +937,7 @@
           <li><strong>Quick model overview</strong> &mdash; table counts, row counts, measure counts in 2-5 seconds</li>
           <li><strong>Best Practice Analyzer</strong> &mdash; run comprehensive BPA rules against your model</li>
           <li><strong>Performance analysis</strong> &mdash; identify bottlenecks and optimization opportunities</li>
-          <li><strong>Model comparison</strong> &mdash; diff two models to find changes in tables, measures, relationships</li>
+          <li><strong>Model comparison</strong> &mdash; diff two models to find changes in tables, measures, relationships, roles, and perspectives</li>
         </ul>
       </div>
     </details>
@@ -1009,7 +1059,7 @@
       <span class="tool-tag tag-pbip">PBIP</span>
       <span class="tool-tag tag-offline">Offline</span>
     </div>
-    <p class="tool-desc">Visual CRUD, positioning, formatting, field binding, sorting, actions, code injection (Deneb/Python/R), slicer config, visual calculations, templates, measure replacement, and cross-visual sync.</p>
+    <p class="tool-desc">Visual CRUD, positioning, formatting, field binding, sorting, actions, code injection (Deneb/Python/R), slicer config, visual calculations, templates, measure replacement, cross-visual sync, and PBIR annotations. Supports visual schema 2.7.0, VisualTopN filters, SummarizeVisualContainer, and mobile.json handling.</p>
 
     <div class="card">
       <h3>Operations (21 total)</h3>
@@ -1050,7 +1100,9 @@
           <li><strong>Formatting</strong> &mdash; set titles, subtitles, borders, backgrounds, legends, axes, labels</li>
           <li><strong>Sync formatting</strong> &mdash; copy formatting from one visual to others across pages</li>
           <li><strong>Replace measures</strong> &mdash; swap one measure for another in visual bindings</li>
-          <li><strong>Configure slicers</strong> &mdash; set slicer type, field bindings, and display options</li>
+          <li><strong>Configure slicers</strong> &mdash; set slicer type, field bindings, and display options. New templates: buttonSlicer, textSlicer, listSlicer, inputSlicer</li>
+          <li><strong>PBIR annotations</strong> &mdash; read and manage annotations on visuals, pages, and reports</li>
+          <li><strong>Mobile layout</strong> &mdash; mobile.json handled in clone, delete, and info operations</li>
         </ul>
       </div>
     </details>
@@ -1262,36 +1314,6 @@
     </div>
   </section>
 
-  <!-- ==================== 11_PBIP_Prototype ==================== -->
-  <section class="tool-section" id="11_PBIP_Prototype">
-    <div class="tool-header">
-      <h2>11_PBIP_Prototype</h2>
-      <span class="tool-tag tag-authoring">Authoring</span>
-      <span class="tool-tag" style="background:rgba(34,211,238,0.1);color:var(--cyan);border:1px solid rgba(34,211,238,0.2)">Offline + Optional Live</span>
-    </div>
-    <p class="tool-desc">Report prototyping: generate pages from JSON specs, create interactive HTML prototypes with live data, and translate HTML changes back to PBIP files.</p>
-
-    <div class="card">
-      <h3>Operations</h3>
-      <div class="op-grid">
-        <div class="op-chip"><code>generate_from_spec</code><span class="op-desc">Page from JSON spec</span></div>
-        <div class="op-chip"><code>generate_html</code><span class="op-desc">Interactive HTML</span></div>
-        <div class="op-chip"><code>apply_html</code><span class="op-desc">HTML back to PBIP</span></div>
-      </div>
-    </div>
-
-    <details>
-      <summary>What You Can Do</summary>
-      <div class="detail-content">
-        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
-          <li><strong>Spec-driven pages</strong> &mdash; define a page as JSON and generate all PBIP files</li>
-          <li><strong>Live HTML preview</strong> &mdash; generate an interactive HTML prototype with real data from PBI Desktop</li>
-          <li><strong>Round-trip editing</strong> &mdash; modify the HTML prototype and apply changes back to PBIP</li>
-        </ul>
-      </div>
-    </details>
-  </section>
-
   <!-- ==================== SVG_Visual_Operations ==================== -->
   <section class="tool-section" id="SVG_Visual_Operations">
     <div class="tool-header">
@@ -1331,7 +1353,7 @@
 
   <!-- Footer -->
   <div style="text-align:center;padding:40px 0;color:var(--text-muted);font-size:12px;border-top:1px solid var(--border);margin-top:40px;">
-    MCP-PowerBi-Finvision v7.0.0 &mdash; Generated April 2026
+    MCP-PowerBi-Finvision v7.1.0 &mdash; Generated April 2026
   </div>
 
 </main>
