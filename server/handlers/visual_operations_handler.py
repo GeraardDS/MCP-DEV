@@ -153,6 +153,9 @@ def _extract_visual_info(visual_data: Dict, file_path: Path, visuals_path: Path)
     if annotations:
         info['annotations'] = annotations
 
+    # Mobile layout presence
+    info['has_mobile_layout'] = (file_path.parent / 'mobile.json').exists()
+
     return info
 
 

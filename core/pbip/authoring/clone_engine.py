@@ -91,7 +91,7 @@ class CloneEngine:
                         self._remap_visual_ids(visual_data, id_mapping)
                         save_json_file(visual_json_path, visual_data)
 
-                # Rename folder
+                # Rename folder (mobile.json inside moves with the folder)
                 new_folder = visuals_dir / new_id
                 visual_folder.rename(new_folder)
 
@@ -361,7 +361,7 @@ class CloneEngine:
                     shutil.rmtree(str(child_dir))
                     deleted.append(child_dir.name)
 
-        # Delete the visual itself
+        # Delete the visual itself (including mobile.json if present inside the folder)
         if visual_dir.exists():
             shutil.rmtree(str(visual_dir))
 
