@@ -1,12 +1,7 @@
 """
-Report Info Handler
-Tool 14: Get PBIP report structure information
-
-Returns pure data about:
-- All pages in the report
-- Filters on all pages (report-level filters from report.json)
-- Filter pane filters per page
-- All visual items per page
+INTERNAL ONLY — not exposed as a public MCP tool.
+Provides handle_report_info and handle_report_measure_usage for report_operations_handler.py
+(07_Report_Operations.info and .measure_usage operations).
 """
 from typing import Dict, Any, List, Optional
 import logging

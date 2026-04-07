@@ -1,6 +1,8 @@
 """
-Bookmark & Theme Compliance Handler
-Handles PBIP bookmark analysis and theme compliance tools
+INTERNAL ONLY — not exposed as a public MCP tool.
+Provides handle_analyze_bookmarks for bookmark_operations_handler.py (.analyze op),
+handle_theme_compliance for theme_operations_handler.py (.analyze_compliance op),
+and _find_report_folder used by report_operations_handler.py (.backup and .restore ops).
 """
 from typing import Dict, Any
 import logging

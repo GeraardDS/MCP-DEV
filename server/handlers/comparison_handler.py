@@ -1,6 +1,6 @@
 """
-Comparison Handler
-Handles model comparison operations with workflow templates
+INTERNAL ONLY — not exposed as a public MCP tool.
+Called by analysis_handler.py (06_Analysis_Operations.compare mode).
 """
 from typing import Dict, Any
 import logging

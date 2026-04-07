@@ -1,6 +1,8 @@
 """
-Measure Operations Handler
-Unified handler for all measure operations
+DEPRECATED — This handler is no longer registered.
+All operations are now routed through model_operations_handler.py → 02_Model_Operations.
+The core operations classes (TableOperationsHandler, etc.) are still used by the unified handler.
+This file is kept for reference only.
 """
 from typing import Dict, Any
 import logging
