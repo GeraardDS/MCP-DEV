@@ -694,7 +694,10 @@ class DaxCodeRewriter:
             )
         )
 
-        # TODO: Implement actual flattening with proper DAX parsing
+        # LIMITATION: Auto-flattening nested CALCULATE requires a full DAX parser
+        # (balanced parentheses, string literal awareness, context transition detection).
+        # The transformation is detected and reported above but not auto-applied.
+        # Users should apply the suggested transformation manually.
         return dax
 
     def _optimize_filter_patterns(self, dax: str) -> str:
@@ -824,8 +827,9 @@ class DaxCodeRewriter:
                 )
             )
 
-            # TODO: Actual conversion would require parsing to understand SUMMARIZE arguments
-            # For now, just flag it as a transformation opportunity
+            # LIMITATION: Auto-converting SUMMARIZE to SUMMARIZECOLUMNS requires parsing
+            # the argument list to separate groupBy columns from name/expression pairs,
+            # then wrapping computed columns in ADDCOLUMNS. Detected but not auto-applied.
 
         return dax
 
