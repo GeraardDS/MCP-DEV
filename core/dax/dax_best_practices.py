@@ -106,6 +106,18 @@ class DaxBestPracticesAnalyzer:
         Returns:
             Complete analysis results with issues, recommendations, and referenced articles
         """
+        # Try unified analyzer first (new engine)
+        try:
+            from core.dax.analyzer.unified_analyzer import DaxUnifiedAnalyzer
+            from core.dax.analyzer.models import AnalysisContext
+
+            ctx = AnalysisContext(vertipaq_data=vertipaq_analysis)
+            result = DaxUnifiedAnalyzer().analyze(dax_expression, ctx)
+            return result.to_best_practices_format()
+        except Exception as e:
+            logger.warning("Unified analyzer fallback: %s", e)
+
+        # Original implementation follows
         issues: List[DaxIssue] = []
 
         # Run all pattern-based checks

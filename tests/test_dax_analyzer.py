@@ -345,3 +345,44 @@ class TestPythonRules:
         for rule in rules:
             all_issues.extend(rule.evaluate(tokens, function_db))
         assert any("DIRECT" in i.rule_id.upper() for i in all_issues)
+
+
+# ------------------------------------------------------------------
+# Unified analyzer tests
+# ------------------------------------------------------------------
+
+from core.dax.analyzer.unified_analyzer import DaxUnifiedAnalyzer
+from core.dax.analyzer.models import AnalysisContext  # noqa: E402 (already imported above)
+
+
+class TestDaxUnifiedAnalyzer:
+    @pytest.fixture
+    def analyzer(self):
+        return DaxUnifiedAnalyzer()
+
+    def test_analyze_basic(self, analyzer):
+        result = analyzer.analyze("SUM(Sales[Amount])")
+        assert result.success is True
+        assert result.tier_used == 1
+        assert 0 <= result.health_score <= 100
+
+    def test_analyze_detects_issues(self, analyzer):
+        result = analyzer.analyze("SUMX(FILTER(Sales, Sales[Qty] > 10), Sales[Amount])")
+        assert result.total_issues > 0
+
+    def test_analyze_with_context(self, analyzer):
+        ctx = AnalysisContext(
+            vertipaq_data={"success": True},
+            table_row_counts={"Sales": 5_000_000},
+        )
+        result = analyzer.analyze("SUM(Sales[Amount])", context=ctx)
+        assert result.tier_used == 2
+
+    def test_analyze_batch(self, analyzer):
+        measures = [
+            ("Sales Total", "SUM(Sales[Amount])"),
+            ("Bad Pattern", "SUMX(FILTER(Sales, Sales[Qty] > 10), Sales[Amount])"),
+        ]
+        results = analyzer.analyze_batch(measures)
+        assert len(results) == 2
+        assert all(r.success for r in results)
