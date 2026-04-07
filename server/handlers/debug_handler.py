@@ -1711,11 +1711,76 @@ def handle_profile(args: Dict[str, Any]) -> Dict[str, Any]:
                 max_combinations=args.get("max_combinations", 15),
             )
 
+        elif operation == "decompose":
+            if not page_name:
+                return {"success": False, "error": "page_name is required for decompose"}
+            return ops.decompose_value(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                dimension=args.get("dimension"),
+                top_n=args.get("top_n", 10),
+            )
+
+        elif operation == "contribution":
+            if not page_name:
+                return {
+                    "success": False,
+                    "error": "page_name is required for contribution analysis",
+                }
+            return ops.contribution_analysis(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                dimension=args.get("dimension"),
+                top_n=args.get("top_n", 10),
+            )
+
+        elif operation == "trend":
+            if not page_name:
+                return {"success": False, "error": "page_name is required for trend analysis"}
+            return ops.trend_analysis(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                date_column=args.get("date_column"),
+                granularity=args.get("granularity", "month"),
+            )
+
+        elif operation == "root_cause":
+            if not page_name:
+                return {"success": False, "error": "page_name is required for root_cause analysis"}
+            return ops.root_cause_analysis(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                baseline_filters=args.get("baseline_filters"),
+                comparison_filters=args.get("comparison_filters"),
+                dimensions=args.get("dimensions"),
+                top_n=args.get("top_n", 5),
+            )
+
+        elif operation == "export":
+            return ops.export_debug_report(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                format=args.get("format", "markdown"),
+            )
+
         else:
             return {
                 "success": False,
                 "error": f"Unknown operation: {operation}",
-                "available_operations": ["page", "filter_matrix"],
+                "available_operations": [
+                    "page",
+                    "filter_matrix",
+                    "decompose",
+                    "contribution",
+                    "trend",
+                    "root_cause",
+                    "export",
+                ],
             }
 
     except Exception as e:
@@ -3597,6 +3662,8 @@ def handle_debug_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         "run_dax": _handle_run_dax,
         "optimize": handle_optimize_measure,
         "audit": handle_audit,
+        "set_path": handle_set_pbip_path,
+        "status": handle_get_debug_status,
     }
 
     handler = dispatch.get(operation)
@@ -3646,6 +3713,8 @@ def register_debug_handlers(registry):
                             "run_dax",
                             "optimize",
                             "audit",
+                            "set_path",
+                            "status",
                         ],
                         "default": "visual",
                     },
@@ -3653,6 +3722,7 @@ def register_debug_handlers(registry):
                         "type": "string",
                         "description": "Raw DAX query (DEFINE…EVALUATE) to execute (run_dax)",
                     },
+                    "pbip_path": {"type": "string", "description": "PBIP folder path (set_path)"},
                     "page_name": {"type": "string"},
                     "visual_id": {"type": "string"},
                     "visual_name": {"type": "string"},
@@ -3773,27 +3843,6 @@ def register_debug_handlers(registry):
             annotations={"readOnlyHint": True},
         ),
         ToolDefinition(
-            name="09_Debug_Config",
-            description="Config: set_path (set PBIP path), status (debug capabilities).",
-            handler=handle_debug_config,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["set_path", "status"],
-                        "default": "status",
-                    },
-                    "pbip_path": {"type": "string", "description": "PBIP folder path"},
-                    "compact": {"type": "boolean"},
-                },
-                "required": ["operation"],
-            },
-            category="debug",
-            sort_order=91,
-            annotations={"readOnlyHint": True},
-        ),
-        ToolDefinition(
             name="09_Validate",
             description="Validation: cross_visual, expected_value, filter_permutation.",
             handler=handle_validate,
@@ -3822,12 +3871,23 @@ def register_debug_handlers(registry):
         ),
         ToolDefinition(
             name="09_Profile",
-            description="Profiling: page (rank visuals by time), filter_matrix (test filter combos).",
+            description="Performance profiling and analytical decomposition: page profiling, filter matrix, measure decomposition, contribution analysis, trends, root cause.",
             handler=handle_profile,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["page", "filter_matrix"]},
+                    "operation": {
+                        "type": "string",
+                        "enum": [
+                            "page",
+                            "filter_matrix",
+                            "decompose",
+                            "contribution",
+                            "trend",
+                            "root_cause",
+                            "export",
+                        ],
+                    },
                     "page_name": {"type": "string"},
                     "visual_id": {"type": "string"},
                     "visual_name": {"type": "string"},
@@ -3835,8 +3895,19 @@ def register_debug_handlers(registry):
                     "include_slicers": {"type": "boolean"},
                     "filter_columns": {"type": "array", "items": {"type": "string"}},
                     "max_combinations": {"type": "integer"},
+                    "dimension": {"type": "string"},
+                    "dimensions": {"type": "array", "items": {"type": "string"}},
+                    "date_column": {"type": "string"},
+                    "granularity": {
+                        "type": "string",
+                        "enum": ["day", "week", "month", "quarter", "year"],
+                    },
+                    "baseline_filters": {"type": "array", "items": {"type": "string"}},
+                    "comparison_filters": {"type": "array", "items": {"type": "string"}},
+                    "top_n": {"type": "integer"},
+                    "format": {"type": "string", "enum": ["markdown", "json"]},
                 },
-                "required": ["page_name"],
+                "required": ["operation"],
             },
             category="debug",
             sort_order=93,
@@ -3863,38 +3934,6 @@ def register_debug_handlers(registry):
             category="debug",
             sort_order=94,
             annotations={"readOnlyHint": False},
-        ),
-        ToolDefinition(
-            name="09_Advanced_Analysis",
-            description="Advanced: decompose, contribution, trend, root_cause, export.",
-            handler=handle_advanced_analysis,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["decompose", "contribution", "trend", "root_cause", "export"],
-                    },
-                    "page_name": {"type": "string"},
-                    "visual_id": {"type": "string"},
-                    "visual_name": {"type": "string"},
-                    "dimension": {"type": "string"},
-                    "date_column": {"type": "string"},
-                    "granularity": {
-                        "type": "string",
-                        "enum": ["day", "week", "month", "quarter", "year"],
-                    },
-                    "baseline_filters": {"type": "array", "items": {"type": "string"}},
-                    "comparison_filters": {"type": "array", "items": {"type": "string"}},
-                    "dimensions": {"type": "array", "items": {"type": "string"}},
-                    "top_n": {"type": "integer"},
-                    "format": {"type": "string", "enum": ["markdown", "json"]},
-                },
-                "required": ["operation"],
-            },
-            category="debug",
-            sort_order=95,
-            annotations={"readOnlyHint": True},
         ),
     ]
 
