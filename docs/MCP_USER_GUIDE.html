@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP-PowerBi-Finvision v7.0.0 — User Guide</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface-2: #242836;
+    --border: #2e3347;
+    --text: #e4e6f0;
+    --text-muted: #8b8fa3;
+    --accent: #6c8cff;
+    --accent-dim: #4a6ad4;
+    --green: #4ade80;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --orange: #fb923c;
+    --purple: #a78bfa;
+    --cyan: #22d3ee;
+    --radius: 10px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.35);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 300px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    overflow-y: auto;
+    z-index: 100;
+    transition: transform 0.3s;
+  }
+  .sidebar-header {
+    padding: 24px 20px 16px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 10;
+  }
+  .sidebar-header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .sidebar-header .version {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .sidebar-search {
+    padding: 12px 20px;
+    position: sticky;
+    top: 80px;
+    background: var(--surface);
+    z-index: 10;
+  }
+  .sidebar-search input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+  }
+  .sidebar-search input:focus { border-color: var(--accent); }
+  .sidebar-search input::placeholder { color: var(--text-muted); }
+  .nav-group { padding: 8px 0; }
+  .nav-group-title {
+    padding: 6px 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+  }
+  .nav-item {
+    display: block;
+    padding: 7px 20px 7px 28px;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    border-left: 3px solid transparent;
+  }
+  .nav-item:hover { color: var(--text); background: var(--surface-2); }
+  .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(108,140,255,0.08); }
+  .nav-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 10px;
+    border-radius: 10px;
+    margin-left: 6px;
+    font-weight: 600;
+  }
+  .badge-live { background: rgba(74,222,128,0.15); color: var(--green); }
+  .badge-offline { background: rgba(168,139,250,0.15); color: var(--purple); }
+  .badge-both { background: rgba(34,211,238,0.15); color: var(--cyan); }
+
+  /* Main content */
+  .main {
+    margin-left: 300px;
+    flex: 1;
+    padding: 40px 48px;
+    max-width: 1000px;
+  }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(135deg, #1e2235 0%, #16192a 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 40px;
+    margin-bottom: 40px;
+  }
+  .hero h1 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
+  .hero h1 span { color: var(--accent); }
+  .hero p { color: var(--text-muted); font-size: 16px; max-width: 600px; }
+  .hero-stats {
+    display: flex;
+    gap: 32px;
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
+  .hero-stat {
+    text-align: center;
+  }
+  .hero-stat .num { font-size: 36px; font-weight: 800; color: var(--accent); }
+  .hero-stat .label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Sections */
+  .tool-section {
+    margin-bottom: 48px;
+    scroll-margin-top: 24px;
+  }
+  .tool-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .tool-header h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .tool-tag {
+    display: inline-block;
+    padding: 2px 10px;
+    font-size: 11px;
+    border-radius: 12px;
+    font-weight: 600;
+  }
+  .tag-core { background: rgba(108,140,255,0.15); color: var(--accent); }
+  .tag-model { background: rgba(74,222,128,0.15); color: var(--green); }
+  .tag-query { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .tag-dax { background: rgba(248,113,113,0.15); color: var(--red); }
+  .tag-analysis { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .tag-pbip { background: rgba(168,139,250,0.15); color: var(--purple); }
+  .tag-debug { background: rgba(248,113,113,0.15); color: var(--red); }
+  .tag-docs { background: rgba(34,211,238,0.15); color: var(--cyan); }
+  .tag-authoring { background: rgba(244,114,182,0.15); color: #f472b6; }
+  .tag-batch { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .tag-live { background: rgba(74,222,128,0.1); color: var(--green); border: 1px solid rgba(74,222,128,0.2); }
+  .tag-offline { background: rgba(168,139,250,0.1); color: var(--purple); border: 1px solid rgba(168,139,250,0.2); }
+
+  .tool-desc {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 20px;
+    line-height: 1.7;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--accent);
+  }
+
+  /* Tables */
+  .param-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .param-table th {
+    text-align: left;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  .param-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .param-table tr:last-child td { border-bottom: none; }
+  .param-table tr:hover td { background: rgba(108,140,255,0.03); }
+  .param-name { color: var(--accent); font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; }
+  .param-type { color: var(--yellow); font-family: monospace; font-size: 12px; }
+  .param-required { color: var(--red); font-size: 10px; font-weight: 700; }
+  .param-default { color: var(--text-muted); font-family: monospace; font-size: 12px; }
+
+  /* Operation grid */
+  .op-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .op-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    cursor: default;
+    transition: border-color 0.15s;
+  }
+  .op-chip:hover { border-color: var(--accent); }
+  .op-chip code {
+    font-family: 'Cascadia Code', monospace;
+    color: var(--accent);
+    font-size: 12px;
+  }
+  .op-chip .op-desc {
+    color: var(--text-muted);
+    font-size: 11px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Code blocks */
+  .code-block {
+    background: #12141c;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    overflow-x: auto;
+    color: var(--text-muted);
+    margin-top: 8px;
+    white-space: pre;
+    position: relative;
+  }
+  .code-block .comment { color: #6a737d; }
+  .code-block .key { color: var(--accent); }
+  .code-block .str { color: var(--green); }
+  .code-block .num { color: var(--yellow); }
+  .code-block .bool { color: var(--orange); }
+  .copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .code-block:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { background: var(--border); color: var(--text); }
+
+  /* Collapsible */
+  details { margin-bottom: 8px; }
+  details summary {
+    cursor: pointer;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    transition: background 0.15s;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before { content: '\25B6'; font-size: 10px; color: var(--text-muted); transition: transform 0.2s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  details[open] summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  details summary:hover { background: var(--border); }
+  details .detail-content {
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    padding: 16px;
+    background: var(--surface);
+  }
+
+  /* Responsive */
+  .sidebar-toggle {
+    display: none;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 200;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 18px;
+    cursor: pointer;
+  }
+  @media (max-width: 900px) {
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-toggle { display: block; }
+    .main { margin-left: 0; padding: 24px 20px; padding-top: 56px; }
+  }
+
+  /* Scroll to top */
+  .scroll-top {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  .scroll-top.visible { opacity: 1; }
+
+  /* Workflow */
+  .workflow {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 16px 0;
+  }
+  .workflow-step {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    text-align: center;
+    min-width: 120px;
+  }
+  .workflow-step .step-num {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--accent);
+  }
+  .workflow-step .step-text { color: var(--text-muted); font-size: 12px; }
+  .workflow-arrow { color: var(--text-muted); font-size: 18px; }
+</style>
+</head>
+<body>
+
+<button class="sidebar-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">&#9776;</button>
+
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h1>Finvision MCP</h1>
+    <div class="version">v7.0.0 &mdash; 23 Tools &bull; 150+ Operations</div>
+  </div>
+  <div class="sidebar-search">
+    <input type="text" id="navSearch" placeholder="Search tools..." oninput="filterNav(this.value)">
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Getting Started</div>
+    <a class="nav-item" href="#hero">Overview</a>
+    <a class="nav-item" href="#quickstart">Quick Start</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Core</div>
+    <a class="nav-item" href="#01_Connection">01_Connection <span class="nav-badge badge-live">Live</span></a>
+    <a class="nav-item" href="#10_Show_User_Guide">10_Show_User_Guide</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Model &amp; Batch</div>
+    <a class="nav-item" href="#02_Model_Operations">02_Model_Operations <span class="nav-badge badge-live">Live</span></a>
+    <a class="nav-item" href="#02_TMDL_Operations">02_TMDL_Operations <span class="nav-badge badge-offline">Offline</span></a>
+    <a class="nav-item" href="#03_Batch_Operations">03_Batch_Operations <span class="nav-badge badge-live">Live</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Query &amp; DAX</div>
+    <a class="nav-item" href="#04_Run_DAX">04_Run_DAX <span class="nav-badge badge-live">Live</span></a>
+    <a class="nav-item" href="#04_Query_Operations">04_Query_Operations <span class="nav-badge badge-live">Live</span></a>
+    <a class="nav-item" href="#05_DAX_Intelligence">05_DAX_Intelligence <span class="nav-badge badge-live">Live</span></a>
+    <a class="nav-item" href="#05_Column_Usage_Mapping">05_Column_Usage <span class="nav-badge badge-both">Both</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Analysis</div>
+    <a class="nav-item" href="#06_Analysis_Operations">06_Analysis_Operations <span class="nav-badge badge-live">Live</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Report &amp; PBIP</div>
+    <a class="nav-item" href="#07_Report_Operations">07_Report_Operations <span class="nav-badge badge-offline">Offline</span></a>
+    <a class="nav-item" href="#07_PBIP_Operations">07_PBIP_Operations <span class="nav-badge badge-offline">Offline</span></a>
+    <a class="nav-item" href="#07_Page_Operations">07_Page_Operations <span class="nav-badge badge-offline">Offline</span></a>
+    <a class="nav-item" href="#07_Visual_Operations">07_Visual_Operations <span class="nav-badge badge-offline">Offline</span></a>
+    <a class="nav-item" href="#07_Bookmark_Operations">07_Bookmark_Operations <span class="nav-badge badge-offline">Offline</span></a>
+    <a class="nav-item" href="#07_Theme_Operations">07_Theme_Operations <span class="nav-badge badge-offline">Offline</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Documentation</div>
+    <a class="nav-item" href="#08_Documentation_Word">08_Documentation_Word <span class="nav-badge badge-live">Live</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Debug &amp; Profiling</div>
+    <a class="nav-item" href="#09_Debug_Operations">09_Debug_Operations <span class="nav-badge badge-live">Live</span></a>
+    <a class="nav-item" href="#09_Validate">09_Validate <span class="nav-badge badge-live">Live</span></a>
+    <a class="nav-item" href="#09_Profile">09_Profile <span class="nav-badge badge-live">Live</span></a>
+    <a class="nav-item" href="#09_Document">09_Document <span class="nav-badge badge-live">Live</span></a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-title">Authoring</div>
+    <a class="nav-item" href="#11_PBIP_Authoring">11_PBIP_Authoring <span class="nav-badge badge-offline">Offline</span></a>
+    <a class="nav-item" href="#11_PBIP_Prototype">11_PBIP_Prototype <span class="nav-badge badge-both">Both</span></a>
+    <a class="nav-item" href="#SVG_Visual_Operations">SVG_Visual_Operations <span class="nav-badge badge-both">Both</span></a>
+  </div>
+</nav>
+
+<main class="main">
+
+  <!-- HERO -->
+  <section class="hero" id="hero">
+    <h1>MCP-PowerBi-<span>Finvision</span></h1>
+    <p>A production-ready Model Context Protocol server for Power BI Desktop. Connect, inspect, debug, author, and document your Power BI models and reports.</p>
+    <div class="hero-stats">
+      <div class="hero-stat"><div class="num">23</div><div class="label">Tools</div></div>
+      <div class="hero-stat"><div class="num">150+</div><div class="label">Operations</div></div>
+      <div class="hero-stat"><div class="num">11</div><div class="label">Categories</div></div>
+      <div class="hero-stat"><div class="num">40+</div><div class="label">SVG Templates</div></div>
+    </div>
+  </section>
+
+  <!-- QUICK START -->
+  <section class="tool-section" id="quickstart">
+    <div class="tool-header"><h2>Quick Start Workflow</h2></div>
+    <div class="workflow">
+      <div class="workflow-step"><div class="step-num">1</div><div class="step-text">detect_powerbi_desktop</div></div>
+      <div class="workflow-arrow">&rarr;</div>
+      <div class="workflow-step"><div class="step-num">2</div><div class="step-text">connect_to_powerbi</div></div>
+      <div class="workflow-arrow">&rarr;</div>
+      <div class="workflow-step"><div class="step-num">3</div><div class="step-text">list_tables / run_dax</div></div>
+    </div>
+    <div class="card">
+      <h3>Two Modes of Operation</h3>
+      <table class="param-table">
+        <tr><th style="width:100px">Mode</th><th>Description</th><th>Tools Available</th></tr>
+        <tr>
+          <td><span style="color:var(--green);font-weight:700">Live</span></td>
+          <td>Connected to a running Power BI Desktop instance via .NET interop</td>
+          <td>All tools (01-09 + SVG inject)</td>
+        </tr>
+        <tr>
+          <td><span style="color:var(--purple);font-weight:700">Offline</span></td>
+          <td>Reads PBIP (.pbip) project files directly from disk</td>
+          <td>02_TMDL, 07_* series, 11_* series, SVG templates</td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ==================== 01_Connection ==================== -->
+  <section class="tool-section" id="01_Connection">
+    <div class="tool-header">
+      <h2>01_Connection</h2>
+      <span class="tool-tag tag-core">Core</span>
+      <span class="tool-tag tag-live">Requires PBI Desktop</span>
+    </div>
+    <p class="tool-desc">Detect running Power BI Desktop instances and establish a live connection for all subsequent operations.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>detect</code><span class="op-desc">Scan for running PBI instances</span></div>
+        <div class="op-chip"><code>connect</code><span class="op-desc">Connect to a specific instance</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Parameters</h3>
+      <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr>
+        <tr><td class="param-name">operation</td><td class="param-type">"detect" | "connect"</td><td class="param-default">detect</td><td>Operation to perform</td></tr>
+        <tr><td class="param-name">model_index</td><td class="param-type">integer</td><td class="param-default">0</td><td>Index of the model to connect to (connect only)</td></tr>
+      </table>
+    </div>
+
+    <details>
+      <summary>Usage Examples</summary>
+      <div class="detail-content">
+        <div class="code-block"><span class="comment">// Detect all running instances</span>
+{<span class="key">"operation"</span>: <span class="str">"detect"</span>}
+
+<span class="comment">// Connect to first instance</span>
+{<span class="key">"operation"</span>: <span class="str">"connect"</span>, <span class="key">"model_index"</span>: <span class="num">0</span>}
+
+<span class="comment">// Connect to second instance</span>
+{<span class="key">"operation"</span>: <span class="str">"connect"</span>, <span class="key">"model_index"</span>: <span class="num">1</span>}</div>
+      </div>
+    </details>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Find all open PBI files</strong> &mdash; run <code>detect</code> to see every running instance with port, PID, and file name</li>
+          <li><strong>Switch between instances</strong> &mdash; call <code>connect</code> with different <code>model_index</code> values to switch</li>
+          <li><strong>Multi-instance debugging</strong> &mdash; connect to one instance, run queries, then switch to another for comparison</li>
+          <li><strong>Auto-detect PBIP path</strong> &mdash; on connect, the server auto-detects the PBIP folder if the file is from a PBIP project</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 02_Model_Operations ==================== -->
+  <section class="tool-section" id="02_Model_Operations">
+    <div class="tool-header">
+      <h2>02_Model_Operations</h2>
+      <span class="tool-tag tag-model">Model</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">Unified CRUD for all model objects: tables, columns, measures, relationships, and calculation groups. The workhorse tool for model inspection and modification.</p>
+
+    <div class="card">
+      <h3>Object Types &amp; Operations</h3>
+      <table class="param-table">
+        <tr><th>Object Type</th><th>Available Operations</th></tr>
+        <tr><td class="param-name">table</td><td>list, describe, sample_data, create, update, delete, refresh, generate_calendar</td></tr>
+        <tr><td class="param-name">column</td><td>list, get, statistics, distribution, create, update, delete</td></tr>
+        <tr><td class="param-name">measure</td><td>list, get, create, update, delete, rename, move</td></tr>
+        <tr><td class="param-name">relationship</td><td>list, get, find, create, update, delete, activate, deactivate</td></tr>
+        <tr><td class="param-name">calculation_group</td><td>list, create, delete, list_items</td></tr>
+      </table>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Explore model structure</strong> &mdash; list tables, describe columns, inspect relationships</li>
+          <li><strong>Preview data</strong> &mdash; <code>sample_data</code> with column selection, ordering, and row limits</li>
+          <li><strong>Create measures</strong> &mdash; add new DAX measures with format strings and display folders</li>
+          <li><strong>Manage relationships</strong> &mdash; create, activate/deactivate, set cross-filtering behavior</li>
+          <li><strong>Generate calendar tables</strong> &mdash; auto-generate date tables with fiscal year support</li>
+          <li><strong>Column statistics</strong> &mdash; get min/max/distinct/null counts and value distributions</li>
+          <li><strong>Organize measures</strong> &mdash; rename, move between tables, set display folders</li>
+        </ul>
+      </div>
+    </details>
+
+    <details>
+      <summary>Key Parameters</summary>
+      <div class="detail-content">
+        <table class="param-table">
+          <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+          <tr><td class="param-name">object_type <span class="param-required">REQUIRED</span></td><td class="param-type">enum</td><td>table | column | measure | relationship | calculation_group</td></tr>
+          <tr><td class="param-name">operation</td><td class="param-type">string</td><td>Operation (varies by object_type)</td></tr>
+          <tr><td class="param-name">table_name</td><td class="param-type">string</td><td>Table name</td></tr>
+          <tr><td class="param-name">expression</td><td class="param-type">string</td><td>DAX expression</td></tr>
+          <tr><td class="param-name">format_string</td><td class="param-type">string</td><td>Format string (e.g., #,##0.00)</td></tr>
+          <tr><td class="param-name">display_folder</td><td class="param-type">string</td><td>Display folder path</td></tr>
+          <tr><td class="param-name">max_rows</td><td class="param-type">integer</td><td>Max rows for sample_data (default: 10, max: 1000)</td></tr>
+          <tr><td class="param-name">hidden</td><td class="param-type">boolean</td><td>Hide object from client tools</td></tr>
+        </table>
+      </div>
+    </details>
+
+    <details>
+      <summary>Usage Examples</summary>
+      <div class="detail-content">
+        <div class="code-block"><span class="comment">// List all tables</span>
+{<span class="key">"object_type"</span>: <span class="str">"table"</span>, <span class="key">"operation"</span>: <span class="str">"list"</span>}
+
+<span class="comment">// Preview Sales data</span>
+{<span class="key">"object_type"</span>: <span class="str">"table"</span>, <span class="key">"operation"</span>: <span class="str">"sample_data"</span>,
+ <span class="key">"table_name"</span>: <span class="str">"Sales"</span>, <span class="key">"max_rows"</span>: <span class="num">20</span>}
+
+<span class="comment">// Create a measure</span>
+{<span class="key">"object_type"</span>: <span class="str">"measure"</span>, <span class="key">"operation"</span>: <span class="str">"create"</span>,
+ <span class="key">"table_name"</span>: <span class="str">"Sales"</span>, <span class="key">"measure_name"</span>: <span class="str">"Total Sales"</span>,
+ <span class="key">"expression"</span>: <span class="str">"SUM(Sales[Amount])"</span>,
+ <span class="key">"format_string"</span>: <span class="str">"#,##0.00"</span>}
+
+<span class="comment">// Create a relationship</span>
+{<span class="key">"object_type"</span>: <span class="str">"relationship"</span>, <span class="key">"operation"</span>: <span class="str">"create"</span>,
+ <span class="key">"from_table"</span>: <span class="str">"Sales"</span>, <span class="key">"from_column"</span>: <span class="str">"ProductKey"</span>,
+ <span class="key">"to_table"</span>: <span class="str">"Products"</span>, <span class="key">"to_column"</span>: <span class="str">"ProductKey"</span>}</div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 02_TMDL_Operations ==================== -->
+  <section class="tool-section" id="02_TMDL_Operations">
+    <div class="tool-header">
+      <h2>02_TMDL_Operations</h2>
+      <span class="tool-tag tag-model">Model</span>
+      <span class="tool-tag tag-offline">Offline</span>
+    </div>
+    <p class="tool-desc">TMDL file automation: export from live model, find/replace with regex, bulk rename with reference updates, script generation, and measure migration between files.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>export</code><span class="op-desc">Export TMDL from live model</span></div>
+        <div class="op-chip"><code>find_replace</code><span class="op-desc">Find/replace with regex</span></div>
+        <div class="op-chip"><code>bulk_rename</code><span class="op-desc">Rename + update refs</span></div>
+        <div class="op-chip"><code>generate_script</code><span class="op-desc">Generate TMDL script</span></div>
+        <div class="op-chip"><code>migrate_measures</code><span class="op-desc">Move measures between files</span></div>
+      </div>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Export TMDL</strong> &mdash; save the current live model as TMDL files on disk</li>
+          <li><strong>Mass refactor</strong> &mdash; find/replace across all TMDL files with regex, with dry run preview</li>
+          <li><strong>Safe renames</strong> &mdash; rename tables/measures/columns and auto-update all DAX references</li>
+          <li><strong>Migrate measures</strong> &mdash; move measures between tables with folder filtering</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 03_Batch_Operations ==================== -->
+  <section class="tool-section" id="03_Batch_Operations">
+    <div class="tool-header">
+      <h2>03_Batch_Operations</h2>
+      <span class="tool-tag tag-batch">Batch</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">Execute batch operations with ACID transaction support. 3-5x faster than individual calls. All-or-nothing with rollback on failure.</p>
+
+    <div class="card">
+      <h3>Object Types &amp; Batch Operations</h3>
+      <table class="param-table">
+        <tr><th>Object Type</th><th>Batch Operations</th></tr>
+        <tr><td class="param-name">measures</td><td>create, update, delete, rename, move</td></tr>
+        <tr><td class="param-name">tables</td><td>create, update, delete, refresh</td></tr>
+        <tr><td class="param-name">columns</td><td>create, update, delete</td></tr>
+        <tr><td class="param-name">relationships</td><td>create, update, delete, activate, deactivate</td></tr>
+      </table>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Mass create measures</strong> &mdash; create 50+ measures in a single transaction</li>
+          <li><strong>Atomic updates</strong> &mdash; all succeed or all roll back with <code>use_transaction: true</code></li>
+          <li><strong>Dry run validation</strong> &mdash; validate all definitions without executing</li>
+          <li><strong>Error resilience</strong> &mdash; optionally continue on errors with <code>continue_on_error: true</code></li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 04_Run_DAX ==================== -->
+  <section class="tool-section" id="04_Run_DAX">
+    <div class="tool-header">
+      <h2>04_Run_DAX</h2>
+      <span class="tool-tag tag-query">Query</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">Execute DAX queries with automatic row limits and optional SE/FE trace analysis for performance debugging.</p>
+
+    <div class="card">
+      <h3>Execution Modes</h3>
+      <table class="param-table">
+        <tr><th>Mode</th><th>Description</th><th>Use Case</th></tr>
+        <tr><td class="param-name">auto / simple</td><td>Execute and return preview results</td><td>Quick data inspection</td></tr>
+        <tr><td class="param-name">analyze</td><td>Multi-run benchmark with timing statistics</td><td>Performance comparison</td></tr>
+        <tr><td class="param-name">trace</td><td>SE/FE timing analysis with query events</td><td>Deep performance debugging</td></tr>
+      </table>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Run any DAX query</strong> &mdash; EVALUATE statements with automatic top-N limiting</li>
+          <li><strong>Performance trace</strong> &mdash; get SE/FE timing, cache hit ratios, SE query count</li>
+          <li><strong>Benchmark queries</strong> &mdash; multi-run analysis in <code>analyze</code> mode</li>
+          <li><strong>Cold cache testing</strong> &mdash; clear VertiPaq cache before trace for realistic timing</li>
+        </ul>
+      </div>
+    </details>
+
+    <details>
+      <summary>Usage Examples</summary>
+      <div class="detail-content">
+        <div class="code-block"><span class="comment">// Simple query</span>
+{<span class="key">"query"</span>: <span class="str">"EVALUATE SUMMARIZECOLUMNS('Date'[Year], \"Total\", [Total Sales])"</span>}
+
+<span class="comment">// With SE/FE trace</span>
+{<span class="key">"query"</span>: <span class="str">"EVALUATE SUMMARIZECOLUMNS('Date'[Year], \"Total\", [Total Sales])"</span>,
+ <span class="key">"mode"</span>: <span class="str">"trace"</span>, <span class="key">"clear_cache"</span>: <span class="bool">true</span>}</div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 04_Query_Operations ==================== -->
+  <section class="tool-section" id="04_Query_Operations">
+    <div class="tool-header">
+      <h2>04_Query_Operations</h2>
+      <span class="tool-tag tag-query">Query</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">Query model metadata: data sources, M/Power Query expressions, object search, RLS roles and testing, full-text search across names and DAX expressions.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>data_sources</code><span class="op-desc">List data sources</span></div>
+        <div class="op-chip"><code>m_expressions</code><span class="op-desc">M/Power Query code</span></div>
+        <div class="op-chip"><code>search_objects</code><span class="op-desc">Search tables/columns/measures</span></div>
+        <div class="op-chip"><code>roles</code><span class="op-desc">List RLS/OLS roles</span></div>
+        <div class="op-chip"><code>test_rls</code><span class="op-desc">Test RLS filter</span></div>
+        <div class="op-chip"><code>search_string</code><span class="op-desc">Full-text search</span></div>
+      </div>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Inspect data sources</strong> &mdash; see all connected sources and connection strings</li>
+          <li><strong>View M code</strong> &mdash; see Power Query expressions for all tables</li>
+          <li><strong>Find objects</strong> &mdash; search by name pattern across tables, columns, and measures</li>
+          <li><strong>Test row-level security</strong> &mdash; compare query results with and without RLS filters</li>
+          <li><strong>Search DAX expressions</strong> &mdash; find all measures using CALCULATE, FILTER, etc.</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 05_DAX_Intelligence ==================== -->
+  <section class="tool-section" id="05_DAX_Intelligence">
+    <div class="tool-header">
+      <h2>05_DAX_Intelligence</h2>
+      <span class="tool-tag tag-dax">DAX</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">DAX analysis engine: context transition detection, anti-pattern identification, optimization suggestions, dependency trees, impact analysis, and CSV export.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>analyze</code><span class="op-desc">Anti-pattern + context analysis</span></div>
+        <div class="op-chip"><code>debug</code><span class="op-desc">Debug with breakpoints</span></div>
+        <div class="op-chip"><code>report</code><span class="op-desc">Formatted report</span></div>
+        <div class="op-chip"><code>dependencies</code><span class="op-desc">Dependency graph</span></div>
+        <div class="op-chip"><code>impact</code><span class="op-desc">Impact analysis</span></div>
+        <div class="op-chip"><code>export</code><span class="op-desc">Export to CSV</span></div>
+      </div>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Detect anti-patterns</strong> &mdash; find performance-killing DAX patterns (nested FILTER, CALCULATE misuse)</li>
+          <li><strong>Context transition analysis</strong> &mdash; understand row-to-filter context transitions</li>
+          <li><strong>Dependency trees</strong> &mdash; see what a measure depends on (and what depends on it)</li>
+          <li><strong>Impact analysis</strong> &mdash; answer "what breaks if I change this table/measure?"</li>
+          <li><strong>Mermaid diagrams</strong> &mdash; visual dependency graphs</li>
+          <li><strong>Optimization suggestions</strong> &mdash; get concrete DAX improvement recommendations</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 05_Column_Usage_Mapping ==================== -->
+  <section class="tool-section" id="05_Column_Usage_Mapping">
+    <div class="tool-header">
+      <h2>05_Column_Usage_Mapping</h2>
+      <span class="tool-tag tag-dax">DAX</span>
+      <span class="tool-tag" style="background:rgba(34,211,238,0.1);color:var(--cyan);border:1px solid rgba(34,211,238,0.2)">Live + Offline</span>
+    </div>
+    <p class="tool-desc">Bidirectional column-measure mapping. Find unused columns (live or offline with multi-report support), trace measure dependencies, export to CSV.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>get_unused_columns</code><span class="op-desc">Unused columns (live)</span></div>
+        <div class="op-chip"><code>get_unused_columns_pbip</code><span class="op-desc">Unused columns (offline)</span></div>
+        <div class="op-chip"><code>get_measures_for_tables</code><span class="op-desc">Measures using table columns</span></div>
+        <div class="op-chip"><code>get_columns_for_measure</code><span class="op-desc">Columns used by measure</span></div>
+        <div class="op-chip"><code>get_measures_for_column</code><span class="op-desc">Measures using column</span></div>
+        <div class="op-chip"><code>get_full_mapping</code><span class="op-desc">Complete mapping</span></div>
+        <div class="op-chip"><code>export_to_csv</code><span class="op-desc">Export mapping CSV</span></div>
+        <div class="op-chip"><code>export_measures</code><span class="op-desc">Export measures CSV</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 06_Analysis_Operations ==================== -->
+  <section class="tool-section" id="06_Analysis_Operations">
+    <div class="tool-header">
+      <h2>06_Analysis_Operations</h2>
+      <span class="tool-tag tag-analysis">Analysis</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">Model analysis at three levels: simple (quick overview, 2-5s), full (BPA + performance, 10-180s), and compare (two open models side-by-side).</p>
+
+    <div class="card">
+      <h3>Operations &amp; Modes</h3>
+      <table class="param-table">
+        <tr><th>Operation</th><th>Simple Modes</th></tr>
+        <tr><td class="param-name">simple</td><td>all, tables, stats, measures, measure, columns, relationships, roles, database, calculation_groups, storage</td></tr>
+        <tr><td class="param-name">full</td><td>Scopes: all, best_practices, performance, integrity &mdash; Depths: fast, balanced, deep</td></tr>
+        <tr><td class="param-name">compare</td><td>Requires old_port and new_port of two running PBI instances</td></tr>
+      </table>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Quick model overview</strong> &mdash; table counts, row counts, measure counts in 2-5 seconds</li>
+          <li><strong>Best Practice Analyzer</strong> &mdash; run comprehensive BPA rules against your model</li>
+          <li><strong>Performance analysis</strong> &mdash; identify bottlenecks and optimization opportunities</li>
+          <li><strong>Model comparison</strong> &mdash; diff two models to find changes in tables, measures, relationships</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 07_Report_Operations ==================== -->
+  <section class="tool-section" id="07_Report_Operations">
+    <div class="tool-header">
+      <h2>07_Report_Operations</h2>
+      <span class="tool-tag tag-pbip">PBIP</span>
+      <span class="tool-tag tag-offline">Offline</span>
+    </div>
+    <p class="tool-desc">Report-level operations: structure overview, measure usage tracking, rename, rebind to different model, backup/restore, schema discovery, and extension measure management.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>info</code><span class="op-desc">Report structure overview</span></div>
+        <div class="op-chip"><code>measure_usage</code><span class="op-desc">Measures per page</span></div>
+        <div class="op-chip"><code>rename</code><span class="op-desc">Rename report</span></div>
+        <div class="op-chip"><code>rebind</code><span class="op-desc">Rebind to model</span></div>
+        <div class="op-chip"><code>backup</code><span class="op-desc">Timestamped backup</span></div>
+        <div class="op-chip"><code>restore</code><span class="op-desc">Restore from backup</span></div>
+        <div class="op-chip"><code>discover_schema</code><span class="op-desc">Visual type schemas</span></div>
+        <div class="op-chip"><code>manage_extension_measures</code><span class="op-desc">Extension measure CRUD</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 07_PBIP_Operations ==================== -->
+  <section class="tool-section" id="07_PBIP_Operations">
+    <div class="tool-header">
+      <h2>07_PBIP_Operations</h2>
+      <span class="tool-tag tag-pbip">PBIP</span>
+      <span class="tool-tag tag-offline">Offline</span>
+    </div>
+    <p class="tool-desc">Offline PBIP analysis: model validation, comparison, documentation, dependency analysis, unused objects, broken references, git diff, interactive HTML diagrams, aggregation analysis.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>analyze</code><span class="op-desc">Full analysis + HTML</span></div>
+        <div class="op-chip"><code>validate_model</code><span class="op-desc">TMDL validation</span></div>
+        <div class="op-chip"><code>compare_models</code><span class="op-desc">Compare two models</span></div>
+        <div class="op-chip"><code>generate_documentation</code><span class="op-desc">Markdown docs</span></div>
+        <div class="op-chip"><code>query_dependencies</code><span class="op-desc">Dependency graph</span></div>
+        <div class="op-chip"><code>query_measures</code><span class="op-desc">Search measures</span></div>
+        <div class="op-chip"><code>query_relationships</code><span class="op-desc">Relationship quality</span></div>
+        <div class="op-chip"><code>query_unused</code><span class="op-desc">Find unused objects</span></div>
+        <div class="op-chip"><code>scan_broken_refs</code><span class="op-desc">Broken references</span></div>
+        <div class="op-chip"><code>git_diff</code><span class="op-desc">Git change analysis</span></div>
+        <div class="op-chip"><code>dependency_html</code><span class="op-desc">Interactive HTML diagram</span></div>
+        <div class="op-chip"><code>aggregation_analysis</code><span class="op-desc">Aggregation tables</span></div>
+      </div>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Full offline analysis</strong> &mdash; get an HTML report of your model without opening Power BI</li>
+          <li><strong>Validate TMDL</strong> &mdash; check for syntax errors, broken references, consistency issues</li>
+          <li><strong>Compare models</strong> &mdash; diff two PBIP models to see what changed</li>
+          <li><strong>Generate documentation</strong> &mdash; auto-generate Markdown docs for your model</li>
+          <li><strong>Dependency analysis</strong> &mdash; trace forward/reverse dependencies for any object</li>
+          <li><strong>Find dead code</strong> &mdash; identify unused measures and columns</li>
+          <li><strong>Scan broken refs</strong> &mdash; find visuals referencing non-existent fields</li>
+          <li><strong>Git diff analysis</strong> &mdash; understand what changed in TMDL files between commits</li>
+          <li><strong>Interactive HTML</strong> &mdash; browsable dependency diagram that opens in your browser</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 07_Page_Operations ==================== -->
+  <section class="tool-section" id="07_Page_Operations">
+    <div class="tool-header">
+      <h2>07_Page_Operations</h2>
+      <span class="tool-tag tag-pbip">PBIP</span>
+      <span class="tool-tag tag-offline">Offline</span>
+    </div>
+    <p class="tool-desc">Page management: CRUD, display settings, backgrounds, drillthrough/tooltip config, visual interactions, and comprehensive filter management (add/set/clear/hide/lock).</p>
+
+    <div class="card">
+      <h3>Operations (24 total)</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>list</code><span class="op-desc">List pages</span></div>
+        <div class="op-chip"><code>create</code><span class="op-desc">Create page</span></div>
+        <div class="op-chip"><code>clone</code><span class="op-desc">Clone with visuals</span></div>
+        <div class="op-chip"><code>delete</code><span class="op-desc">Delete page</span></div>
+        <div class="op-chip"><code>reorder</code><span class="op-desc">Reorder pages</span></div>
+        <div class="op-chip"><code>resize</code><span class="op-desc">Resize canvas</span></div>
+        <div class="op-chip"><code>set_display</code><span class="op-desc">Display option</span></div>
+        <div class="op-chip"><code>set_background</code><span class="op-desc">Background color</span></div>
+        <div class="op-chip"><code>set_wallpaper</code><span class="op-desc">Wallpaper</span></div>
+        <div class="op-chip"><code>set_drillthrough</code><span class="op-desc">Drillthrough</span></div>
+        <div class="op-chip"><code>set_tooltip</code><span class="op-desc">Tooltip page</span></div>
+        <div class="op-chip"><code>hide</code><span class="op-desc">Hide page</span></div>
+        <div class="op-chip"><code>show</code><span class="op-desc">Show page</span></div>
+        <div class="op-chip"><code>set_interaction</code><span class="op-desc">Visual interaction</span></div>
+        <div class="op-chip"><code>bulk_set_interactions</code><span class="op-desc">Bulk interactions</span></div>
+        <div class="op-chip"><code>list_interactions</code><span class="op-desc">List interactions</span></div>
+        <div class="op-chip"><code>list_filters</code><span class="op-desc">List filters</span></div>
+        <div class="op-chip"><code>add_filter</code><span class="op-desc">Add filter</span></div>
+        <div class="op-chip"><code>set_filter</code><span class="op-desc">Set filter values</span></div>
+        <div class="op-chip"><code>clear_filters</code><span class="op-desc">Clear filters</span></div>
+        <div class="op-chip"><code>hide_filter</code><span class="op-desc">Hide filter pane</span></div>
+        <div class="op-chip"><code>unhide_filter</code><span class="op-desc">Unhide filter</span></div>
+        <div class="op-chip"><code>lock_filter</code><span class="op-desc">Lock filter</span></div>
+        <div class="op-chip"><code>unlock_filter</code><span class="op-desc">Unlock filter</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 07_Visual_Operations ==================== -->
+  <section class="tool-section" id="07_Visual_Operations">
+    <div class="tool-header">
+      <h2>07_Visual_Operations</h2>
+      <span class="tool-tag tag-pbip">PBIP</span>
+      <span class="tool-tag tag-offline">Offline</span>
+    </div>
+    <p class="tool-desc">Visual CRUD, positioning, formatting, field binding, sorting, actions, code injection (Deneb/Python/R), slicer config, visual calculations, templates, measure replacement, and cross-visual sync.</p>
+
+    <div class="card">
+      <h3>Operations (21 total)</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>list</code><span class="op-desc">List visuals</span></div>
+        <div class="op-chip"><code>create</code><span class="op-desc">Create visual</span></div>
+        <div class="op-chip"><code>create_group</code><span class="op-desc">Create group</span></div>
+        <div class="op-chip"><code>delete</code><span class="op-desc">Delete visual</span></div>
+        <div class="op-chip"><code>update_position</code><span class="op-desc">Move/resize</span></div>
+        <div class="op-chip"><code>update_visual_config</code><span class="op-desc">Config properties</span></div>
+        <div class="op-chip"><code>update_formatting</code><span class="op-desc">Title/border/etc.</span></div>
+        <div class="op-chip"><code>align</code><span class="op-desc">Align visuals</span></div>
+        <div class="op-chip"><code>add_field</code><span class="op-desc">Bind field</span></div>
+        <div class="op-chip"><code>remove_field</code><span class="op-desc">Remove field</span></div>
+        <div class="op-chip"><code>set_sort</code><span class="op-desc">Sort order</span></div>
+        <div class="op-chip"><code>set_action</code><span class="op-desc">Action button</span></div>
+        <div class="op-chip"><code>inject_code</code><span class="op-desc">Deneb/Python/R</span></div>
+        <div class="op-chip"><code>manage_visual_calcs</code><span class="op-desc">Visual calculations</span></div>
+        <div class="op-chip"><code>configure_slicer</code><span class="op-desc">Slicer config</span></div>
+        <div class="op-chip"><code>list_templates</code><span class="op-desc">Visual templates</span></div>
+        <div class="op-chip"><code>get_template</code><span class="op-desc">Template details</span></div>
+        <div class="op-chip"><code>replace_measure</code><span class="op-desc">Swap measure</span></div>
+        <div class="op-chip"><code>sync_visual</code><span class="op-desc">Sync across visuals</span></div>
+        <div class="op-chip"><code>sync_column_widths</code><span class="op-desc">Sync widths</span></div>
+        <div class="op-chip"><code>sync_formatting</code><span class="op-desc">Sync formatting</span></div>
+      </div>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Create any visual</strong> &mdash; column charts, cards, tables, slicers, shapes, with data bindings</li>
+          <li><strong>Pixel-perfect positioning</strong> &mdash; set exact x/y/width/height/z-order</li>
+          <li><strong>Align visuals</strong> &mdash; left, right, top, bottom, center horizontal/vertical</li>
+          <li><strong>Inject code</strong> &mdash; write Deneb (Vega/Vega-Lite), Python, or R specs into visuals</li>
+          <li><strong>Manage visual calculations</strong> &mdash; add DAX visual-level calculations</li>
+          <li><strong>Formatting</strong> &mdash; set titles, subtitles, borders, backgrounds, legends, axes, labels</li>
+          <li><strong>Sync formatting</strong> &mdash; copy formatting from one visual to others across pages</li>
+          <li><strong>Replace measures</strong> &mdash; swap one measure for another in visual bindings</li>
+          <li><strong>Configure slicers</strong> &mdash; set slicer type, field bindings, and display options</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 07_Bookmark_Operations ==================== -->
+  <section class="tool-section" id="07_Bookmark_Operations">
+    <div class="tool-header">
+      <h2>07_Bookmark_Operations</h2>
+      <span class="tool-tag tag-pbip">PBIP</span>
+      <span class="tool-tag tag-offline">Offline</span>
+    </div>
+    <p class="tool-desc">Bookmark CRUD, capture settings (data/display/page), affected visual control, and HTML bookmark analysis.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>list</code><span class="op-desc">List bookmarks</span></div>
+        <div class="op-chip"><code>create</code><span class="op-desc">Create bookmark</span></div>
+        <div class="op-chip"><code>rename</code><span class="op-desc">Rename bookmark</span></div>
+        <div class="op-chip"><code>delete</code><span class="op-desc">Delete bookmark</span></div>
+        <div class="op-chip"><code>set_capture</code><span class="op-desc">Capture settings</span></div>
+        <div class="op-chip"><code>set_affected_visuals</code><span class="op-desc">Affected visuals</span></div>
+        <div class="op-chip"><code>analyze</code><span class="op-desc">HTML analysis</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 07_Theme_Operations ==================== -->
+  <section class="tool-section" id="07_Theme_Operations">
+    <div class="tool-header">
+      <h2>07_Theme_Operations</h2>
+      <span class="tool-tag tag-pbip">PBIP</span>
+      <span class="tool-tag tag-offline">Offline</span>
+    </div>
+    <p class="tool-desc">Theme management and conditional formatting: compliance analysis, color management, formatting defaults, fonts, text classes, and CF rule CRUD (color scales, data bars, icons).</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>analyze_compliance</code><span class="op-desc">Theme compliance HTML</span></div>
+        <div class="op-chip"><code>get_theme</code><span class="op-desc">Load current theme</span></div>
+        <div class="op-chip"><code>set_colors</code><span class="op-desc">Set theme colors</span></div>
+        <div class="op-chip"><code>set_formatting</code><span class="op-desc">Formatting defaults</span></div>
+        <div class="op-chip"><code>push_visual</code><span class="op-desc">Push visual to theme</span></div>
+        <div class="op-chip"><code>list_text_classes</code><span class="op-desc">Text classes</span></div>
+        <div class="op-chip"><code>set_font</code><span class="op-desc">Font properties</span></div>
+        <div class="op-chip"><code>list_cf</code><span class="op-desc">List CF rules</span></div>
+        <div class="op-chip"><code>add_cf</code><span class="op-desc">Add CF rule</span></div>
+        <div class="op-chip"><code>remove_cf</code><span class="op-desc">Remove CF rule</span></div>
+        <div class="op-chip"><code>copy_cf</code><span class="op-desc">Copy CF between visuals</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 08_Documentation_Word ==================== -->
+  <section class="tool-section" id="08_Documentation_Word">
+    <div class="tool-header">
+      <h2>08_Documentation_Word</h2>
+      <span class="tool-tag tag-docs">Docs</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">Generate or update professional Word (.docx) documentation for the connected model. Includes tables, measures, relationships, and model statistics.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>generate</code><span class="op-desc">Generate new .docx</span></div>
+        <div class="op-chip"><code>update</code><span class="op-desc">Update existing .docx</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 09_Debug_Operations ==================== -->
+  <section class="tool-section" id="09_Debug_Operations">
+    <div class="tool-header">
+      <h2>09_Debug_Operations</h2>
+      <span class="tool-tag tag-debug">Debug</span>
+      <span class="tool-tag tag-live">Live + PBIP</span>
+    </div>
+    <p class="tool-desc">The most powerful debugging tool: visual debugging with SE/FE traces, measure comparison, drill-to-detail, DAX analysis, variable stepping, optimization suggestions, and full page audits.</p>
+
+    <div class="card">
+      <h3>Operations (11 total)</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>visual</code><span class="op-desc">Debug visual + trace</span></div>
+        <div class="op-chip"><code>compare</code><span class="op-desc">Original vs optimized</span></div>
+        <div class="op-chip"><code>drill</code><span class="op-desc">Drill to detail</span></div>
+        <div class="op-chip"><code>analyze</code><span class="op-desc">Analyze DAX expression</span></div>
+        <div class="op-chip"><code>debug_variable</code><span class="op-desc">Debug a variable</span></div>
+        <div class="op-chip"><code>step_variables</code><span class="op-desc">Step through vars</span></div>
+        <div class="op-chip"><code>run_dax</code><span class="op-desc">Run raw DAX</span></div>
+        <div class="op-chip"><code>optimize</code><span class="op-desc">Optimization advice</span></div>
+        <div class="op-chip"><code>audit</code><span class="op-desc">Audit page visuals</span></div>
+        <div class="op-chip"><code>set_path</code><span class="op-desc">Set PBIP path</span></div>
+        <div class="op-chip"><code>status</code><span class="op-desc">Debug status</span></div>
+      </div>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Debug any visual</strong> &mdash; see what DAX query a visual generates, its filters, and slicer context</li>
+          <li><strong>SE/FE trace</strong> &mdash; get Storage Engine and Formula Engine timing with cache analysis</li>
+          <li><strong>Step through variables</strong> &mdash; evaluate each VAR in a measure to isolate issues</li>
+          <li><strong>Compare measures</strong> &mdash; test original vs optimized DAX side-by-side</li>
+          <li><strong>Drill to detail</strong> &mdash; see the underlying fact table rows for any visual</li>
+          <li><strong>Full page audit</strong> &mdash; audit every visual on a page in one call</li>
+          <li><strong>Optimization advice</strong> &mdash; get specific recommendations based on trace metrics</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== 09_Validate ==================== -->
+  <section class="tool-section" id="09_Validate">
+    <div class="tool-header">
+      <h2>09_Validate</h2>
+      <span class="tool-tag tag-debug">Debug</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">Validation operations: cross-visual consistency checking, expected value testing, and filter permutation analysis.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>cross_visual</code><span class="op-desc">Consistency across visuals</span></div>
+        <div class="op-chip"><code>expected_value</code><span class="op-desc">Expected result testing</span></div>
+        <div class="op-chip"><code>filter_permutation</code><span class="op-desc">Filter combination testing</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 09_Profile ==================== -->
+  <section class="tool-section" id="09_Profile">
+    <div class="tool-header">
+      <h2>09_Profile</h2>
+      <span class="tool-tag tag-debug">Debug</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">Performance profiling, filter matrix analysis, measure decomposition, contribution analysis, trend analysis, and root cause analysis.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>page</code><span class="op-desc">Page profiling</span></div>
+        <div class="op-chip"><code>filter_matrix</code><span class="op-desc">Filter matrix</span></div>
+        <div class="op-chip"><code>decompose</code><span class="op-desc">Measure decomposition</span></div>
+        <div class="op-chip"><code>contribution</code><span class="op-desc">Contribution analysis</span></div>
+        <div class="op-chip"><code>trend</code><span class="op-desc">Trend analysis</span></div>
+        <div class="op-chip"><code>root_cause</code><span class="op-desc">Root cause analysis</span></div>
+        <div class="op-chip"><code>export</code><span class="op-desc">Export results</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 09_Document ==================== -->
+  <section class="tool-section" id="09_Document">
+    <div class="tool-header">
+      <h2>09_Document</h2>
+      <span class="tool-tag tag-debug">Debug</span>
+      <span class="tool-tag tag-live">Live Connection</span>
+    </div>
+    <p class="tool-desc">Live documentation: page details, full report documentation, measure lineage tracing, and filter lineage analysis.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>page</code><span class="op-desc">Document page</span></div>
+        <div class="op-chip"><code>report</code><span class="op-desc">Document report</span></div>
+        <div class="op-chip"><code>measure_lineage</code><span class="op-desc">Measure lineage</span></div>
+        <div class="op-chip"><code>filter_lineage</code><span class="op-desc">Filter lineage</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 10_Show_User_Guide ==================== -->
+  <section class="tool-section" id="10_Show_User_Guide">
+    <div class="tool-header">
+      <h2>10_Show_User_Guide</h2>
+      <span class="tool-tag tag-core">Core</span>
+    </div>
+    <p class="tool-desc">Display the built-in comprehensive user guide with all tools, operations, parameters, and workflows. No parameters needed.</p>
+  </section>
+
+  <!-- ==================== 11_PBIP_Authoring ==================== -->
+  <section class="tool-section" id="11_PBIP_Authoring">
+    <div class="tool-header">
+      <h2>11_PBIP_Authoring</h2>
+      <span class="tool-tag tag-authoring">Authoring</span>
+      <span class="tool-tag tag-offline">Offline</span>
+    </div>
+    <p class="tool-desc">Create, clone, and delete pages and visuals in PBIP reports. Includes 24+ visual templates for common chart types.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>clone_page</code><span class="op-desc">Clone page + visuals</span></div>
+        <div class="op-chip"><code>clone_report</code><span class="op-desc">Clone entire report</span></div>
+        <div class="op-chip"><code>create_page</code><span class="op-desc">Create empty page</span></div>
+        <div class="op-chip"><code>create_visual</code><span class="op-desc">Create visual</span></div>
+        <div class="op-chip"><code>create_visual_group</code><span class="op-desc">Create group</span></div>
+        <div class="op-chip"><code>delete_page</code><span class="op-desc">Delete page</span></div>
+        <div class="op-chip"><code>delete_visual</code><span class="op-desc">Delete visual</span></div>
+        <div class="op-chip"><code>list_templates</code><span class="op-desc">List templates</span></div>
+        <div class="op-chip"><code>get_template</code><span class="op-desc">Template structure</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 11_PBIP_Prototype ==================== -->
+  <section class="tool-section" id="11_PBIP_Prototype">
+    <div class="tool-header">
+      <h2>11_PBIP_Prototype</h2>
+      <span class="tool-tag tag-authoring">Authoring</span>
+      <span class="tool-tag" style="background:rgba(34,211,238,0.1);color:var(--cyan);border:1px solid rgba(34,211,238,0.2)">Offline + Optional Live</span>
+    </div>
+    <p class="tool-desc">Report prototyping: generate pages from JSON specs, create interactive HTML prototypes with live data, and translate HTML changes back to PBIP files.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>generate_from_spec</code><span class="op-desc">Page from JSON spec</span></div>
+        <div class="op-chip"><code>generate_html</code><span class="op-desc">Interactive HTML</span></div>
+        <div class="op-chip"><code>apply_html</code><span class="op-desc">HTML back to PBIP</span></div>
+      </div>
+    </div>
+
+    <details>
+      <summary>What You Can Do</summary>
+      <div class="detail-content">
+        <ul style="color:var(--text-muted);font-size:13px;padding-left:20px;line-height:2">
+          <li><strong>Spec-driven pages</strong> &mdash; define a page as JSON and generate all PBIP files</li>
+          <li><strong>Live HTML preview</strong> &mdash; generate an interactive HTML prototype with real data from PBI Desktop</li>
+          <li><strong>Round-trip editing</strong> &mdash; modify the HTML prototype and apply changes back to PBIP</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ==================== SVG_Visual_Operations ==================== -->
+  <section class="tool-section" id="SVG_Visual_Operations">
+    <div class="tool-header">
+      <h2>SVG_Visual_Operations</h2>
+      <span class="tool-tag tag-pbip">PBIP</span>
+      <span class="tool-tag" style="background:rgba(34,211,238,0.1);color:var(--cyan);border:1px solid rgba(34,211,238,0.2)">Templates + Optional Live</span>
+    </div>
+    <p class="tool-desc">SVG visual generation: 40+ DAX measure templates for KPIs, sparklines, gauges, and data bars. Browse, preview, generate, inject into model, validate, and create custom SVG templates.</p>
+
+    <div class="card">
+      <h3>Operations</h3>
+      <div class="op-grid">
+        <div class="op-chip"><code>list_templates</code><span class="op-desc">Browse templates</span></div>
+        <div class="op-chip"><code>get_template</code><span class="op-desc">Template details</span></div>
+        <div class="op-chip"><code>preview_template</code><span class="op-desc">Preview rendering</span></div>
+        <div class="op-chip"><code>generate_measure</code><span class="op-desc">Generate DAX</span></div>
+        <div class="op-chip"><code>inject_measure</code><span class="op-desc">Inject into model</span></div>
+        <div class="op-chip"><code>list_categories</code><span class="op-desc">Browse categories</span></div>
+        <div class="op-chip"><code>search_templates</code><span class="op-desc">Search templates</span></div>
+        <div class="op-chip"><code>validate_svg</code><span class="op-desc">Validate SVG</span></div>
+        <div class="op-chip"><code>create_custom</code><span class="op-desc">Custom template</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Template Categories</h3>
+      <table class="param-table">
+        <tr><th>Category</th><th>Examples</th></tr>
+        <tr><td class="param-name">kpi</td><td>KPI cards with indicators, traffic lights, trend arrows</td></tr>
+        <tr><td class="param-name">sparklines</td><td>Inline line/bar/area charts in table cells</td></tr>
+        <tr><td class="param-name">gauges</td><td>Circular gauges, semi-circles, needle gauges</td></tr>
+        <tr><td class="param-name">databars</td><td>In-cell data bars, progress bars, bullet charts</td></tr>
+        <tr><td class="param-name">advanced</td><td>Custom multi-element SVG compositions</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <div style="text-align:center;padding:40px 0;color:var(--text-muted);font-size:12px;border-top:1px solid var(--border);margin-top:40px;">
+    MCP-PowerBi-Finvision v7.0.0 &mdash; Generated April 2026
+  </div>
+
+</main>
+
+<button class="scroll-top" id="scrollTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">&uarr;</button>
+
+<script>
+// Sidebar navigation
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', function(e) {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    this.classList.add('active');
+    // Close sidebar on mobile
+    if (window.innerWidth < 900) {
+      document.querySelector('.sidebar').classList.remove('open');
+    }
+  });
+});
+
+// Active section tracking
+const sections = document.querySelectorAll('.tool-section, .hero');
+const navItems = document.querySelectorAll('.nav-item');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const id = entry.target.id;
+      navItems.forEach(item => {
+        item.classList.toggle('active', item.getAttribute('href') === '#' + id);
+      });
+    }
+  });
+}, { threshold: 0.2, rootMargin: '-80px 0px -50% 0px' });
+sections.forEach(s => observer.observe(s));
+
+// Search filter
+function filterNav(query) {
+  query = query.toLowerCase();
+  document.querySelectorAll('.nav-item').forEach(item => {
+    const text = item.textContent.toLowerCase();
+    item.style.display = text.includes(query) ? '' : 'none';
+  });
+  document.querySelectorAll('.nav-group').forEach(group => {
+    const visible = group.querySelectorAll('.nav-item[style=""],.nav-item:not([style])');
+    const hasVisible = Array.from(visible).some(item => item.style.display !== 'none');
+    group.style.display = hasVisible ? '' : 'none';
+  });
+}
+
+// Scroll to top button
+window.addEventListener('scroll', () => {
+  document.getElementById('scrollTop').classList.toggle('visible', window.scrollY > 400);
+});
+
+// Copy buttons for code blocks
+document.querySelectorAll('.code-block').forEach(block => {
+  const btn = document.createElement('button');
+  btn.className = 'copy-btn';
+  btn.textContent = 'Copy';
+  btn.onclick = () => {
+    navigator.clipboard.writeText(block.textContent.replace('Copy', '').trim());
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  };
+  block.appendChild(btn);
+});
+</script>
+
+</body>
+</html>

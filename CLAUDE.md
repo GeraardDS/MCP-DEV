@@ -88,7 +88,7 @@ def register_foo_handler(registry):
 
 Tools are grouped by `ToolCategory` enum in `server/registry.py` (CORE, MODEL, BATCH, QUERY, DAX, ANALYSIS, PBIP, DOCS, DEBUG, AUTHORING). A pre-computed `_TOOL_TO_CATEGORY` reverse lookup provides O(1) category resolution. Tool names follow the pattern `NN_Tool_Name` where NN indicates category order.
 
-**v13 consolidation (38→23 tools):**
+**v13 consolidation (38→22 tools):**
 
 - `01_Connection` — Detect PBI instances + connect (merged from 2 tools)
 - `02_Model_Operations` — Unified CRUD: table/column/measure/relationship/calc_group (merged from 5 tools)
@@ -112,7 +112,6 @@ Tools are grouped by `ToolCategory` enum in `server/registry.py` (CORE, MODEL, B
 - `09_Document` — Page/report documentation, measure/filter lineage
 - `10_Show_User_Guide` — User guide
 - `11_PBIP_Authoring` — Page/visual cloning, creation, deletion, templates
-- `11_PBIP_Prototype` — HTML report prototype generation
 - `SVG_Visual_Operations` — SVG measure templates (40+)
 
 ### Key Singletons

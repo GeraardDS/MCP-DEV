@@ -83,9 +83,7 @@ CATEGORY_TOOLS = {
         "09_Document",
         "09_Advanced_Analysis",
     ],
-    ToolCategory.AUTHORING: [
-        "11_PBIP_Prototype",
-    ],
+    ToolCategory.AUTHORING: [],
 }
 
 
@@ -108,7 +106,7 @@ CATEGORY_INFO = {
     ToolCategory.PBIP: {"name": "PBIP & Report", "description": "Report/page/visual/filter/bookmark/theme operations, SVG visuals"},
     ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs"},
     ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation"},
-    ToolCategory.AUTHORING: {"name": "Report Authoring", "description": "Create, clone, prototype PBIP report pages and visuals"},
+    ToolCategory.AUTHORING: {"name": "Report Authoring", "description": "Create, clone PBIP report pages and visuals"},
 }
 
 

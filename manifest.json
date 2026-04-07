@@ -41,7 +41,6 @@
     {"name": "09_Document", "description": "[09] Page/report documentation, measure/filter lineage"},
     {"name": "10_Show_User_Guide", "description": "[10] Show comprehensive user guide"},
     {"name": "11_PBIP_Authoring", "description": "[11] PBIP page/visual authoring, cloning, templates"},
-    {"name": "11_PBIP_Prototype", "description": "[11] HTML report prototype generation"},
     {"name": "SVG_Visual_Operations", "description": "SVG visual generation (KPIs, sparklines, gauges)"}
   ],
   "keywords": ["power-bi", "dax", "tabular-model", "analysis", "vertipaq", "pbix", "tmdl", "pbip"],
