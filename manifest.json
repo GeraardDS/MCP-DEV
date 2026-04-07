@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "mcp-powerbi-finvision",
   "display_name": "Power BI MCP Server",
-  "version": "7.0.0",
+  "version": "7.1.0",
   "description": "MCP server for Power BI Desktop analysis, DAX debugging, and model operations",
   "long_description": "MCP-PowerBi-Finvision enables AI-powered analysis of Power BI models with consolidated tools for connection, model operations, DAX intelligence, analysis, and debugging.",
   "author": {

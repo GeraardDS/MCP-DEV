@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MCP-PowerBi-Finvision Server v3.4 - Clean Modular Edition
+MCP-PowerBi-Finvision Server v7.1.0 - Clean Modular Edition
 Uses handler registry for all tool routing
 """
 
