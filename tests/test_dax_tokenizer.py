@@ -209,3 +209,65 @@ class TestDaxLexerHelpers:
         tokens = lexer.tokenize_code("SUMX(FILTER(T, T[A] > 1), T[B])")
         args = lexer.extract_function_args(tokens, 0)
         assert len(args) == 2  # FILTER(...) and T[B]
+
+
+class TestLexerWithFunctionDb:
+    """Lexer with function DB classifies FUNCTION tokens correctly."""
+
+    @pytest.fixture
+    def lexer(self):
+        from core.dax.knowledge.function_db import DaxFunctionDatabase
+        db = DaxFunctionDatabase.get()
+        return DaxLexer(function_names=db.get_function_names())
+
+    def test_sum_classified_as_function(self, lexer):
+        tokens = lexer.tokenize_code("SUM(Sales[Amount])")
+        assert tokens[0].type == TokenType.FUNCTION
+        assert tokens[0].value == "SUM"
+
+    def test_calculate_classified_as_function(self, lexer):
+        tokens = lexer.tokenize_code("CALCULATE([Sales], Filter)")
+        assert tokens[0].type == TokenType.FUNCTION
+        assert tokens[0].value == "CALCULATE"
+
+    def test_var_still_keyword_not_function(self, lexer):
+        tokens = lexer.tokenize_code("VAR x = 1")
+        assert tokens[0].type == TokenType.KEYWORD
+        assert tokens[0].value == "VAR"
+
+    def test_identifier_without_paren_stays_identifier(self, lexer):
+        """SUM without ( should be IDENTIFIER, not FUNCTION."""
+        tokens = lexer.tokenize_code("VAR SUM = 1")
+        sum_token = [t for t in tokens if t.value == "SUM"][0]
+        assert sum_token.type == TokenType.IDENTIFIER
+
+    def test_if_classified_as_function_with_paren(self, lexer):
+        """IF is both a keyword and a function. With ( it should be FUNCTION."""
+        tokens = lexer.tokenize_code("IF(x > 0, 1, 0)")
+        assert tokens[0].type == TokenType.FUNCTION
+        assert tokens[0].value == "IF"
+
+    def test_complex_expression(self, lexer):
+        dax = """
+        VAR _Sales = CALCULATE(
+            SUM('Fact Sales'[Amount]),
+            FILTER(ALL('Date'[Year]), 'Date'[Year] = 2024)
+        )
+        RETURN
+            IF(_Sales > 0, DIVIDE(_Sales, [Budget]), BLANK())
+        """
+        tokens = lexer.tokenize_code(dax)
+        functions = [t for t in tokens if t.type == TokenType.FUNCTION]
+        func_names = {t.value.upper() for t in functions}
+        assert "CALCULATE" in func_names
+        assert "SUM" in func_names
+        assert "FILTER" in func_names
+        assert "ALL" in func_names
+        assert "IF" in func_names
+        assert "DIVIDE" in func_names
+        assert "BLANK" in func_names
+
+        keywords = [t for t in tokens if t.type == TokenType.KEYWORD]
+        kw_names = {t.value.upper() for t in keywords}
+        assert "VAR" in kw_names
+        assert "RETURN" in kw_names
