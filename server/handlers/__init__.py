@@ -40,7 +40,6 @@ from server.handlers.visual_operations_handler import (
     register_visual_operations_handler,
     register_visual_sync_handler,
 )
-from server.handlers.filter_operations_handler import register_filter_operations_handler
 from server.handlers.bookmark_operations_handler import register_bookmark_operations_handler
 from server.handlers.theme_operations_handler import register_theme_operations_handler
 
@@ -79,7 +78,6 @@ def register_all_handlers(registry):
     register_page_operations_handler(registry)
     register_visual_operations_handler(registry)
     register_visual_sync_handler(registry)
-    register_filter_operations_handler(registry)
     register_bookmark_operations_handler(registry)
     register_theme_operations_handler(registry)
 

@@ -19,6 +19,14 @@ Operations:
 - set_interaction: Set interaction between two visuals (from slicer_handler)
 - bulk_set_interactions: Bulk set interactions (from slicer_handler)
 - list_interactions: List visual interactions on a page (from slicer_handler)
+- list_filters: List filters at report/page/visual level (from filter_operations_handler)
+- add_filter: Add a new filter (from filter_operations_handler)
+- set_filter: Update filter values (from filter_operations_handler)
+- clear_filters: Remove all filters at level (from filter_operations_handler)
+- hide_filter: Hide filter in filter pane (from filter_operations_handler)
+- unhide_filter: Show filter in filter pane (from filter_operations_handler)
+- lock_filter: Lock filter (from filter_operations_handler)
+- unlock_filter: Unlock filter (from filter_operations_handler)
 """
 from typing import Dict, Any, List
 import logging
@@ -59,6 +67,15 @@ def handle_page_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         "set_interaction": _op_set_interaction,
         "bulk_set_interactions": _op_bulk_set_interactions,
         "list_interactions": _op_list_interactions,
+        # Filter operations (absorbed from filter_operations_handler)
+        "list_filters": _op_list_filters,
+        "add_filter": _op_add_filter,
+        "set_filter": _op_set_filter,
+        "clear_filters": _op_clear_filters,
+        "hide_filter": _op_hide_filter,
+        "unhide_filter": _op_unhide_filter,
+        "lock_filter": _op_lock_filter,
+        "unlock_filter": _op_unlock_filter,
     }
 
     handler = ops.get(operation)
@@ -403,6 +420,65 @@ def _op_show(args: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+# --- Filter operations (delegated to filter_operations_handler) ---
+
+
+def _op_list_filters(args: Dict[str, Any]) -> Dict[str, Any]:
+    """List filters at report/page/visual level."""
+    from server.handlers.filter_operations_handler import _op_list as _filter_list
+
+    return _filter_list(args)
+
+
+def _op_add_filter(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Add a new filter."""
+    from server.handlers.filter_operations_handler import _op_add as _filter_add
+
+    return _filter_add(args)
+
+
+def _op_set_filter(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Update filter values."""
+    from server.handlers.filter_operations_handler import _op_set as _filter_set
+
+    return _filter_set(args)
+
+
+def _op_clear_filters(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove all filters at the specified level."""
+    from server.handlers.filter_operations_handler import _op_clear as _filter_clear
+
+    return _filter_clear(args)
+
+
+def _op_hide_filter(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Hide filter in the filter pane."""
+    from server.handlers.filter_operations_handler import _op_hide as _filter_hide
+
+    return _filter_hide(args)
+
+
+def _op_unhide_filter(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Show filter in the filter pane."""
+    from server.handlers.filter_operations_handler import _op_unhide as _filter_unhide
+
+    return _filter_unhide(args)
+
+
+def _op_lock_filter(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Lock filter (prevent user changes)."""
+    from server.handlers.filter_operations_handler import _op_lock as _filter_lock
+
+    return _filter_lock(args)
+
+
+def _op_unlock_filter(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Unlock filter."""
+    from server.handlers.filter_operations_handler import _op_unlock as _filter_unlock
+
+    return _filter_unlock(args)
+
+
 # --- Registration ---
 
 
@@ -415,7 +491,8 @@ def register_page_operations_handler(registry):
             name="07_Page_Operations",
             description=(
                 "Page operations: list, create, clone, delete, reorder, resize, "
-                "display, background, drillthrough, tooltip, hide/show, interactions."
+                "display, background, drillthrough, tooltip, hide/show, interactions, "
+                "and filter CRUD (list_filters/add_filter/set_filter/clear_filters/hide_filter/lock_filter)."
             ),
             handler=handle_page_operations,
             input_schema=TOOL_SCHEMAS.get("page_operations", {}),

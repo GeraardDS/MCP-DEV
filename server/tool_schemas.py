@@ -71,7 +71,7 @@ TOOL_SCHEMAS = {
     'page_operations': {
         "type": "object",
         "properties": {
-            "operation": {"type": "string", "enum": ["list", "create", "clone", "delete", "reorder", "resize", "set_display", "set_background", "set_wallpaper", "set_drillthrough", "set_tooltip", "hide", "show", "set_interaction", "bulk_set_interactions", "list_interactions"], "default": "list"},
+            "operation": {"type": "string", "enum": ["list", "create", "clone", "delete", "reorder", "resize", "set_display", "set_background", "set_wallpaper", "set_drillthrough", "set_tooltip", "hide", "show", "set_interaction", "bulk_set_interactions", "list_interactions", "list_filters", "add_filter", "set_filter", "clear_filters", "hide_filter", "unhide_filter", "lock_filter", "unlock_filter"], "default": "list"},
             "pbip_path": {"type": "string", "description": "Path to PBIP/Report folder"},
             "page_name": {"type": "string", "description": "Page display name or ID"},
             "page_id": {"type": "string", "description": "Page ID (alternative to page_name)"},
@@ -95,7 +95,18 @@ TOOL_SCHEMAS = {
             "interaction_type": {"type": "string", "enum": ["NoFilter", "Filter", "Highlight"]},
             "include_visual_info": {"type": "boolean", "default": True},
             "interactions": {"type": "array", "description": "Bulk interactions [{source, target, type}]", "items": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}, "type": {"type": "string"}}, "required": ["source", "target", "type"]}},
-            "replace_all": {"type": "boolean", "default": False}
+            "replace_all": {"type": "boolean", "default": False},
+            # Filter-specific params (list_filters/add_filter/set_filter/clear_filters/hide_filter/unhide_filter/lock_filter/unlock_filter)
+            "level": {"type": "string", "enum": ["report", "page", "visual", "all"], "default": "all", "description": "Filter scope level"},
+            "visual_name": {"type": "string", "description": "Visual name/ID (filter visual level)"},
+            "filter_name": {"type": "string", "description": "Filter name/ID (set/hide/lock)"},
+            "filter_type": {"type": "string", "enum": ["Categorical", "Advanced", "TopN", "RelativeDate"], "default": "Categorical"},
+            "values": {"type": "array", "items": {"type": "string"}, "description": "Filter values"},
+            "operator": {"type": "string", "description": "Operator (Advanced: GreaterThan, LessThan, etc.)"},
+            "top_n": {"type": "integer", "description": "TopN count"},
+            "top_direction": {"type": "string", "enum": ["Top", "Bottom"]},
+            "by_table": {"type": "string", "description": "TopN ranking table"},
+            "by_field": {"type": "string", "description": "TopN ranking field"}
         },
         "required": ["pbip_path"]
     },
