@@ -560,7 +560,19 @@ def register_user_guide_handlers(registry):
         },
         category="core",
         sort_order=110,
-        annotations={"readOnlyHint": True},
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "success": {"type": "boolean"},
+                "guide": {"type": "string"},
+            },
+        },
     )
     registry.register(tool)
     logger.info("Registered user guide handler")

@@ -238,7 +238,22 @@ def register_query_handlers(registry):
             },
             category="query",
             sort_order=40,
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "success": {"type": "boolean"},
+                    "results": {"type": "array", "items": {"type": "object"}},
+                    "row_count": {"type": "integer"},
+                    "truncated": {"type": "boolean"},
+                    "execution_time_ms": {"type": "number"},
+                },
+            },
         ),
         ToolDefinition(
             name="04_Query_Operations",
@@ -264,7 +279,12 @@ def register_query_handlers(registry):
             },
             category="query",
             sort_order=41,
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": False,
+                "openWorldHint": True,
+            },
         ),
     ]
 
