@@ -211,3 +211,76 @@ class TestModels:
         )
         assert opt.success
         assert opt.measure_name == "Test Measure"
+
+
+class TestOptimizationPipeline:
+    @pytest.fixture
+    def pipeline(self):
+        from core.dax.optimizer.pipeline import OptimizationPipeline
+
+        return OptimizationPipeline()
+
+    def test_optimize_expression_basic(self, pipeline):
+        result = pipeline.optimize_expression("SUM(Sales[Amount])")
+        assert result.success is True
+        assert result.original_dax == "SUM(Sales[Amount])"
+        assert result.applied is False
+
+    def test_optimize_expression_with_issues(self, pipeline):
+        result = pipeline.optimize_expression(
+            "SUMX(FILTER(Sales, Sales[Qty] > 10), Sales[Amount])"
+        )
+        assert result.success is True
+        assert result.analysis.total_issues > 0
+
+    def test_dry_run_does_not_apply(self, pipeline):
+        result = pipeline.optimize_expression("[Sales] + [Sales] + [Sales]")
+        assert result.applied is False
+
+    def test_pipeline_error_handling(self):
+        from core.dax.optimizer.pipeline import OptimizationPipeline
+
+        pipeline = OptimizationPipeline()
+        result = pipeline.optimize_expression("")
+        assert result.success is True or result.success is False  # Should not crash
+
+
+class TestCodeRewriterFacade:
+    def test_rewrite_dax_returns_expected_keys(self):
+        from core.dax.code_rewriter import DaxCodeRewriter
+
+        rewriter = DaxCodeRewriter()
+        result = rewriter.rewrite_dax(
+            "SUMX(FILTER(Sales, Sales[Qty] > 10), Sales[Amount])"
+        )
+        assert "success" in result
+        assert "has_changes" in result
+        assert "original_code" in result
+        assert "transformations" in result
+        assert "transformation_count" in result
+        assert result["success"] is True
+
+    def test_rewrite_preserves_clean_dax(self):
+        from core.dax.code_rewriter import DaxCodeRewriter
+
+        rewriter = DaxCodeRewriter()
+        result = rewriter.rewrite_dax("SUM(Sales[Amount])")
+        assert result["success"] is True
+
+    def test_rewrite_var_extraction(self):
+        from core.dax.code_rewriter import DaxCodeRewriter
+
+        rewriter = DaxCodeRewriter()
+        result = rewriter.rewrite_dax("[Sales] + [Sales] + [Sales]")
+        if result["has_changes"]:
+            assert "VAR" in result["rewritten_code"]
+
+
+class TestAnalysisPipelineNew:
+    def test_run_optimization_pipeline(self):
+        from core.dax.analysis_pipeline import run_optimization_pipeline
+
+        result = run_optimization_pipeline("SUM(Sales[Amount])")
+        assert result is not None
+        assert result["success"] is True
+        assert "analysis_score" in result

@@ -55,6 +55,53 @@ class DaxCodeRewriter:
         Returns:
             Dictionary with transformations and rewritten code
         """
+        # Try new optimization engine first
+        try:
+            from core.dax.analyzer.unified_analyzer import DaxUnifiedAnalyzer
+            from core.dax.optimizer.rewrite_engine import DaxRewriteEngine
+            from core.dax.knowledge import DaxFunctionDatabase
+
+            db = DaxFunctionDatabase.get()
+            analyzer = DaxUnifiedAnalyzer()
+            engine = DaxRewriteEngine(db)
+
+            analysis = analyzer.analyze(dax_expression)
+            rewrites = engine.rewrite(dax_expression, analysis.tokens, analysis.issues)
+
+            if rewrites:
+                final_dax = engine.apply_rewrites(dax_expression, rewrites)
+                has_changes = final_dax.strip() != dax_expression.strip()
+                return {
+                    "success": True,
+                    "has_changes": has_changes,
+                    "original_code": dax_expression,
+                    "rewritten_code": final_dax if has_changes else None,
+                    "transformations": [
+                        {
+                            "type": r.strategy,
+                            "original": r.original_fragment,
+                            "transformed": r.rewritten_fragment,
+                            "explanation": r.explanation,
+                            "estimated_improvement": r.estimated_improvement,
+                            "confidence": r.confidence,
+                        }
+                        for r in rewrites
+                    ],
+                    "transformation_count": len(rewrites),
+                }
+            else:
+                return {
+                    "success": True,
+                    "has_changes": False,
+                    "original_code": dax_expression,
+                    "rewritten_code": None,
+                    "transformations": [],
+                    "transformation_count": 0,
+                }
+        except Exception as e:
+            logger.warning(f"New rewrite engine fallback: {e}")
+
+        # Original implementation follows (fallback)
         try:
             self.transformations = []
             current_code = dax_expression

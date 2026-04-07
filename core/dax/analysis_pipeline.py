@@ -119,3 +119,32 @@ def run_call_tree(expression: str, conn_state: Any = None) -> Optional[Dict[str,
     except Exception as e:
         logger.warning(f"Call tree analysis failed: {e}")
         return {'error': f"Call tree could not be generated: {str(e)}"}
+
+
+def run_optimization_pipeline(
+    expression: str,
+    connection_state: Any = None,
+    dry_run: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """Run the full DAX optimization pipeline.
+
+    Returns optimization result dict or None on failure.
+    """
+    try:
+        from core.dax.optimizer.pipeline import OptimizationPipeline
+
+        pipeline = OptimizationPipeline(connection_state=connection_state)
+        result = pipeline.optimize_expression(expression)
+        return {
+            "success": result.success,
+            "original_dax": result.original_dax,
+            "final_dax": result.final_dax,
+            "has_changes": result.final_dax is not None,
+            "rewrite_count": len(result.rewrites),
+            "analysis_score": result.analysis.health_score if result.analysis else None,
+            "analysis_issues": result.analysis.total_issues if result.analysis else 0,
+            "improvement_summary": result.improvement_summary,
+        }
+    except Exception as e:
+        logger.warning(f"Optimization pipeline failed: {e}")
+        return None
