@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MCP-PowerBi-Finvision is a Python-based Model Context Protocol (MCP) server for Power BI Desktop analysis. It connects to running Power BI Desktop instances via .NET interop (pythonnet/CLR) over stdio, providing 50+ tools across 9 categories for DAX debugging, TMDL editing, model operations, and offline PBIP analysis. Windows-only (requires .NET Framework 4.7.2+, Power BI Desktop).
+MCP-PowerBi-Finvision is a Python-based Model Context Protocol (MCP) server for Power BI Desktop analysis. It connects to running Power BI Desktop instances via .NET interop (pythonnet/CLR) over stdio, providing 23 tools across 10 categories for DAX debugging, TMDL editing, model operations, and offline PBIP analysis. Windows-only (requires .NET Framework 4.7.2+, Power BI Desktop).
 
 ## Commands
 
