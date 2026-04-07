@@ -5,9 +5,28 @@ from typing import Dict, List, Optional, Set
 from .tokens import Token, TokenType
 
 _KEYWORDS: Set[str] = {
-    "VAR", "RETURN", "IF", "ELSE", "SWITCH", "TRUE", "FALSE",
-    "AND", "OR", "NOT", "IN", "EVALUATE", "DEFINE", "MEASURE",
-    "ORDER", "BY", "ASC", "DESC", "COLUMN", "TABLE", "START", "AT",
+    "VAR",
+    "RETURN",
+    "IF",
+    "ELSE",
+    "SWITCH",
+    "TRUE",
+    "FALSE",
+    "AND",
+    "OR",
+    "NOT",
+    "IN",
+    "EVALUATE",
+    "DEFINE",
+    "MEASURE",
+    "ORDER",
+    "BY",
+    "ASC",
+    "DESC",
+    "COLUMN",
+    "TABLE",
+    "START",
+    "AT",
 }
 
 _MULTI_CHAR_OPS: List[str] = ["<=", ">=", "<>", "&&", "||"]
@@ -141,9 +160,7 @@ class DaxLexer:
                     else:
                         pos += 1
                         col += 1
-                tokens.append(
-                    Token(TokenType.STRING, dax[start:pos], start, pos, line, start_col)
-                )
+                tokens.append(Token(TokenType.STRING, dax[start:pos], start, pos, line, start_col))
                 continue
 
             # --- Table ref / Qualified ref ('Table'[Col]) ---
@@ -239,9 +256,7 @@ class DaxLexer:
                     while pos < length and dax[pos].isdigit():
                         pos += 1
                         col += 1
-                tokens.append(
-                    Token(TokenType.NUMBER, dax[start:pos], start, pos, line, start_col)
-                )
+                tokens.append(Token(TokenType.NUMBER, dax[start:pos], start, pos, line, start_col))
                 continue
 
             # --- Parentheses ---
@@ -268,9 +283,7 @@ class DaxLexer:
             if pos + 1 < length:
                 two = dax[pos : pos + 2]
                 if two in _MULTI_CHAR_OPS:
-                    tokens.append(
-                        Token(TokenType.OPERATOR, two, pos, pos + 2, line, col)
-                    )
+                    tokens.append(Token(TokenType.OPERATOR, two, pos, pos + 2, line, col))
                     pos += 2
                     col += 2
                     matched_op = True
@@ -336,9 +349,7 @@ class DaxLexer:
                     pmap[open_idx] = i
         return pmap
 
-    def extract_function_args(
-        self, tokens: List[Token], func_index: int
-    ) -> List[List[Token]]:
+    def extract_function_args(self, tokens: List[Token], func_index: int) -> List[List[Token]]:
         """Extract argument token lists for a function call.
 
         *func_index* is the index of the FUNCTION/IDENTIFIER token.

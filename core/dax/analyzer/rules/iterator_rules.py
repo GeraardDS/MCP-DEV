@@ -9,13 +9,21 @@ from .base import PythonRule
 
 # Standard iterator functions whose 2nd argument is the expression.
 _STANDARD_ITERATORS: Set[str] = {
-    "SUMX", "AVERAGEX", "COUNTX", "MAXX", "MINX", "PRODUCTX",
-    "RANKX", "CONCATENATEX",
+    "SUMX",
+    "AVERAGEX",
+    "COUNTX",
+    "MAXX",
+    "MINX",
+    "PRODUCTX",
+    "RANKX",
+    "CONCATENATEX",
 }
 
 # All iterators (including those where the table arg can also nest).
 _ALL_ITERATORS: Set[str] = _STANDARD_ITERATORS | {
-    "FILTER", "ADDCOLUMNS", "GENERATE",
+    "FILTER",
+    "ADDCOLUMNS",
+    "GENERATE",
 }
 
 # Iterators that can be trivially replaced by aggregates.

@@ -100,9 +100,7 @@ class VariableExtractionStrategy(RewriteStrategy):
         return f"_{camel}" if camel else "_Var"
 
     @staticmethod
-    def _insert_var_and_replace(
-        dax: str, target_ref: str, var_name: str
-    ) -> Optional[str]:
+    def _insert_var_and_replace(dax: str, target_ref: str, var_name: str) -> Optional[str]:
         """Insert a VAR declaration and replace subsequent references."""
         # Check if there is already a VAR/RETURN structure.
         has_return = bool(re.search(r"\bRETURN\b", dax, re.IGNORECASE))

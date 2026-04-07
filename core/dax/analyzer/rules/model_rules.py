@@ -20,11 +20,7 @@ class DirectMeasureReferenceRule(PythonRule):
         issues: List[AnalysisIssue] = []
 
         # The entire expression (after tokenize_code stripping) is a single COLUMN_REF.
-        meaningful = [
-            t
-            for t in tokens
-            if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
-        ]
+        meaningful = [t for t in tokens if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)]
         if len(meaningful) == 1 and meaningful[0].type == TokenType.COLUMN_REF:
             ref = meaningful[0].value
             issues.append(

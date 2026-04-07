@@ -9,9 +9,19 @@ from .base import PythonRule
 
 # Functions considered expensive enough to defeat short-circuit benefit.
 _EXPENSIVE_FUNCS: Set[str] = {
-    "CALCULATE", "CALCULATETABLE",
-    "SUMX", "AVERAGEX", "COUNTX", "MAXX", "MINX", "PRODUCTX",
-    "RANKX", "CONCATENATEX", "FILTER", "ADDCOLUMNS", "GENERATE",
+    "CALCULATE",
+    "CALCULATETABLE",
+    "SUMX",
+    "AVERAGEX",
+    "COUNTX",
+    "MAXX",
+    "MINX",
+    "PRODUCTX",
+    "RANKX",
+    "CONCATENATEX",
+    "FILTER",
+    "ADDCOLUMNS",
+    "GENERATE",
 }
 
 
@@ -200,10 +210,7 @@ class BlankPropagationRule(PythonRule):
                 continue
             first_after = rest[0]
             # Case 1: 1 - DIVIDE(...)
-            if (
-                first_after.type == TokenType.FUNCTION
-                and first_after.value.upper() == "DIVIDE"
-            ):
+            if first_after.type == TokenType.FUNCTION and first_after.value.upper() == "DIVIDE":
                 issues.append(
                     self._make_issue(
                         "Pattern `1 - DIVIDE(a, b)` returns 1 when DIVIDE "
@@ -222,11 +229,7 @@ class BlankPropagationRule(PythonRule):
                     depth += 1
                 elif rt.type == TokenType.PAREN_CLOSE:
                     depth -= 1
-                elif (
-                    rt.type == TokenType.OPERATOR
-                    and rt.value == "/"
-                    and depth == 0
-                ):
+                elif rt.type == TokenType.OPERATOR and rt.value == "/" and depth == 0:
                     issues.append(
                         self._make_issue(
                             "Pattern `1 - a / b` may produce unexpected results "

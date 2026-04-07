@@ -40,8 +40,7 @@ class FilterBareTableRule(PythonRule):
     def _is_bare_table(table_tokens: List[Token]) -> bool:
         """True if *table_tokens* is a bare table identifier."""
         meaningful = [
-            t for t in table_tokens
-            if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
+            t for t in table_tokens if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
         ]
         if not meaningful:
             return False
@@ -138,7 +137,7 @@ class AddcolumnsSummarizeRule(PythonRule):
                         "SUMMARIZECOLUMNS is optimized by the engine to avoid "
                         "unnecessary table scans.",
                         "Replace with SUMMARIZECOLUMNS(groupby_cols, "
-                        "\"ColName\", expression, ...).",
+                        '"ColName", expression, ...).',
                         rewrite_strategy=self.rewrite_strategy,
                     )
                 )

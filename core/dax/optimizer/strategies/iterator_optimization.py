@@ -121,9 +121,7 @@ class IteratorOptimizationStrategy(RewriteStrategy):
         Returns the column reference string (e.g., "Sales[Amount]" or
         "[Amount]") or None if the expression is not a simple reference.
         """
-        meaningful = [
-            t for t in expr_tokens if t.type not in (TokenType.WHITESPACE,)
-        ]
+        meaningful = [t for t in expr_tokens if t.type not in (TokenType.WHITESPACE,)]
         if not meaningful:
             return None
 
@@ -159,9 +157,7 @@ class IteratorOptimizationStrategy(RewriteStrategy):
         func_idx: int,
     ) -> str:
         """Reconstruct the original function call text."""
-        arg_strs = [
-            "".join(t.value for t in arg) for arg in args
-        ]
+        arg_strs = ["".join(t.value for t in arg) for arg in args]
         return f"{func_name}({', '.join(arg_strs)})"
 
     def _replace_call_in_dax(

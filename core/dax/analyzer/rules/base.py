@@ -51,9 +51,7 @@ class PythonRule(ABC):
     def _tokens_contain_function(self, tokens: List[Token], names: Set[str]) -> bool:
         """Return True if any token in *tokens* is a FUNCTION in *names*."""
         upper_names = {n.upper() for n in names}
-        return any(
-            t.type == TokenType.FUNCTION and t.value.upper() in upper_names for t in tokens
-        )
+        return any(t.type == TokenType.FUNCTION and t.value.upper() in upper_names for t in tokens)
 
     def _make_issue(self, description: str, fix: str, **kwargs) -> AnalysisIssue:
         """Create an ``AnalysisIssue`` with this rule's metadata."""

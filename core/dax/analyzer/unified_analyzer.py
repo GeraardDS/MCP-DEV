@@ -69,9 +69,7 @@ class DaxUnifiedAnalyzer:
         elif context and context.vertipaq_data:
             tier = 2
 
-        return UnifiedAnalysisResult.from_issues(
-            unique_issues, tier_used=tier, tokens=tokens
-        )
+        return UnifiedAnalysisResult.from_issues(unique_issues, tier_used=tier, tokens=tokens)
 
     def analyze_batch(
         self,

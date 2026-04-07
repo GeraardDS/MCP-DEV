@@ -143,9 +143,7 @@ class UnifiedAnalysisResult:
         - Computes health_score with per-severity deductions.
         - Extracts rewrite candidates from issues that carry a strategy.
         """
-        sorted_issues = sorted(
-            issues, key=lambda i: _SEVERITY_ORDER.get(i.severity, 99)
-        )
+        sorted_issues = sorted(issues, key=lambda i: _SEVERITY_ORDER.get(i.severity, 99))
 
         # Severity counts
         counts: Dict[str, int] = {

@@ -32,9 +32,7 @@ class OptimizationPipeline:
             analysis = self._analyzer.analyze(dax_expression, context)
 
             # Step 2: Generate rewrites
-            rewrites = self._rewriter.rewrite(
-                dax_expression, analysis.tokens, analysis.issues
-            )
+            rewrites = self._rewriter.rewrite(dax_expression, analysis.tokens, analysis.issues)
 
             # Step 3: Apply rewrites to generate final DAX
             final_dax = None
@@ -102,9 +100,7 @@ class OptimizationPipeline:
                 rewrites=[],
                 final_dax=None,
                 applied=False,
-                apply_error=(
-                    f"Could not read measure '{measure_name}' from table '{table_name}'"
-                ),
+                apply_error=(f"Could not read measure '{measure_name}' from table '{table_name}'"),
                 improvement_summary="Failed to read measure",
             )
 
@@ -138,9 +134,7 @@ class OptimizationPipeline:
             logger.warning(f"Failed to read measure: {e}")
         return None
 
-    def _build_context(
-        self, measure_name: str, table_name: str
-    ) -> AnalysisContext:
+    def _build_context(self, measure_name: str, table_name: str) -> AnalysisContext:
         """Build analysis context with available enrichment data."""
         ctx = AnalysisContext(measure_name=measure_name, table_name=table_name)
         if self._connection_state:

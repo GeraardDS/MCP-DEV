@@ -48,11 +48,26 @@ class FilterTableNotColumnRule(PythonRule):
 
     # Functions that wrap a table intentionally (not a bare scan).
     _TABLE_WRAPPERS: Set[str] = {
-        "ALL", "ALLSELECTED", "ALLNOBLANKROW", "ALLEXCEPT",
-        "VALUES", "DISTINCT", "SUMMARIZE", "SUMMARIZECOLUMNS",
-        "ADDCOLUMNS", "SELECTCOLUMNS", "FILTER", "GENERATE",
-        "CALCULATETABLE", "TOPN", "SAMPLE", "DATATABLE",
-        "UNION", "INTERSECT", "EXCEPT", "CROSSJOIN",
+        "ALL",
+        "ALLSELECTED",
+        "ALLNOBLANKROW",
+        "ALLEXCEPT",
+        "VALUES",
+        "DISTINCT",
+        "SUMMARIZE",
+        "SUMMARIZECOLUMNS",
+        "ADDCOLUMNS",
+        "SELECTCOLUMNS",
+        "FILTER",
+        "GENERATE",
+        "CALCULATETABLE",
+        "TOPN",
+        "SAMPLE",
+        "DATATABLE",
+        "UNION",
+        "INTERSECT",
+        "EXCEPT",
+        "CROSSJOIN",
     }
 
     def evaluate(self, tokens, function_db, context=None) -> List[AnalysisIssue]:
@@ -95,9 +110,7 @@ class FilterTableNotColumnRule(PythonRule):
     def _is_bare_table(self, table_tokens: List[Token]) -> bool:
         """True if *table_tokens* is a bare table reference (not wrapped)."""
         meaningful = [
-            t
-            for t in table_tokens
-            if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
+            t for t in table_tokens if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
         ]
         if not meaningful:
             return False
@@ -141,9 +154,7 @@ class KeepfiltersOpportunityRule(PythonRule):
     def _is_values_or_all_column(table_tokens: List[Token]) -> bool:
         """True if the table argument is VALUES(col) or ALL(col)."""
         meaningful = [
-            t
-            for t in table_tokens
-            if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
+            t for t in table_tokens if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
         ]
         if not meaningful:
             return False
@@ -169,9 +180,7 @@ class AllTableVsColumnRule(PythonRule):
             if len(args) != 1:
                 continue  # ALL with multiple args = column list, fine
             arg = args[0]
-            meaningful = [
-                t for t in arg if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
-            ]
+            meaningful = [t for t in arg if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)]
             if not meaningful:
                 continue
             # Single IDENTIFIER or TABLE_REF = table reference (not a column).

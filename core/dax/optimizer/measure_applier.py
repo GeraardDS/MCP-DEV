@@ -12,9 +12,7 @@ class MeasureApplier:
     def __init__(self, connection_state: Any = None):
         self._connection_state = connection_state
 
-    def apply(
-        self, measure_name: str, table_name: str, new_dax: str
-    ) -> Dict[str, Any]:
+    def apply(self, measure_name: str, table_name: str, new_dax: str) -> Dict[str, Any]:
         """Apply new DAX expression to an existing measure."""
         if not self._connection_state:
             return {"success": False, "error": "No connection to Power BI model"}

@@ -43,9 +43,7 @@ class CalculateOptimizationStrategy(RewriteStrategy):
     ) -> Optional[RewriteResult]:
         strategy = issue.rewrite_strategy or ""
 
-        if strategy in _NESTED_CALCULATE_STRATEGIES or "NESTED_CALCULATE" in (
-            issue.rule_id or ""
-        ):
+        if strategy in _NESTED_CALCULATE_STRATEGIES or "NESTED_CALCULATE" in (issue.rule_id or ""):
             return self._flatten_nested_calculate(dax, tokens, issue)
 
         if strategy in _FILTER_TABLE_STRATEGIES:

@@ -15,8 +15,17 @@ logger = logging.getLogger(__name__)
 
 # Iterator functions whose second argument is the "expression" argument.
 _STANDARD_ITERATORS: Set[str] = {
-    "SUMX", "AVERAGEX", "MINX", "MAXX", "COUNTX", "RANKX", "PRODUCTX",
-    "ADDCOLUMNS", "SELECTCOLUMNS", "GENERATE", "GENERATEALL",
+    "SUMX",
+    "AVERAGEX",
+    "MINX",
+    "MAXX",
+    "COUNTX",
+    "RANKX",
+    "PRODUCTX",
+    "ADDCOLUMNS",
+    "SELECTCOLUMNS",
+    "GENERATE",
+    "GENERATEALL",
 }
 
 # Non-descriptive variable name pattern: single char or char + single digit.
@@ -164,7 +173,7 @@ class JsonRuleEngine:
                             self._make_issue(
                                 rule,
                                 location=f"{tok.value}({inner_name}(...))",
-                                match_text=dax[tok.start:at.end] if at.end <= len(dax) else None,
+                                match_text=dax[tok.start : at.end] if at.end <= len(dax) else None,
                                 line=tok.line,
                             )
                         )
@@ -294,8 +303,7 @@ class JsonRuleEngine:
             # A bare table arg is a single IDENTIFIER or TABLE_REF token
             # (not wrapped in a function like ALL, VALUES, etc.).
             non_trivial = [
-                t for t in first_arg
-                if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
+                t for t in first_arg if t.type not in (TokenType.WHITESPACE, TokenType.NEWLINE)
             ]
             if len(non_trivial) == 1 and non_trivial[0].type in (
                 TokenType.IDENTIFIER,
@@ -321,9 +329,7 @@ class JsonRuleEngine:
 
         # Check if VARs are used at all — if VAR + RETURN present, the user
         # may already be capturing references.
-        has_var = any(
-            t.type == TokenType.KEYWORD and t.value.upper() == "VAR" for t in tokens
-        )
+        has_var = any(t.type == TokenType.KEYWORD and t.value.upper() == "VAR" for t in tokens)
 
         counter: Counter = Counter()
         first_occurrence: Dict[str, Token] = {}
@@ -350,9 +356,7 @@ class JsonRuleEngine:
 
         return issues
 
-    def _eval_nesting_depth(
-        self, rule: Dict, tokens: List[Token], dax: str
-    ) -> List[AnalysisIssue]:
+    def _eval_nesting_depth(self, rule: Dict, tokens: List[Token], dax: str) -> List[AnalysisIssue]:
         """Detect function nesting deeper than max_depth."""
         match = rule.get("match", {})
         target_fn: str = match.get("function", "*").upper()
@@ -406,9 +410,7 @@ class JsonRuleEngine:
 
         return issues
 
-    def _eval_unused_var(
-        self, rule: Dict, tokens: List[Token], dax: str
-    ) -> List[AnalysisIssue]:
+    def _eval_unused_var(self, rule: Dict, tokens: List[Token], dax: str) -> List[AnalysisIssue]:
         """Detect VAR definitions whose names are never referenced afterward."""
         issues: List[AnalysisIssue] = []
 
