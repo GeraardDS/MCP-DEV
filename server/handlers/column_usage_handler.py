@@ -512,6 +512,9 @@ def handle_column_usage_mapping(args: Dict[str, Any]) -> Dict[str, Any]:
             output_path = args.get('output_path')
             return analyzer.export_to_csv(tables, output_path, include_dax, force_refresh)
 
+        elif operation == 'export_measures':
+            return handle_export_dax_measures(args)
+
         else:
             return {
                 'success': False,
@@ -522,7 +525,8 @@ def handle_column_usage_mapping(args: Dict[str, Any]) -> Dict[str, Any]:
                     'get_measures_for_column',
                     'get_full_mapping',
                     'get_unused_columns',
-                    'export_to_csv'
+                    'export_to_csv',
+                    'export_measures'
                 ]
             }
 
@@ -844,33 +848,6 @@ def handle_export_dax_measures(args: Dict[str, Any]) -> Dict[str, Any]:
         return ErrorHandler.handle_unexpected_error('export_dax_measures', e)
 
 
-def register_export_dax_measures_handler(registry):
-    """Register the export DAX measures handler"""
-
-    input_schema = {
-        "type": "object",
-        "description": "Export all DAX measures to a CSV file with table, name, display folder, and DAX expression.",
-        "properties": {
-            "output_path": {
-                "type": "string",
-                "description": "Directory path for CSV export (default: exports/)"
-            }
-        },
-        "required": []
-    }
-
-    tool = ToolDefinition(
-        name="05_Export_DAX_Measures",
-        description="Export all DAX measures to CSV (Table, Measure_Name, Display_Folder, DAX_Expression).",
-        handler=handle_export_dax_measures,
-        input_schema=input_schema,
-        category="dax",
-        sort_order=53  # 05 = DAX Intelligence
-    )
-
-    registry.register(tool)
-    logger.info("Registered export_dax_measures handler")
-
 
 def register_column_usage_handler(registry):
     """Register the column usage mapping handler"""
@@ -887,7 +864,8 @@ def register_column_usage_handler(registry):
                     "get_columns_for_measure",
                     "get_measures_for_column",
                     "get_full_mapping",
-                    "export_to_csv"
+                    "export_to_csv",
+                    "export_measures"
                 ],
                 "default": "get_unused_columns"
             },
@@ -898,7 +876,7 @@ def register_column_usage_handler(registry):
             "measure": {"type": "string"},
             "column": {"type": "string"},
             "group_by": {"type": "string", "enum": ["table", "column", "measure", "flat"], "default": "flat"},
-            "output_path": {"type": "string"},
+            "output_path": {"type": "string", "description": "Directory path for CSV export (default: exports/)"},
             "include_dax": {"type": "boolean", "default": False},
             "force_refresh": {"type": "boolean", "default": False}
         },
