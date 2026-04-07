@@ -172,7 +172,7 @@ def handle_get_roles(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_query_operations(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Dispatch query operations: data_sources, m_expressions, search_objects, roles"""
+    """Dispatch query operations: data_sources, m_expressions, search_objects, roles, test_rls, search_string"""
     operation = args.get('operation', 'data_sources')
 
     if operation == 'data_sources':
@@ -186,10 +186,13 @@ def handle_query_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         return handle_get_roles(args)
     elif operation == 'test_rls':
         return _handle_test_rls(args)
+    elif operation == 'search_string':
+        from server.handlers.metadata_handler import handle_search_string
+        return handle_search_string(args)
     else:
         return {
             'success': False,
-            'error': f'Unknown operation: {operation}. Valid: data_sources, m_expressions, search_objects, roles, test_rls'
+            'error': f'Unknown operation: {operation}. Valid: data_sources, m_expressions, search_objects, roles, test_rls, search_string'
         }
 
 
@@ -216,8 +219,6 @@ def _handle_test_rls(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def register_query_handlers(registry):
     """Register query handlers"""
-    from server.handlers.metadata_handler import handle_search_string
-
     tools = [
         ToolDefinition(
             name="04_Run_DAX",
@@ -241,18 +242,21 @@ def register_query_handlers(registry):
         ),
         ToolDefinition(
             name="04_Query_Operations",
-            description="Query model metadata: data_sources, m_expressions, search_objects, roles, test_rls",
+            description="Query model metadata: data_sources, m_expressions, search_objects, roles, test_rls, search_string",
             handler=handle_query_operations,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["data_sources", "m_expressions", "search_objects", "roles", "test_rls"]},
+                    "operation": {"type": "string", "enum": ["data_sources", "m_expressions", "search_objects", "roles", "test_rls", "search_string"]},
                     "pattern": {"type": "string", "description": "Search pattern (search_objects)"},
                     "types": {"type": "array", "items": {"type": "string", "enum": ["tables", "columns", "measures"]}, "description": "Object types (search_objects)"},
                     "role_name": {"type": "string", "description": "RLS role to test (test_rls)"},
                     "test_query": {"type": "string", "description": "DAX query to run with/without RLS filter (test_rls)"},
                     "test_table": {"type": "string", "description": "Table to auto-generate count query for (test_rls)"},
                     "limit": {"type": "integer", "description": "Max results (m_expressions)"},
+                    "search_text": {"type": "string", "description": "Text to search for (search_string)"},
+                    "search_in_expression": {"type": "boolean", "description": "Search in DAX expressions (search_string)", "default": True},
+                    "search_in_name": {"type": "boolean", "description": "Search in object names (search_string)", "default": True},
                     "page_size": {"type": "integer"},
                     "next_token": {"type": "string"}
                 },
@@ -260,25 +264,6 @@ def register_query_handlers(registry):
             },
             category="query",
             sort_order=41,
-            annotations={"readOnlyHint": True},
-        ),
-        ToolDefinition(
-            name="04_Search_String",
-            description="Search inside DAX expressions and measure names",
-            handler=handle_search_string,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "search_text": {"type": "string"},
-                    "search_in_expression": {"type": "boolean"},
-                    "search_in_name": {"type": "boolean"},
-                    "page_size": {"type": "integer"},
-                    "next_token": {"type": "string"}
-                },
-                "required": ["search_text"]
-            },
-            category="query",
-            sort_order=42,
             annotations={"readOnlyHint": True},
         ),
     ]
