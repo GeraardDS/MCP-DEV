@@ -54,11 +54,22 @@ def normalize_dax(dax: str) -> str:
     Returns:
         DAX expression with comments removed
     """
-    # Remove single-line comments
-    dax = _SINGLE_LINE_COMMENT_RE.sub("", dax)
-    # Remove multi-line comments
-    dax = _MULTI_LINE_COMMENT_RE.sub("", dax)
-    return dax
+    try:
+        from core.dax.tokenizer import DaxLexer, TokenType
+
+        lexer = DaxLexer()
+        tokens = lexer.tokenize(dax)
+        # Join all non-comment tokens, preserving whitespace and structure
+        return "".join(
+            t.value
+            for t in tokens
+            if t.type not in (TokenType.COMMENT_LINE, TokenType.COMMENT_BLOCK)
+        )
+    except Exception:
+        # Fallback to original regex implementation
+        result = _SINGLE_LINE_COMMENT_RE.sub("", dax)
+        result = _MULTI_LINE_COMMENT_RE.sub("", result)
+        return result
 
 
 def extract_function_body(dax: str, start: int) -> str:
@@ -184,9 +195,66 @@ def extract_variables(dax: str) -> Dict[str, str]:
         Dict mapping variable names to their definitions (truncated
         to 100 chars)
     """
+    try:
+        return _extract_variables_tokenizer(dax)
+    except Exception:
+        return _extract_variables_regex(dax)
+
+
+def _extract_variables_tokenizer(dax: str) -> Dict[str, str]:
+    """Token-based VAR extraction — primary path."""
+    from core.dax.tokenizer import DaxLexer, TokenType
+
+    lexer = DaxLexer()
+    tokens = lexer.tokenize_code(dax)
+    variables: Dict[str, str] = {}
+    i = 0
+
+    while i < len(tokens):
+        t = tokens[i]
+        if t.type == TokenType.KEYWORD and t.value.upper() == "VAR":
+            # Next code token should be the variable name (IDENTIFIER)
+            if i + 1 < len(tokens) and tokens[i + 1].type == TokenType.IDENTIFIER:
+                var_name = tokens[i + 1].value
+                # Find the = operator
+                j = i + 2
+                if (
+                    j < len(tokens)
+                    and tokens[j].type == TokenType.OPERATOR
+                    and tokens[j].value == "="
+                ):
+                    j += 1  # skip past =
+                # Collect definition tokens until next VAR or RETURN keyword
+                def_start = j
+                while j < len(tokens):
+                    if (
+                        tokens[j].type == TokenType.KEYWORD
+                        and tokens[j].value.upper() in ("VAR", "RETURN")
+                    ):
+                        break
+                    j += 1
+                # Build definition from original source span for faithful repr
+                if def_start < j and def_start < len(tokens) and j - 1 < len(tokens):
+                    span_start = tokens[def_start].start
+                    span_end = tokens[j - 1].end
+                    definition = dax[span_start:span_end].strip()
+                else:
+                    definition = ""
+                # Truncate long definitions
+                if len(definition) > 100:
+                    definition = definition[:100] + "..."
+                variables[var_name] = definition
+                i = j
+                continue
+        i += 1
+
+    return variables
+
+
+def _extract_variables_regex(dax: str) -> Dict[str, str]:
+    """Regex-based VAR extraction — fallback path."""
     variables: Dict[str, str] = {}
 
-    # Pattern to match VAR declarations: VAR VariableName = expression
     for match in _VAR_PATTERN_RE.finditer(dax):
         var_name = match.group(1)
         start_pos = match.end()
