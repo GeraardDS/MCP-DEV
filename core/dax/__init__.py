@@ -14,9 +14,24 @@ This module provides advanced DAX context analysis capabilities:
 - Visual context flow diagrams
 - CallbackDataID pattern detection
 - Static analysis rules engine with health scoring
+- Lightweight DAX tokenizer (lexer + typed tokens)
+- DAX function knowledge base with alternatives
+- Unified DAX analyzer with JSON + Python rule engines
 
-Version: 4.2.0 - Added DAX static analysis rules engine
+Version: 5.0.0 - Added tokenizer, knowledge base, unified analyzer
 """
+
+from .tokenizer import DaxLexer, Token, TokenType
+from .knowledge import DaxFunctionDatabase, DaxFunction, Alternative
+from .analyzer import (
+    DaxUnifiedAnalyzer,
+    AnalysisContext,
+    AnalysisIssue,
+    UnifiedAnalysisResult,
+    RewriteCandidate,
+)
+from .analyzer.rule_engine import JsonRuleEngine
+from .analyzer.rules import load_python_rules
 
 from .context_analyzer import (
     DaxContextAnalyzer,
@@ -50,6 +65,22 @@ from .analysis_pipeline import (
 )
 
 __all__ = [
+    # Tokenizer
+    "DaxLexer",
+    "Token",
+    "TokenType",
+    # Knowledge base
+    "DaxFunctionDatabase",
+    "DaxFunction",
+    "Alternative",
+    # Unified analyzer
+    "DaxUnifiedAnalyzer",
+    "AnalysisContext",
+    "AnalysisIssue",
+    "UnifiedAnalysisResult",
+    "RewriteCandidate",
+    "JsonRuleEngine",
+    "load_python_rules",
     # Core analyzers
     "DaxContextAnalyzer",
     "ContextTransition",
