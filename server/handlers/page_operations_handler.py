@@ -130,6 +130,10 @@ def _op_list(args: Dict[str, Any]) -> Dict[str, Any]:
             "height": page_data.get("height", 720),
         }
 
+        annotations = page_data.get("annotations", [])
+        if annotations:
+            page_info["annotations"] = annotations
+
         if not summary_only:
             page_info["display_option"] = page_data.get("displayOption", "")
             page_info["is_hidden"] = page_data.get("visibility", 0) == 1

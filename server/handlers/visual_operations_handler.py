@@ -126,7 +126,7 @@ def _extract_visual_info(visual_data: Dict, file_path: Path, visuals_path: Path)
     is_hidden = visual_data.get('isHidden', False)
     parent_group = visual_data.get('parentGroupName')
 
-    return {
+    info = {
         'file_path': str(file_path),
         'visual_name': visual_data.get('name', ''),
         'display_title': display_title,
@@ -147,6 +147,13 @@ def _extract_visual_info(visual_data: Dict, file_path: Path, visuals_path: Path)
         'is_hidden': is_hidden,
         'parent_group': parent_group
     }
+
+    # Annotations (name-value pairs)
+    annotations = visual_data.get('annotations', [])
+    if annotations:
+        info['annotations'] = annotations
+
+    return info
 
 
 def _find_visuals(

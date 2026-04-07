@@ -366,6 +366,11 @@ def _extract_visual_info(visual_data: Dict, visual_path: Path) -> Dict:
         result['group_display_name'] = visual_group.get('displayName', '')
         result['group_mode'] = visual_group.get('groupMode', '')
 
+    # Annotations (name-value pairs)
+    annotations = visual_data.get('annotations', [])
+    if annotations:
+        result['annotations'] = annotations
+
     return result
 
 
@@ -443,6 +448,11 @@ def _get_page_info(page_folder: Path, summary_only: bool = False) -> Dict:
         'page_id': page_folder.name,
         'display_name': page_data.get('displayName', page_folder.name),
     }
+
+    # Page annotations
+    annotations = page_data.get('annotations', [])
+    if annotations:
+        page_info['annotations'] = annotations
 
     if not summary_only:
         page_info['display_option'] = page_data.get('displayOption', '')
@@ -775,13 +785,15 @@ def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
             'error': f'No pages folder found in: {definition_path}'
         }
 
-    # Load report.json for "Filters on all pages"
+    # Load report.json for "Filters on all pages" and annotations
     report_json_path = definition_path / "report.json"
     report_level_filters = []
+    report_annotations = []
     if report_json_path.exists():
         report_data = _load_json_file(report_json_path)
         if report_data:
             report_level_filters = _extract_report_filters(report_data)
+            report_annotations = report_data.get('annotations', [])
 
     # Collect page information
     pages = []
@@ -847,6 +859,9 @@ def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
         'filters_on_all_pages': report_level_filters,
         'pages': pages
     }
+
+    if report_annotations:
+        result['annotations'] = report_annotations
 
     # Optionally exclude report-level filters
     if not include_filters:
