@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 from core.pbip.authoring.id_generator import generate_visual_id
 
 # Schema version used for all generated visuals
-VISUAL_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.6.0/schema.json"
+VISUAL_SCHEMA = "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json"
 
 
 def _literal(value: str) -> Dict[str, Any]:
