@@ -234,3 +234,114 @@ class TestJsonRuleEngine:
             or ("IF" in i.rule_id.upper() and "ITERATOR" in i.rule_id.upper())
             for i in issues
         )
+
+
+# ------------------------------------------------------------------
+# Python rule engine tests
+# ------------------------------------------------------------------
+
+from core.dax.analyzer.rules import load_python_rules
+
+
+class TestPythonRules:
+
+    @pytest.fixture
+    def rules(self):
+        return load_python_rules()
+
+    @pytest.fixture
+    def lexer(self):
+        db = DaxFunctionDatabase.get()
+        return DaxLexer(function_names=db.get_function_names())
+
+    @pytest.fixture
+    def function_db(self):
+        return DaxFunctionDatabase.get()
+
+    def test_loads_all_rules(self, rules):
+        assert len(rules) >= 15
+
+    def test_nested_iterator_detected(self, rules, lexer, function_db):
+        dax = "SUMX(Sales, SUMX(RELATEDTABLE(Products), Products[Price]))"
+        tokens = lexer.tokenize_code(dax)
+        all_issues = []
+        for rule in rules:
+            all_issues.extend(rule.evaluate(tokens, function_db))
+        assert any("NESTED" in i.rule_id.upper() for i in all_issues)
+
+    def test_if_in_iterator_detected(self, rules, lexer, function_db):
+        dax = "SUMX(Sales, IF(Sales[Qty] > 0, Sales[Amount], 0))"
+        tokens = lexer.tokenize_code(dax)
+        all_issues = []
+        for rule in rules:
+            all_issues.extend(rule.evaluate(tokens, function_db))
+        assert any("IF" in i.rule_id.upper() for i in all_issues)
+
+    def test_unnecessary_iterator_detected(self, rules, lexer, function_db):
+        dax = "SUMX(Sales, Sales[Amount])"
+        tokens = lexer.tokenize_code(dax)
+        all_issues = []
+        for rule in rules:
+            all_issues.extend(rule.evaluate(tokens, function_db))
+        assert any("UNNECESSARY" in i.rule_id.upper() for i in all_issues)
+
+    def test_var_defeating_shortcircuit(self, rules, lexer, function_db):
+        dax = (
+            "VAR _A = CALCULATE([Sales], Filter1)\n"
+            "VAR _B = CALCULATE([Sales LY], Filter2)\n"
+            "VAR _C = CALCULATE([Sales YOY], Filter3)\n"
+            "RETURN SWITCH(TRUE(), Sel = \"C\", _A, Sel = \"LY\", _B, _C)"
+        )
+        tokens = lexer.tokenize_code(dax)
+        all_issues = []
+        for rule in rules:
+            all_issues.extend(rule.evaluate(tokens, function_db))
+        assert any(
+            "SHORT" in i.rule_id.upper() or "VAR_DEFEAT" in i.rule_id.upper()
+            for i in all_issues
+        )
+
+    def test_blank_propagation_1_minus(self, rules, lexer, function_db):
+        dax = "1 - DIVIDE([Sales], [Budget])"
+        tokens = lexer.tokenize_code(dax)
+        all_issues = []
+        for rule in rules:
+            all_issues.extend(rule.evaluate(tokens, function_db))
+        assert any("BLANK" in i.rule_id.upper() for i in all_issues)
+
+    def test_unused_var_detected(self, rules, lexer, function_db):
+        dax = "VAR _unused = 42\nVAR _used = 10\nRETURN _used + 1"
+        tokens = lexer.tokenize_code(dax)
+        all_issues = []
+        for rule in rules:
+            all_issues.extend(rule.evaluate(tokens, function_db))
+        assert any("UNUSED" in i.rule_id.upper() for i in all_issues)
+
+    def test_measure_ref_without_var(self, rules, lexer, function_db):
+        dax = "[Sales] + [Sales] + [Sales] + [Cost]"
+        tokens = lexer.tokenize_code(dax)
+        all_issues = []
+        for rule in rules:
+            all_issues.extend(rule.evaluate(tokens, function_db))
+        assert any("MEASURE_REF" in i.rule_id.upper() for i in all_issues)
+
+    def test_clean_dax_minimal_issues(self, rules, lexer, function_db):
+        dax = (
+            "VAR _Sales = SUM(Sales[Amount])\n"
+            "VAR _Budget = SUM(Budget[Amount])\n"
+            "RETURN DIVIDE(_Sales, _Budget)"
+        )
+        tokens = lexer.tokenize_code(dax)
+        all_issues = []
+        for rule in rules:
+            all_issues.extend(rule.evaluate(tokens, function_db))
+        critical = [i for i in all_issues if i.severity == "critical"]
+        assert len(critical) == 0
+
+    def test_direct_measure_reference(self, rules, lexer, function_db):
+        dax = "[Other Measure]"
+        tokens = lexer.tokenize_code(dax)
+        all_issues = []
+        for rule in rules:
+            all_issues.extend(rule.evaluate(tokens, function_db))
+        assert any("DIRECT" in i.rule_id.upper() for i in all_issues)
