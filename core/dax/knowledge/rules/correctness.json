@@ -1,0 +1,132 @@
+[
+  {
+    "rule_id": "CORR_DIVISION_WITHOUT_DIVIDE",
+    "category": "correctness",
+    "severity": "medium",
+    "title": "Division operator / without DIVIDE — no BLANK/error handling",
+    "description": "The / operator returns an error on division by zero. DIVIDE returns BLANK (or an alternate result) on division by zero, which is almost always the desired behavior in reports.",
+    "pattern_type": "missing_function",
+    "match": {
+      "operator": "/",
+      "missing": "DIVIDE"
+    },
+    "fix_suggestion": "Replace [x] / [y] with DIVIDE([x], [y]) or DIVIDE([x], [y], 0)",
+    "rewrite_strategy": "division_to_divide",
+    "references": [
+      {
+        "source": "Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/power-bi/guidance/dax-divide-function-operator"
+      }
+    ]
+  },
+  {
+    "rule_id": "CORR_SWITCH_NO_DEFAULT",
+    "category": "correctness",
+    "severity": "low",
+    "title": "SWITCH without default/else value",
+    "description": "SWITCH without a default value returns BLANK when no condition matches. This is often unintentional and can cause confusing report behavior.",
+    "pattern_type": "switch_without_default",
+    "match": {},
+    "fix_suggestion": "Add a default value as the last argument to SWITCH, e.g., SWITCH(expr, val1, res1, val2, res2, defaultResult)"
+  },
+  {
+    "rule_id": "CORR_BLANK_PROPAGATION",
+    "category": "correctness",
+    "severity": "low",
+    "title": "Potential BLANK propagation in arithmetic",
+    "description": "Expressions like 1 - (x/y) or 1 - DIVIDE(...) may return unexpected results when the denominator is BLANK, because arithmetic with BLANK propagates as 0.",
+    "pattern_type": "pattern",
+    "match": {
+      "description": "Arithmetic subtraction from literal involving DIVIDE or division"
+    },
+    "fix_suggestion": "Use VAR to capture intermediate results and check for BLANK explicitly with IF(ISBLANK(...))"
+  },
+  {
+    "rule_id": "CORR_IFERROR_USAGE",
+    "category": "correctness",
+    "severity": "high",
+    "title": "IFERROR forces step-by-step evaluation",
+    "description": "IFERROR must evaluate the expression first and then check for errors, preventing the engine from optimizing the execution plan. Use DIVIDE for division errors, or handle edge cases explicitly.",
+    "pattern_type": "function_usage",
+    "match": {
+      "functions": ["IFERROR"]
+    },
+    "fix_suggestion": "Replace with DIVIDE for division errors, or use IF with explicit condition checks",
+    "rewrite_strategy": "iferror_to_divide_or_if",
+    "references": [
+      {
+        "source": "Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/power-bi/guidance/dax-error-functions"
+      }
+    ]
+  },
+  {
+    "rule_id": "CORR_ISERROR_USAGE",
+    "category": "correctness",
+    "severity": "high",
+    "title": "ISERROR forces step-by-step evaluation",
+    "description": "ISERROR evaluates the full expression to check for errors, preventing query optimization. Handle specific error conditions explicitly instead.",
+    "pattern_type": "function_usage",
+    "match": {
+      "functions": ["ISERROR"]
+    },
+    "fix_suggestion": "Check for the specific condition that causes the error (e.g., division by zero, missing relationship) instead of catching all errors",
+    "rewrite_strategy": "iserror_to_explicit_check",
+    "references": [
+      {
+        "source": "Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/power-bi/guidance/dax-error-functions"
+      }
+    ]
+  },
+  {
+    "rule_id": "CORR_SUMMARIZE_INLINE",
+    "category": "correctness",
+    "severity": "high",
+    "title": "SUMMARIZE with inline expressions — use ADDCOLUMNS+SUMMARIZE or SUMMARIZECOLUMNS",
+    "description": "SUMMARIZE with more than 2 arguments likely contains inline aggregation expressions. This deprecated pattern can produce incorrect results when the aggregation references columns not in the groupBy set.",
+    "pattern_type": "function_usage",
+    "match": {
+      "functions": ["SUMMARIZE"],
+      "check": "more_than_two_args"
+    },
+    "fix_suggestion": "Use ADDCOLUMNS(SUMMARIZE(table, groupByCol), \"Name\", expression) or SUMMARIZECOLUMNS",
+    "rewrite_strategy": "summarize_inline_to_addcolumns",
+    "references": [
+      {
+        "source": "SQLBI",
+        "url": "https://www.sqlbi.com/articles/best-practices-using-summarizecolumns/"
+      }
+    ]
+  },
+  {
+    "rule_id": "CORR_INTERSECT_VS_TREATAS",
+    "category": "correctness",
+    "severity": "low",
+    "title": "INTERSECT — consider TREATAS for virtual relationships",
+    "description": "INTERSECT materializes both tables. When used for filtering, TREATAS creates a virtual relationship without materialization, which is more efficient and clearer in intent.",
+    "pattern_type": "function_usage",
+    "match": {
+      "functions": ["INTERSECT"]
+    },
+    "fix_suggestion": "If used for filtering, replace with TREATAS(VALUES(col), targetTable[col])",
+    "references": [
+      {
+        "source": "SQLBI",
+        "url": "https://www.sqlbi.com/articles/propagate-filters-using-treatas-in-dax/"
+      }
+    ]
+  },
+  {
+    "rule_id": "CORR_FIXED_FILTER_IN_CALCULATE",
+    "category": "correctness",
+    "severity": "low",
+    "title": "Hardcoded filter value in CALCULATE",
+    "description": "Hardcoded filter values in CALCULATE (e.g., Table[Year] = 2024) make measures brittle and require updates when data changes.",
+    "pattern_type": "pattern",
+    "match": {
+      "description": "CALCULATE with hardcoded literal comparison in filter"
+    },
+    "fix_suggestion": "Parameterize with slicers, use relative date logic, or use a disconnected table for dynamic filtering"
+  }
+]

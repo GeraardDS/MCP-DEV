@@ -151,3 +151,86 @@ class TestAnalyzerModels:
         assert d["code_example_before"] == "BAD"
         assert d["code_example_after"] == "GOOD"
         assert d["article_reference"]["source"] == "SQLBI"
+
+
+# ------------------------------------------------------------------
+# JSON Rule Engine tests
+# ------------------------------------------------------------------
+
+from core.dax.analyzer.rule_engine import JsonRuleEngine
+from core.dax.tokenizer import DaxLexer, TokenType
+from core.dax.knowledge import DaxFunctionDatabase
+
+
+class TestJsonRuleEngine:
+
+    @pytest.fixture
+    def engine(self):
+        return JsonRuleEngine()
+
+    @pytest.fixture
+    def lexer(self):
+        db = DaxFunctionDatabase.get()
+        return DaxLexer(function_names=db.get_function_names())
+
+    def test_loads_rules(self, engine):
+        assert engine.rule_count() > 20
+
+    def test_detects_sumx_filter_nesting(self, engine, lexer):
+        dax = "SUMX(FILTER(Sales, Sales[Qty] > 10), Sales[Amount])"
+        tokens = lexer.tokenize_code(dax)
+        issues = engine.evaluate(tokens, dax)
+        rule_ids = [i.rule_id for i in issues]
+        assert any("SUMX_FILTER" in rid or "FILTER" in rid for rid in rule_ids)
+
+    def test_detects_format_usage(self, engine, lexer):
+        dax = 'FORMAT([Sales], "#,##0")'
+        tokens = lexer.tokenize_code(dax)
+        issues = engine.evaluate(tokens, dax)
+        assert any("FORMAT" in i.rule_id for i in issues)
+
+    def test_detects_iferror_usage(self, engine, lexer):
+        dax = "IFERROR([Sales] / [Cost], 0)"
+        tokens = lexer.tokenize_code(dax)
+        issues = engine.evaluate(tokens, dax)
+        assert any("IFERROR" in i.rule_id for i in issues)
+
+    def test_clean_dax_no_critical(self, engine, lexer):
+        dax = "CALCULATE(SUM(Sales[Amount]), Sales[Year] = 2024)"
+        tokens = lexer.tokenize_code(dax)
+        issues = engine.evaluate(tokens, dax)
+        critical = [i for i in issues if i.severity == "critical"]
+        assert len(critical) == 0
+
+    def test_detects_division_without_divide(self, engine, lexer):
+        dax = "[Sales] / [Cost]"
+        tokens = lexer.tokenize_code(dax)
+        issues = engine.evaluate(tokens, dax)
+        assert any("DIVIDE" in i.rule_id or "DIVISION" in i.rule_id for i in issues)
+
+    def test_detects_unused_var(self, engine, lexer):
+        dax = "VAR _unused = 1\nVAR _used = 2\nRETURN _used"
+        tokens = lexer.tokenize_code(dax)
+        issues = engine.evaluate(tokens, dax)
+        assert any(
+            "UNUSED" in i.rule_id.upper() or "VAR" in i.rule_id.upper()
+            for i in issues
+        )
+
+    def test_detects_bare_table_in_filter(self, engine, lexer):
+        dax = "FILTER(Sales, Sales[Amount] > 100)"
+        tokens = lexer.tokenize_code(dax)
+        issues = engine.evaluate(tokens, dax)
+        assert any(
+            "BARE" in i.rule_id.upper() or "CB004" in i.rule_id for i in issues
+        )
+
+    def test_detects_if_in_iterator(self, engine, lexer):
+        dax = "SUMX(Sales, IF(Sales[Qty] > 0, Sales[Amount], 0))"
+        tokens = lexer.tokenize_code(dax)
+        issues = engine.evaluate(tokens, dax)
+        assert any(
+            "CB001" in i.rule_id
+            or ("IF" in i.rule_id.upper() and "ITERATOR" in i.rule_id.upper())
+            for i in issues
+        )
