@@ -30,30 +30,22 @@ class ToolCategory(Enum):
 # Define which tools belong to each category (for deferred loading)
 CATEGORY_TOOLS = {
     ToolCategory.CORE: [
-        "01_Detect_PBI_Instances",
-        "01_Connect_To_Instance",
+        "01_Connection",
         "10_Show_User_Guide",
     ],
     ToolCategory.MODEL: [
-        "02_Table_Operations",
-        "02_Column_Operations",
-        "02_Measure_Operations",
-        "02_Relationship_Operations",
-        "02_Calculation_Group_Operations",
+        "02_Model_Operations",
         "02_TMDL_Operations",
     ],
     ToolCategory.BATCH: [
         "03_Batch_Operations",
-        "03_Manage_Transactions",
     ],
     ToolCategory.QUERY: [
         "04_Run_DAX",
         "04_Query_Operations",
-        "04_Search_String",
     ],
     ToolCategory.DAX: [
         "05_DAX_Intelligence",
-        "05_DAX_Operations",
         "05_Column_Usage_Mapping",
     ],
     ToolCategory.ANALYSIS: [
@@ -64,12 +56,8 @@ CATEGORY_TOOLS = {
         "07_Report_Operations",
         "07_Page_Operations",
         "07_Visual_Operations",
-        "07_Visual_Sync",
-        "07_Filter_Operations",
         "07_Bookmark_Operations",
         "07_Theme_Operations",
-        "07_PBIP_Dependency_Analysis",
-        "07_Analyze_Aggregation",
         "SVG_Visual_Operations",
     ],
     ToolCategory.DOCS: [
@@ -77,13 +65,14 @@ CATEGORY_TOOLS = {
     ],
     ToolCategory.DEBUG: [
         "09_Debug_Operations",
-        "09_Debug_Config",
         "09_Validate",
         "09_Profile",
         "09_Document",
-        "09_Advanced_Analysis",
     ],
-    ToolCategory.AUTHORING: [],
+    ToolCategory.AUTHORING: [
+        "11_PBIP_Authoring",
+        "11_PBIP_Prototype",
+    ],
 }
 
 
