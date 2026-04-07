@@ -1610,19 +1610,550 @@ def _op_update_visual_config(args: Dict[str, Any], definition_path: Path) -> Dic
     return result
 
 
+def _op_create_visual(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Create a new visual on a page from a template spec (absorbed from authoring_handler)."""
+    from core.pbip.authoring.visual_builder import VisualBuilder
+
+    page_id = args.get("page_id") or args.get("page_name")
+    if not page_id:
+        return {"success": False, "error": "page_id or page_name is required"}
+
+    visual_type = args.get("visual_type")
+    if not visual_type:
+        return {"success": False, "error": "visual_type is required"}
+
+    page_dir = _resolve_page_dir(definition_path, page_id)
+    if not page_dir:
+        return {"success": False, "error": f"Page not found: {page_id}"}
+
+    builder = VisualBuilder(visual_type)
+
+    pos = args.get("position", {})
+    if pos:
+        builder.position(
+            x=pos.get("x", 0), y=pos.get("y", 0),
+            width=pos.get("width", 300), height=pos.get("height", 200),
+            z=pos.get("z", 0),
+        )
+
+    title = args.get("title")
+    if title:
+        builder.set_title(title)
+
+    for m in args.get("measures", []):
+        builder.add_measure(
+            table=m.get("table", ""), measure=m.get("measure", ""),
+            bucket=m.get("bucket", "Values"), display_name=m.get("display_name"),
+        )
+
+    for c in args.get("columns", []):
+        builder.add_column(
+            table=c.get("table", ""), column=c.get("column", ""),
+            bucket=c.get("bucket", "Category"), display_name=c.get("display_name"),
+        )
+
+    parent_group = args.get("parent_group")
+    if parent_group:
+        builder.in_group(parent_group)
+
+    for fmt in args.get("formatting", []):
+        builder.set_formatting(
+            config_type=fmt.get("config_type", ""),
+            property_name=fmt.get("property_name", ""),
+            value=fmt.get("value"),
+        )
+
+    visual_dict = builder.build()
+    visuals_dir = page_dir / "visuals"
+    visuals_dir.mkdir(exist_ok=True)
+    visual_id = visual_dict["name"]
+    visual_folder = visuals_dir / visual_id
+    visual_folder.mkdir(exist_ok=True)
+
+    _save_json_file(visual_folder / "visual.json", visual_dict)
+    return {
+        "success": True, "operation": "create",
+        "visual_id": visual_id, "visual_type": visual_type,
+        "page_id": page_dir.name, "path": str(visual_folder),
+    }
+
+
+def _op_create_visual_group(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Create a visual group container on a page (absorbed from authoring_handler)."""
+    from core.pbip.authoring.visual_builder import VisualBuilder
+
+    page_id = args.get("page_id") or args.get("page_name")
+    if not page_id:
+        return {"success": False, "error": "page_id or page_name is required"}
+
+    page_dir = _resolve_page_dir(definition_path, page_id)
+    if not page_dir:
+        return {"success": False, "error": f"Page not found: {page_id}"}
+
+    group_name = args.get("group_name", "Visual Group")
+    builder = VisualBuilder("visualGroup")
+    pos = args.get("position", {})
+    if pos:
+        builder.position(
+            x=pos.get("x", 0), y=pos.get("y", 0),
+            width=pos.get("width", 400), height=pos.get("height", 300),
+            z=pos.get("z", 0),
+        )
+    builder.set_group_name(group_name)
+
+    visual_dict = builder.build()
+    visual_id = visual_dict["name"]
+    visuals_dir = page_dir / "visuals"
+    visuals_dir.mkdir(exist_ok=True)
+    visual_folder = visuals_dir / visual_id
+    visual_folder.mkdir(exist_ok=True)
+
+    _save_json_file(visual_folder / "visual.json", visual_dict)
+    return {
+        "success": True, "operation": "create_group",
+        "visual_id": visual_id, "group_name": group_name,
+        "page_id": page_dir.name, "path": str(visual_folder),
+    }
+
+
+def _op_delete_visual(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Delete a visual (and children if it's a group) (absorbed from authoring_handler)."""
+    from core.pbip.authoring.clone_engine import CloneEngine
+
+    page_id = args.get("page_id") or args.get("page_name")
+    visual_id = args.get("visual_id") or args.get("visual_name")
+    if not page_id:
+        return {"success": False, "error": "page_id or page_name is required"}
+    if not visual_id:
+        return {"success": False, "error": "visual_id or visual_name is required"}
+
+    engine = CloneEngine()
+    result = engine.delete_visual(
+        definition_path=definition_path, page_id=page_id,
+        visual_id=visual_id, delete_children=args.get("delete_children", True),
+    )
+    result["operation"] = "delete"
+    return result
+
+
+def _op_list_templates(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """List available visual templates (absorbed from authoring_handler)."""
+    from core.pbip.authoring.visual_templates import get_template_catalog
+    catalog = get_template_catalog()
+    return {"success": True, "operation": "list_templates", "templates": catalog, "count": len(catalog)}
+
+
+def _op_get_template(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Get template for a visual type (absorbed from authoring_handler)."""
+    from core.pbip.authoring.visual_templates import get_template, TEMPLATE_REGISTRY
+    visual_type = args.get("visual_type")
+    if not visual_type:
+        return {"success": False, "error": "visual_type is required"}
+    if visual_type not in TEMPLATE_REGISTRY:
+        return {"success": False, "error": f"Unknown visual type: '{visual_type}'. Available: {', '.join(sorted(TEMPLATE_REGISTRY.keys()))}"}
+    template = get_template(visual_type)
+    return {"success": True, "operation": "get_template", "visual_type": visual_type, "template": template}
+
+
+def _op_configure_slicer(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Configure slicer settings (absorbed from slicer_operations_handler)."""
+    from server.handlers.slicer_operations_handler import (
+        _find_slicers, _configure_single_select_all,
+    )
+    display_name = args.get('display_name_filter') or args.get('display_name')
+    entity = args.get('entity')
+    property_name = args.get('property')
+    dry_run = args.get('dry_run', False)
+
+    slicers = _find_slicers(definition_path, display_name, entity, property_name)
+    if not slicers:
+        return {'success': False, 'error': 'No slicers found matching criteria'}
+
+    changes = []
+    errors = []
+    for slicer in slicers:
+        file_path = Path(slicer['file_path'])
+        before_mode = slicer['selection_mode']
+        if dry_run:
+            changes.append({
+                'display_name': slicer['display_name'], 'page_name': slicer.get('page_name', ''),
+                'before_mode': before_mode, 'after_mode': 'single_select_all',
+                'status': 'would_change' if before_mode != 'single_select_all' else 'already_configured'
+            })
+        else:
+            visual_data = _load_json_file(file_path)
+            if not visual_data:
+                errors.append({'file_path': str(file_path), 'error': 'Failed to load'})
+                continue
+            _configure_single_select_all(visual_data)
+            if _save_json_file(file_path, visual_data):
+                changes.append({
+                    'display_name': slicer['display_name'], 'page_name': slicer.get('page_name', ''),
+                    'before_mode': before_mode, 'after_mode': 'single_select_all', 'status': 'changed'
+                })
+            else:
+                errors.append({'file_path': str(file_path), 'error': 'Failed to save'})
+
+    result = {'success': len(errors) == 0, 'operation': 'configure_slicer', 'dry_run': dry_run, 'changes': changes, 'changes_count': len(changes)}
+    if errors:
+        result['errors'] = errors
+    return result
+
+
+def _op_align(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Align multiple visuals."""
+    from core.pbip.visual_alignment_engine import align_visuals
+    return align_visuals(
+        definition_path=definition_path,
+        page_name=args.get('page_name', ''),
+        visual_names=args.get('visual_names', []),
+        alignment=args.get('alignment', 'left'),
+    )
+
+
+def _op_add_field(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Add a field to a visual's data role."""
+    from core.pbip.field_binding_engine import add_field
+    return add_field(
+        definition_path=definition_path,
+        page_name=args.get('page_name', ''),
+        visual_name=args.get('visual_name', ''),
+        table=args.get('table', ''),
+        field=args.get('field', ''),
+        bucket=args.get('bucket', 'Values'),
+        field_type=args.get('field_type', 'Column'),
+        display_name=args.get('display_name'),
+    )
+
+
+def _op_remove_field(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Remove a field from a visual's data roles."""
+    from core.pbip.field_binding_engine import remove_field
+    return remove_field(
+        definition_path=definition_path,
+        page_name=args.get('page_name', ''),
+        visual_name=args.get('visual_name', ''),
+        table=args.get('table', ''),
+        field=args.get('field', ''),
+        bucket=args.get('bucket'),
+    )
+
+
+def _op_set_sort(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Set sort field and direction on a visual."""
+    visual_name = args.get('visual_name')
+    page_name = args.get('page_name')
+    sort_field = args.get('sort_field', '')
+    sort_direction = args.get('sort_direction', 'Ascending')
+
+    if not visual_name or not page_name or not sort_field:
+        return {'success': False, 'error': 'set_sort requires: page_name, visual_name, sort_field'}
+
+    visuals = _find_visuals(definition_path, visual_name=visual_name, page_name=page_name)
+    if not visuals:
+        return {'success': False, 'error': f'Visual not found: {visual_name} on {page_name}'}
+
+    visual = visuals[0]
+    file_path = Path(visual['file_path'])
+    visual_data = _load_json_file(file_path)
+    if not visual_data:
+        return {'success': False, 'error': 'Failed to load visual.json'}
+
+    parts = sort_field.split('.', 1)
+    if len(parts) != 2:
+        return {'success': False, 'error': 'sort_field must be Table.Field format'}
+
+    table, field = parts
+    sort_order = 1 if sort_direction == 'Ascending' else 2
+    visual_section = visual_data.setdefault('visual', {})
+    visual_section['sort'] = {
+        "clauses": [{
+            "field": {
+                "Column": {
+                    "Expression": {"SourceRef": {"Entity": table}},
+                    "Property": field
+                }
+            },
+            "direction": sort_order
+        }]
+    }
+
+    dry_run = args.get('dry_run', False)
+    if not dry_run:
+        _save_json_file(file_path, visual_data)
+
+    return {
+        'success': True, 'operation': 'set_sort', 'dry_run': dry_run,
+        'visual_name': visual_name, 'sort_field': sort_field, 'sort_direction': sort_direction
+    }
+
+
+def _op_set_action(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Set action button configuration."""
+    visual_name = args.get('visual_name')
+    page_name = args.get('page_name')
+    action_type = args.get('action_type')
+    action_target = args.get('action_target', '')
+
+    if not visual_name or not page_name or not action_type:
+        return {'success': False, 'error': 'set_action requires: page_name, visual_name, action_type'}
+
+    visuals = _find_visuals(definition_path, visual_name=visual_name, page_name=page_name)
+    if not visuals:
+        return {'success': False, 'error': f'Visual not found: {visual_name} on {page_name}'}
+
+    visual = visuals[0]
+    file_path = Path(visual['file_path'])
+    visual_data = _load_json_file(file_path)
+    if not visual_data:
+        return {'success': False, 'error': 'Failed to load visual.json'}
+
+    visual_section = visual_data.setdefault('visual', {})
+    vc_objects = visual_section.setdefault('visualContainerObjects', {})
+    action_config = [{
+        "properties": {
+            "type": {"expr": {"Literal": {"Value": f"'{action_type}'"}}},
+        }
+    }]
+    if action_target:
+        action_config[0]["properties"]["destination"] = {"expr": {"Literal": {"Value": f"'{action_target}'"}}}
+    vc_objects['action'] = action_config
+
+    dry_run = args.get('dry_run', False)
+    if not dry_run:
+        _save_json_file(file_path, visual_data)
+
+    return {
+        'success': True, 'operation': 'set_action', 'dry_run': dry_run,
+        'visual_name': visual_name, 'action_type': action_type, 'action_target': action_target
+    }
+
+
+def _op_inject_code(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Inject Deneb/Python/R code into a visual."""
+    visual_name = args.get('visual_name')
+    page_name = args.get('page_name')
+    code_type = args.get('code_type')
+    code = args.get('code', '')
+
+    if not visual_name or not page_name or not code_type or not code:
+        return {'success': False, 'error': 'inject_code requires: page_name, visual_name, code_type, code'}
+
+    # Escape single quotes to prevent breaking PBIR Literal Value strings
+    code = code.replace("'", "\\'")
+
+    visuals = _find_visuals(definition_path, visual_name=visual_name, page_name=page_name)
+    if not visuals:
+        return {'success': False, 'error': f'Visual not found: {visual_name} on {page_name}'}
+
+    visual = visuals[0]
+    file_path = Path(visual['file_path'])
+    visual_data = _load_json_file(file_path)
+    if not visual_data:
+        return {'success': False, 'error': 'Failed to load visual.json'}
+
+    visual_section = visual_data.setdefault('visual', {})
+    objects = visual_section.setdefault('objects', {})
+
+    if code_type == 'deneb':
+        provider = args.get('provider', 'vegaLite')
+        objects['denebConfig'] = [{"properties": {
+            "vegaSpec": {"expr": {"Literal": {"Value": f"'{code}'"}}},
+            "provider": {"expr": {"Literal": {"Value": f"'{provider}'"}}},
+        }}]
+    elif code_type == 'python':
+        objects['script'] = [{"properties": {
+            "source": {"expr": {"Literal": {"Value": f"'{code}'"}}},
+        }}]
+    elif code_type == 'r':
+        objects['script'] = [{"properties": {
+            "source": {"expr": {"Literal": {"Value": f"'{code}'"}}},
+        }}]
+    else:
+        return {'success': False, 'error': f'Unknown code_type: {code_type}. Use deneb, python, or r'}
+
+    dry_run = args.get('dry_run', False)
+    if not dry_run:
+        _save_json_file(file_path, visual_data)
+
+    return {
+        'success': True, 'operation': 'inject_code', 'dry_run': dry_run,
+        'visual_name': visual_name, 'code_type': code_type, 'code_length': len(code)
+    }
+
+
+def _op_update_formatting(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """High-level formatting update for common visual properties."""
+    visual_name = args.get('visual_name')
+    page_name = args.get('page_name')
+    display_title = args.get('display_title')
+    visual_type = args.get('visual_type')
+    formatting_target = args.get('formatting_target')
+    formatting_properties = args.get('formatting_properties', {})
+    dry_run = args.get('dry_run', False)
+
+    if not formatting_target or not formatting_properties:
+        return {'success': False, 'error': 'update_formatting requires: formatting_target and formatting_properties'}
+
+    visuals = _find_visuals(
+        definition_path, display_title=display_title, visual_type=visual_type,
+        visual_name=visual_name, page_name=page_name, include_hidden=True,
+    )
+    if not visuals:
+        return {'success': False, 'error': 'No visuals found matching criteria'}
+
+    # Map formatting_target to the correct objects section
+    # visualContainerObjects targets: title, subtitle, divider, background, border, shadow, padding, spacing, header, tooltip
+    # visual.objects targets: legend, categoryAxis, valueAxis, labels
+    vc_targets = {'title', 'subtitle', 'divider', 'background', 'border', 'shadow', 'padding', 'spacing', 'header', 'tooltip'}
+    obj_targets = {'legend', 'categoryAxis', 'valueAxis', 'labels'}
+
+    is_vc = formatting_target in vc_targets
+    is_obj = formatting_target in obj_targets
+
+    if not is_vc and not is_obj:
+        return {'success': False, 'error': f'Unknown formatting_target: {formatting_target}. Valid: {", ".join(sorted(vc_targets | obj_targets))}'}
+
+    if is_obj:
+        # For visual.objects targets, use the existing update_visual_config mechanism
+        config_updates = []
+        for prop_name, prop_value in formatting_properties.items():
+            config_updates.append({
+                'config_type': formatting_target,
+                'property_name': prop_name,
+                'property_value': prop_value,
+                'value_type': 'auto',
+            })
+        updated_args = dict(args)
+        updated_args['config_updates'] = config_updates
+        return _op_update_visual_config(updated_args, definition_path)
+
+    # For visualContainerObjects targets, apply updates directly
+    changes = []
+    errors = []
+
+    for visual in visuals:
+        file_path = Path(visual['file_path'])
+        visual_data = _load_json_file(file_path)
+        if not visual_data:
+            errors.append({'file_path': str(file_path), 'error': 'Failed to load visual.json'})
+            continue
+
+        vc_objects = visual_data.setdefault('visualContainerObjects', {})
+        target_array = vc_objects.setdefault(formatting_target, [])
+
+        # Find or create the default (no-selector) entry
+        target_entry = None
+        for entry in target_array:
+            if not entry.get('selector'):
+                target_entry = entry
+                break
+        if target_entry is None:
+            target_entry = {"properties": {}}
+            target_array.append(target_entry)
+
+        props = target_entry.setdefault('properties', {})
+        visual_changes = []
+        for prop_name, prop_value in formatting_properties.items():
+            old_val = props.get(prop_name)
+            # Format value using Power BI Literal expression pattern
+            if isinstance(prop_value, bool):
+                formatted = {"expr": {"Literal": {"Value": "true" if prop_value else "false"}}}
+            elif isinstance(prop_value, (int, float)):
+                formatted = {"expr": {"Literal": {"Value": f"{prop_value}D"}}}
+            elif isinstance(prop_value, str):
+                if prop_value.lower() in ('true', 'false'):
+                    formatted = {"expr": {"Literal": {"Value": prop_value.lower()}}}
+                elif prop_value.endswith('D') or prop_value.endswith('L') or (prop_value.startswith("'") and prop_value.endswith("'")):
+                    formatted = {"expr": {"Literal": {"Value": prop_value}}}
+                else:
+                    formatted = {"expr": {"Literal": {"Value": f"'{prop_value}'"}}}
+            else:
+                formatted = {"expr": {"Literal": {"Value": str(prop_value)}}}
+            props[prop_name] = formatted
+            visual_changes.append(f"{formatting_target}.{prop_name} = {prop_value}")
+
+        if visual_changes:
+            change_record = {
+                'display_title': visual['display_title'],
+                'page_name': visual.get('page_name', ''),
+                'visual_name': visual['visual_name'],
+                'visual_type': visual['visual_type'],
+                'config_changes': visual_changes,
+                'status': 'would_change' if dry_run else 'changed',
+            }
+            if not dry_run:
+                if _save_json_file(file_path, visual_data):
+                    change_record['status'] = 'changed'
+                else:
+                    change_record['status'] = 'error'
+                    errors.append({'file_path': str(file_path), 'error': 'Failed to save changes'})
+            changes.append(change_record)
+
+    result = {
+        'success': len(errors) == 0,
+        'operation': 'update_formatting',
+        'dry_run': dry_run,
+        'message': f'{"Would update" if dry_run else "Updated"} formatting in {len(changes)} visual(s)',
+        'changes': changes,
+        'changes_count': len(changes),
+    }
+    if errors:
+        result['errors'] = errors
+        result['errors_count'] = len(errors)
+        result['message'] += f' with {len(errors)} error(s)'
+    return result
+
+
+def _op_manage_visual_calcs(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Manage visual calculations."""
+    from core.pbip.visual_calculations_engine import (
+        list_calculations, add_calculation, update_calculation, delete_calculation,
+    )
+    sub_op = args.get('sub_operation', 'list')
+    if sub_op == 'list':
+        return list_calculations(definition_path, args.get('page_name'), args.get('visual_name'))
+    elif sub_op == 'add':
+        return add_calculation(definition_path, args.get('page_name', ''), args.get('visual_name', ''),
+                               args.get('calc_name', ''), args.get('expression', ''))
+    elif sub_op == 'update':
+        return update_calculation(definition_path, args.get('page_name', ''), args.get('visual_name', ''),
+                                  args.get('calc_name', ''), args.get('expression'))
+    elif sub_op == 'delete':
+        return delete_calculation(definition_path, args.get('page_name', ''), args.get('visual_name', ''),
+                                  args.get('calc_name', ''))
+    return {'success': False, 'error': f'Unknown sub_operation: {sub_op}'}
+
+
+def _resolve_page_dir(definition_path: Path, page_id: str) -> Optional[Path]:
+    """Resolve a page ID or display name to its directory."""
+    pages_dir = definition_path / "pages"
+    if not pages_dir.exists():
+        return None
+    direct = pages_dir / page_id
+    if direct.exists() and direct.is_dir():
+        return direct
+    page_id_lower = page_id.lower()
+    for page_folder in pages_dir.iterdir():
+        if not page_folder.is_dir():
+            continue
+        page_json = _load_json_file(page_folder / "page.json")
+        if page_json:
+            display_name = page_json.get("displayName", "")
+            if display_name.lower() == page_id_lower or page_id_lower in display_name.lower():
+                return page_folder
+    return None
+
+
 def handle_visual_operations(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Dispatch for visual list, position, and config operations."""
+    """Dispatch for all visual operations (expanded v12)."""
     operation = args.get('operation', 'list')
     pbip_path = args.get('pbip_path')
 
     if not pbip_path:
         return {
             'success': False,
-            'error': (
-                'pbip_path parameter is required'
-                ' - path to PBIP project, .Report folder,'
-                ' or definition folder'
-            ),
+            'error': 'pbip_path parameter is required - path to PBIP project, .Report folder, or definition folder',
         }
 
     resolved = resolve_definition_path(pbip_path)
@@ -1632,20 +2163,128 @@ def handle_visual_operations(args: Dict[str, Any]) -> Dict[str, Any]:
 
     ops = {
         'list': _op_list,
+        'create': _op_create_visual,
+        'create_group': _op_create_visual_group,
+        'delete': _op_delete_visual,
         'update_position': _op_update_position,
         'update_visual_config': _op_update_visual_config,
+        'update_formatting': _op_update_formatting,
+        'align': _op_align,
+        'add_field': _op_add_field,
+        'remove_field': _op_remove_field,
+        'set_sort': _op_set_sort,
+        'set_action': _op_set_action,
+        'inject_code': _op_inject_code,
+        'manage_visual_calcs': _op_manage_visual_calcs,
+        'configure_slicer': _op_configure_slicer,
+        'list_templates': _op_list_templates,
+        'get_template': _op_get_template,
     }
     op_func = ops.get(operation)
     if not op_func:
-        valid = ", ".join(ops)
-        return {
-            'success': False,
-            'error': (
-                f'Unknown operation: {operation}.'
-                f' Valid: {valid}'
-            ),
-        }
+        valid = ", ".join(sorted(ops))
+        return {'success': False, 'error': f'Unknown operation: {operation}. Valid: {valid}'}
     return op_func(args, definition_path)
+
+
+def _op_sync_formatting(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Copy all formatting (visual.objects + visualContainerObjects) from source to target visual(s).
+
+    Preserves target visual identity (type, data bindings, position) but replaces
+    all formatting properties from the source visual.
+    """
+    source_visual_name = args.get('source_visual_name')
+    source_page = args.get('source_page')
+    target_visual_name = args.get('target_visual_name')
+    target_page = args.get('target_page')
+    dry_run = args.get('dry_run', False)
+
+    if not source_visual_name or not source_page:
+        return {'success': False, 'error': 'sync_formatting requires: source_visual_name, source_page'}
+    if not target_visual_name and not target_page:
+        return {'success': False, 'error': 'sync_formatting requires: target_visual_name and/or target_page'}
+
+    # Find source visual
+    source_visuals = _find_visuals(
+        definition_path, visual_name=source_visual_name, page_name=source_page, include_hidden=True,
+    )
+    if not source_visuals:
+        return {'success': False, 'error': f'Source visual not found: {source_visual_name} on {source_page}'}
+
+    source_visual = source_visuals[0]
+    source_data = _load_json_file(Path(source_visual['file_path']))
+    if not source_data:
+        return {'success': False, 'error': 'Failed to load source visual.json'}
+
+    # Extract formatting sections from source
+    source_objects = source_data.get('visual', {}).get('objects', {})
+    source_vc_objects = source_data.get('visualContainerObjects', {})
+
+    # Find target visuals
+    target_visuals = _find_visuals(
+        definition_path, visual_name=target_visual_name, page_name=target_page, include_hidden=True,
+    )
+    if not target_visuals:
+        return {'success': False, 'error': f'No target visuals found matching criteria'}
+
+    changes = []
+    errors = []
+
+    for target in target_visuals:
+        # Skip if target is the source
+        if target['file_path'] == source_visual['file_path']:
+            continue
+
+        file_path = Path(target['file_path'])
+        target_data = _load_json_file(file_path)
+        if not target_data:
+            errors.append({'file_path': str(file_path), 'error': 'Failed to load visual.json'})
+            continue
+
+        import copy
+        # Copy visual.objects from source (deep copy to avoid shared references)
+        if source_objects:
+            target_data.setdefault('visual', {})['objects'] = copy.deepcopy(source_objects)
+
+        # Copy visualContainerObjects from source
+        if source_vc_objects:
+            target_data['visualContainerObjects'] = copy.deepcopy(source_vc_objects)
+
+        change_record = {
+            'display_title': target.get('display_title', ''),
+            'page_name': target.get('page_name', ''),
+            'visual_name': target['visual_name'],
+            'visual_type': target['visual_type'],
+            'synced_objects': bool(source_objects),
+            'synced_vc_objects': bool(source_vc_objects),
+            'status': 'would_change' if dry_run else 'changed',
+        }
+
+        if not dry_run:
+            if _save_json_file(file_path, target_data):
+                change_record['status'] = 'changed'
+            else:
+                change_record['status'] = 'error'
+                errors.append({'file_path': str(file_path), 'error': 'Failed to save changes'})
+
+        changes.append(change_record)
+
+    result = {
+        'success': len(errors) == 0,
+        'operation': 'sync_formatting',
+        'dry_run': dry_run,
+        'source': {
+            'visual_name': source_visual['visual_name'],
+            'page_name': source_visual.get('page_name', ''),
+        },
+        'message': f'{"Would sync" if dry_run else "Synced"} formatting to {len(changes)} visual(s)',
+        'changes': changes,
+        'changes_count': len(changes),
+    }
+    if errors:
+        result['errors'] = errors
+        result['errors_count'] = len(errors)
+    return result
 
 
 def handle_visual_sync(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1678,6 +2317,7 @@ def handle_visual_sync(args: Dict[str, Any]) -> Dict[str, Any]:
         'replace_measure': _op_replace_measure,
         'sync_visual': _op_sync_visual,
         'sync_column_widths': _op_sync_column_widths,
+        'sync_formatting': _op_sync_formatting,
     }
     op_func = ops.get(operation)
     if not op_func:
@@ -1693,23 +2333,24 @@ def handle_visual_sync(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def register_visual_operations_handler(registry):
-    """Register visual operations handler (list, position, config)."""
+    """Register visual operations handler (expanded v12)."""
     from server.tool_schemas import TOOL_SCHEMAS
 
     tool = ToolDefinition(
-        name="08_Visual_Operations",
+        name="07_Visual_Operations",
         description=(
-            "Edit visual properties: list,"
-            " resize/reposition, update_visual_config."
+            "Visual operations: list, create, delete, position, config, formatting, "
+            "align, field binding, sort, actions, code injection, slicer config, "
+            "visual calcs, templates."
         ),
         handler=handle_visual_operations,
         input_schema=TOOL_SCHEMAS.get('visual_operations', {}),
-        category="docs",
-        sort_order=80,
+        category="pbip",
+        sort_order=73,
         annotations={"readOnlyHint": False, "destructiveHint": True},
     )
     registry.register(tool)
-    logger.info("Registered visual_operations handler")
+    logger.info("Registered visual_operations handler (v12)")
 
 
 def register_visual_sync_handler(registry):
@@ -1717,16 +2358,16 @@ def register_visual_sync_handler(registry):
     from server.tool_schemas import TOOL_SCHEMAS
 
     tool = ToolDefinition(
-        name="08_Visual_Sync",
+        name="07_Visual_Sync",
         description=(
-            "Sync and replace visuals: replace_measure,"
-            " sync_visual, sync_column_widths."
+            "Cross-visual sync: replace_measure, sync_visual, "
+            "sync_column_widths, sync_formatting."
         ),
         handler=handle_visual_sync,
         input_schema=TOOL_SCHEMAS.get('visual_sync', {}),
-        category="docs",
-        sort_order=81,
+        category="pbip",
+        sort_order=74,
         annotations={"readOnlyHint": False, "destructiveHint": True},
     )
     registry.register(tool)
-    logger.info("Registered visual_sync handler")
+    logger.info("Registered visual_sync handler (v12)")

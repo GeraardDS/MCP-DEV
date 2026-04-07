@@ -61,18 +61,19 @@ CATEGORY_TOOLS = {
     ],
     ToolCategory.PBIP: [
         "07_PBIP_Operations",
-        "07_Report_Info",
+        "07_Report_Operations",
+        "07_Page_Operations",
+        "07_Visual_Operations",
+        "07_Visual_Sync",
+        "07_Filter_Operations",
+        "07_Bookmark_Operations",
+        "07_Theme_Operations",
         "07_PBIP_Dependency_Analysis",
-        "07_Slicer_Operations",
         "07_Analyze_Aggregation",
-        "07_Analyze_Bookmarks",
-        "07_Analyze_Theme_Compliance",
         "SVG_Visual_Operations",
     ],
     ToolCategory.DOCS: [
         "08_Documentation_Word",
-        "08_Visual_Operations",
-        "08_Visual_Sync",
     ],
     ToolCategory.DEBUG: [
         "09_Debug_Operations",
@@ -83,7 +84,6 @@ CATEGORY_TOOLS = {
         "09_Advanced_Analysis",
     ],
     ToolCategory.AUTHORING: [
-        "11_PBIP_Authoring",
         "11_PBIP_Prototype",
     ],
 }
@@ -105,8 +105,8 @@ CATEGORY_INFO = {
     ToolCategory.QUERY: {"name": "Query & Search", "description": "DAX queries, search objects, roles"},
     ToolCategory.DAX: {"name": "DAX Intelligence", "description": "DAX analysis, dependencies, optimization"},
     ToolCategory.ANALYSIS: {"name": "Analysis", "description": "Model analysis, BPA, comparison"},
-    ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis, SVG visuals"},
-    ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs, visual editing"},
+    ToolCategory.PBIP: {"name": "PBIP & Report", "description": "Report/page/visual/filter/bookmark/theme operations, SVG visuals"},
+    ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs"},
     ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation"},
     ToolCategory.AUTHORING: {"name": "Report Authoring", "description": "Create, clone, prototype PBIP report pages and visuals"},
 }

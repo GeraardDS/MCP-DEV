@@ -184,7 +184,7 @@ def register_aggregation_handler(registry) -> None:
         handler=handle_aggregation_analysis,
         input_schema=get_aggregation_schema(),
         category="pbip",
-        sort_order=74,  # 07 = PBIP Analysis
+        sort_order=78,  # 07 = PBIP Analysis (bumped to avoid conflict with Visual_Sync)
         annotations={"readOnlyHint": True},
     )
     registry.register(tool)

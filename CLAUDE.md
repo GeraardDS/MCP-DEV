@@ -61,7 +61,7 @@ Tool calls flow: MCP `call_tool()` -> input validation -> rate limiting -> `Tool
   - `operations/` - CRUD managers (table, column, measure, relationship, calculation group, RLS)
   - `dax/` - DAX analysis, injection, context debugging
   - `tmdl/` - TMDL parsing, validation, editing, script generation
-  - `pbip/` - Offline PBIP project analysis, report parsing, dependency engine
+  - `pbip/` - PBIP report analysis, parsing, dependency engine, filter/bookmark/theme/CF engines, page/visual/field operations, extension measures, visual calculations, authoring subsystem
   - `analysis/` - BPA analyzer, model analysis
   - `comparison/` - Model comparison orchestration
   - `config/` - Configuration management (default_config.json + local overrides)
@@ -86,7 +86,21 @@ def register_foo_handler(registry):
 
 ### Tool Categories and Deferred Loading
 
-Tools are grouped by `ToolCategory` enum in `server/registry.py` (CORE, MODEL, BATCH, QUERY, DAX, ANALYSIS, PBIP, DOCS, DEBUG). A pre-computed `_TOOL_TO_CATEGORY` reverse lookup provides O(1) category resolution. Tool names follow the pattern `NN_Tool_Name` where NN indicates category order.
+Tools are grouped by `ToolCategory` enum in `server/registry.py` (CORE, MODEL, BATCH, QUERY, DAX, ANALYSIS, PBIP, DOCS, DEBUG, AUTHORING). A pre-computed `_TOOL_TO_CATEGORY` reverse lookup provides O(1) category resolution. Tool names follow the pattern `NN_Tool_Name` where NN indicates category order.
+
+The PBIP category (07_*) was consolidated in v12 to provide comprehensive report manipulation:
+
+- `07_PBIP_Operations` — Model analysis, validation, comparison, docs, git_diff, full HTML report
+- `07_Report_Operations` — Report info, measure_usage, rename, rebind, backup, restore, schema discovery, extension measures
+- `07_Page_Operations` — Page CRUD, reorder, resize, display options, background, drillthrough, tooltip, interactions
+- `07_Visual_Operations` — Visual CRUD, position, formatting, alignment, field binding, sort, actions, code injection, slicer config, visual calcs, templates
+- `07_Visual_Sync` — Cross-visual: replace_measure, sync_visual, sync_column_widths, sync_formatting
+- `07_Filter_Operations` — Filter CRUD at report/page/visual level
+- `07_Bookmark_Operations` — Bookmark CRUD + HTML analysis
+- `07_Theme_Operations` — Theme colors, formatting, fonts, text classes, conditional formatting CRUD
+- `07_PBIP_Dependency_Analysis` — Interactive HTML dependency viewer
+- `07_Analyze_Aggregation` — Aggregation analysis
+- `SVG_Visual_Operations` — SVG measure templates (40+)
 
 ### Key Singletons
 
