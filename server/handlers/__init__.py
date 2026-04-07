@@ -13,14 +13,8 @@ from server.handlers.dax_context_handler import register_dax_handlers
 from server.handlers.user_guide_handler import register_user_guide_handlers
 from server.handlers.debug_handler import register_debug_handlers
 
-# Phase 1 Consolidated Operations (Tool Consolidation Plan)
-from server.handlers.table_operations_handler import register_table_operations_handler
-from server.handlers.column_operations_handler import register_column_operations_handler
-from server.handlers.measure_operations_handler import register_measure_operations_handler
-
-# Phase 2 Extended CRUD Operations
-from server.handlers.relationship_operations_handler import register_relationship_operations_handler
-from server.handlers.calculation_group_operations_handler import register_calculation_group_operations_handler
+# Unified model CRUD (replaces table/column/measure/relationship/calc_group handlers)
+from server.handlers.model_operations_handler import register_model_operations_handler
 
 # Phase 3 Batch Operations (transactions are internal-only, not a public tool)
 from server.handlers.batch_operations_handler import register_batch_operations_handler
@@ -43,14 +37,8 @@ def register_all_handlers(registry):
     """Register all handlers with the registry"""
     register_connection_handlers(registry)
 
-    # Phase 1: Consolidated operations (replaces parts of metadata handlers)
-    register_table_operations_handler(registry)
-    register_column_operations_handler(registry)
-    register_measure_operations_handler(registry)
-
-    # Phase 2: Extended CRUD operations
-    register_relationship_operations_handler(registry)
-    register_calculation_group_operations_handler(registry)
+    # Unified model CRUD (replaces table/column/measure/relationship/calc_group handlers)
+    register_model_operations_handler(registry)
 
     # Phase 3: Batch operations
     register_batch_operations_handler(registry)
