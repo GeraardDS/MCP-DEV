@@ -22,9 +22,8 @@ from server.handlers.measure_operations_handler import register_measure_operatio
 from server.handlers.relationship_operations_handler import register_relationship_operations_handler
 from server.handlers.calculation_group_operations_handler import register_calculation_group_operations_handler
 
-# Phase 3 Batch Operations & Transactions
+# Phase 3 Batch Operations (transactions are internal-only, not a public tool)
 from server.handlers.batch_operations_handler import register_batch_operations_handler
-from server.handlers.transaction_management_handler import register_transaction_management_handler
 
 # SVG Visual Generation
 from server.handlers.svg_handler import register_svg_operations_handler
@@ -53,9 +52,8 @@ def register_all_handlers(registry):
     register_relationship_operations_handler(registry)
     register_calculation_group_operations_handler(registry)
 
-    # Phase 3: Batch operations & transactions
+    # Phase 3: Batch operations
     register_batch_operations_handler(registry)
-    register_transaction_management_handler(registry)
 
     # Query & search
     register_query_handlers(registry)

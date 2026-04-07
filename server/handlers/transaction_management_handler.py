@@ -1,6 +1,8 @@
 """
 Transaction Management Handler
-Handles ACID transactions for atomic model changes
+INTERNAL ONLY — not exposed as a public MCP tool.
+Used by batch_operations_handler for transaction support.
+Transaction tracking is in-memory only (not true ACID).
 """
 from typing import Dict, Any
 import logging
