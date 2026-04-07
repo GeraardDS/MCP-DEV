@@ -37,8 +37,6 @@ class AnalysisOrchestrator(BaseOrchestrator):
         if measures.get('success'):
             for m in measures.get('rows', []):
                 name = m.get('Name') or ''
-                if ' ' in name and name.strip().endswith(')'):
-                    pass
                 # Example heuristic: discourage very short names
                 if len(name.strip()) < 2:
                     issues.append({'type': 'naming', 'severity': 'low', 'object': f"Measure:{name}", 'description': 'Very short measure name'})

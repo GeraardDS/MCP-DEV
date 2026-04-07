@@ -56,6 +56,9 @@ class PbipModelCache:
         result = self._parse_pbip(resolved)
 
         with self._lock:
+            # Double-check: another thread may have parsed while we were outside the lock
+            if cache_key in self._cache:
+                return self._cache[cache_key]
             # Evict old entries if at capacity
             if len(self._cache) >= self._max_entries:
                 oldest = next(iter(self._cache))

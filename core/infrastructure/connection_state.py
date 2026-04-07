@@ -5,6 +5,7 @@ Manages connection state and service initialization to avoid repeated initializa
 """
 
 import logging
+import time
 from typing import Any, Dict, Optional, Type, Tuple
 from core.config.config_manager import config
 import threading
@@ -154,7 +155,6 @@ class ConnectionState:
             return False
         if self._table_mapping_timestamp is None:
             return False
-        import time
         age = time.time() - self._table_mapping_timestamp
         return age <= self._table_mapping_ttl
 
@@ -168,51 +168,51 @@ class ConnectionState:
         Returns:
             Tuple of (id_by_name dict, name_by_id dict) or (None, None) on error
         """
-        # Return cached mappings if valid and not forcing refresh
-        if not refresh and self._is_table_mapping_cache_valid():
-            logger.debug(f"Table mappings cache hit ({len(self._table_id_by_name or {})} tables)")
-            return (self._table_id_by_name, self._table_name_by_id)
+        with self._init_lock:
+            # Return cached mappings if valid and not forcing refresh
+            if not refresh and self._is_table_mapping_cache_valid():
+                logger.debug(f"Table mappings cache hit ({len(self._table_id_by_name or {})} tables)")
+                return (self._table_id_by_name, self._table_name_by_id)
 
-        # Load fresh mappings
-        try:
-            if not self.query_executor:
-                logger.warning("Cannot load table mappings: query executor not initialized")
+            # Load fresh mappings
+            try:
+                if not self.query_executor:
+                    logger.warning("Cannot load table mappings: query executor not initialized")
+                    return (None, None)
+
+                logger.debug("Loading table mappings from INFO.TABLES()...")
+                # NOTE: No circular dependency here - INFO.TABLES() is a system function that
+                # doesn't require table name resolution, so validate_and_execute_dax() won't
+                # call _ensure_table_mappings() for this query
+                result = self.query_executor.validate_and_execute_dax("EVALUATE INFO.TABLES()", 0)
+
+                if not result.get('success'):
+                    logger.error(f"Failed to load table mappings: {result.get('error')}")
+                    return (None, None)
+
+                id_by_name: Dict[str, Any] = {}
+                name_by_id: Dict[Any, str] = {}
+
+                for row in result.get('rows', []):
+                    # Check bracketed keys FIRST since Power BI Desktop returns [ID] and [Name]
+                    name = row.get('[Name]') or row.get('Name') or row.get('[TABLE_NAME]') or row.get('TABLE_NAME')
+                    tid = row.get('[ID]') or row.get('ID') or row.get('[TableID]') or row.get('TableID')
+
+                    if name is not None and tid is not None:
+                        id_by_name[name] = tid
+                        name_by_id[tid] = name
+
+                # Update cache with timestamp
+                self._table_id_by_name = id_by_name
+                self._table_name_by_id = name_by_id
+                self._table_mapping_timestamp = time.time()
+
+                logger.info(f"Table mappings loaded and cached: {len(id_by_name)} tables (TTL: {self._table_mapping_ttl}s)")
+                return (self._table_id_by_name, self._table_name_by_id)
+
+            except Exception as e:
+                logger.error(f"Error loading table mappings: {e}")
                 return (None, None)
-
-            logger.debug("Loading table mappings from INFO.TABLES()...")
-            # NOTE: No circular dependency here - INFO.TABLES() is a system function that
-            # doesn't require table name resolution, so validate_and_execute_dax() won't
-            # call _ensure_table_mappings() for this query
-            result = self.query_executor.validate_and_execute_dax("EVALUATE INFO.TABLES()", 0)
-
-            if not result.get('success'):
-                logger.error(f"Failed to load table mappings: {result.get('error')}")
-                return (None, None)
-
-            id_by_name: Dict[str, Any] = {}
-            name_by_id: Dict[Any, str] = {}
-
-            for row in result.get('rows', []):
-                # Check bracketed keys FIRST since Power BI Desktop returns [ID] and [Name]
-                name = row.get('[Name]') or row.get('Name') or row.get('[TABLE_NAME]') or row.get('TABLE_NAME')
-                tid = row.get('[ID]') or row.get('ID') or row.get('[TableID]') or row.get('TableID')
-
-                if name is not None and tid is not None:
-                    id_by_name[name] = tid
-                    name_by_id[tid] = name
-
-            # Update cache with timestamp
-            import time
-            self._table_id_by_name = id_by_name
-            self._table_name_by_id = name_by_id
-            self._table_mapping_timestamp = time.time()
-
-            logger.info(f"Table mappings loaded and cached: {len(id_by_name)} tables (TTL: {self._table_mapping_ttl}s)")
-            return (self._table_id_by_name, self._table_name_by_id)
-
-        except Exception as e:
-            logger.error(f"Error loading table mappings: {e}")
-            return (None, None)
 
     def invalidate_table_mappings(self) -> Dict[str, Any]:
         """
@@ -223,12 +223,13 @@ class ConnectionState:
             Status dictionary with invalidation result
         """
         try:
-            had_cache = self._table_id_by_name is not None
-            table_count = len(self._table_id_by_name) if self._table_id_by_name else 0
+            with self._init_lock:
+                had_cache = self._table_id_by_name is not None
+                table_count = len(self._table_id_by_name) if self._table_id_by_name else 0
 
-            self._table_id_by_name = None
-            self._table_name_by_id = None
-            self._table_mapping_timestamp = None
+                self._table_id_by_name = None
+                self._table_name_by_id = None
+                self._table_mapping_timestamp = None
 
             if had_cache:
                 logger.info(f"Table mapping cache invalidated ({table_count} tables)")
@@ -299,8 +300,8 @@ class ConnectionState:
                     # Register history logger to capture executions
                     try:
                         self.query_executor.set_history_logger(self._history_logger)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to set history logger: {e}")
                     logger.info("[OK] Query executor initialized")
 
                 # Initialize other managers
@@ -439,41 +440,42 @@ class ConnectionState:
     
     def cleanup(self):
         """Clean up connection state and managers."""
-        self.query_executor = None
-        self.dax_injector = None
-        self.bpa_analyzer = None
-        self.dependency_analyzer = None
-        self.bulk_operations = None
-        self.calc_group_manager = None
-        self.partition_manager = None
-        self.rls_manager = None
-        self.table_crud_manager = None
-        self.column_crud_manager = None
-        self.measure_crud_manager = None
-        self.relationship_crud_manager = None
-        self.model_exporter = None
-        self.performance_optimizer = None
-        self.model_validator = None
-        self.agent_policy = None
+        with self._init_lock:
+            self.query_executor = None
+            self.dax_injector = None
+            self.bpa_analyzer = None
+            self.dependency_analyzer = None
+            self.bulk_operations = None
+            self.calc_group_manager = None
+            self.partition_manager = None
+            self.rls_manager = None
+            self.table_crud_manager = None
+            self.column_crud_manager = None
+            self.measure_crud_manager = None
+            self.relationship_crud_manager = None
+            self.model_exporter = None
+            self.performance_optimizer = None
+            self.model_validator = None
+            self.agent_policy = None
 
-        self._is_connected = False
-        self._connection_info = None
-        self._managers_initialized = False
+            self._is_connected = False
+            self._connection_info = None
+            self._managers_initialized = False
 
-        # Clear table mapping cache
-        self._table_id_by_name = None
-        self._table_name_by_id = None
-        self._table_mapping_timestamp = None
+            # Clear table mapping cache
+            self._table_id_by_name = None
+            self._table_name_by_id = None
+            self._table_mapping_timestamp = None
 
-        # Clear trace result cache
-        self._last_trace_result = None
-        self._last_trace_timestamp = None
+            # Clear trace result cache
+            self._last_trace_result = None
+            self._last_trace_timestamp = None
 
-        # Clear PBIP path information
-        self._pbip_folder_path = None
-        self._file_full_path = None
-        self._file_type = None
-        self._pbip_path_source = 'none'
+            # Clear PBIP path information
+            self._pbip_folder_path = None
+            self._file_full_path = None
+            self._file_type = None
+            self._pbip_path_source = 'none'
 
         logger.info("Connection state cleaned up")
 
@@ -543,9 +545,8 @@ class ConnectionState:
         """Internal callback used by query executor to log execution metadata."""
         try:
             # Attach timestamp and minimal connection hint
-            import time as _t
             entry = dict(entry or {})
-            entry.setdefault('ts', _t.time())
+            entry.setdefault('ts', time.time())
             try:
                 if self.connection_manager:
                     info = self.connection_manager.get_instance_info() or {}
@@ -610,18 +611,18 @@ class ConnectionState:
     # ---- Trace result cache (auto-passed to optimize) ----
     def store_trace_result(self, trace_data: Dict[str, Any]) -> None:
         """Cache trace result for auto-retrieval by optimize."""
-        import time
-        self._last_trace_result = trace_data
-        self._last_trace_timestamp = time.time()
+        with self._init_lock:
+            self._last_trace_result = trace_data
+            self._last_trace_timestamp = time.time()
 
     def get_cached_trace_result(self, max_age_seconds: int = 300) -> Optional[Dict[str, Any]]:
         """Get cached trace result if still fresh (default 5 min TTL)."""
-        if self._last_trace_result is None or self._last_trace_timestamp is None:
-            return None
-        import time
-        if time.time() - self._last_trace_timestamp > max_age_seconds:
-            return None
-        return self._last_trace_result
+        with self._init_lock:
+            if self._last_trace_result is None or self._last_trace_timestamp is None:
+                return None
+            if time.time() - self._last_trace_timestamp > max_age_seconds:
+                return None
+            return self._last_trace_result
 
     # ---- Context helpers ----
     def set_context(self, data: Dict[str, Any]) -> Dict[str, Any]:

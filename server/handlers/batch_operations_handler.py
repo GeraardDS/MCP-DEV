@@ -65,7 +65,8 @@ def register_batch_operations_handler(registry):
             "required": ["operation", "batch_operation", "items"]
         },
         category="batch",
-        sort_order=30  # 03 = Batch & Transactions
+        sort_order=30,  # 03 = Batch & Transactions
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     )
 
     registry.register(tool)

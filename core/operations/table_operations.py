@@ -4,6 +4,7 @@ Consolidates: list_tables, describe_table + new CRUD operations
 
 Refactored to use validation utilities for reduced code duplication.
 """
+from datetime import datetime
 from typing import Dict, Any
 import logging
 from .base_operations import BaseOperationsHandler
@@ -42,6 +43,7 @@ class TableOperationsHandler(BaseOperationsHandler):
         self.register_operation('delete', self._delete_table)
         self.register_operation('rename', self._rename_table)
         self.register_operation('refresh', self._refresh_table)
+        self.register_operation('generate_calendar', self._generate_calendar)
 
     def _list_tables(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """List all tables in the model"""
@@ -238,3 +240,138 @@ class TableOperationsHandler(BaseOperationsHandler):
             return error
 
         return table_crud.refresh_table(table_name)
+
+    @staticmethod
+    def _generate_calendar_dax(
+        start_year: int,
+        end_year: int,
+        include_fiscal: bool = False,
+        fiscal_start_month: int = 7,
+    ) -> str:
+        """Build DAX expression for a standard calendar calculated table."""
+        base_dax = (
+            f'ADDCOLUMNS(\n'
+            f'    CALENDAR(DATE({start_year}, 1, 1), DATE({end_year}, 12, 31)),\n'
+            f'    "Year", YEAR([Date]),\n'
+            f'    "Quarter", "Q" & CEILING(MONTH([Date]) / 3, 1),\n'
+            f'    "YearQuarter", YEAR([Date]) & "-Q" & CEILING(MONTH([Date]) / 3, 1),\n'
+            f'    "Month", MONTH([Date]),\n'
+            f'    "MonthName", FORMAT([Date], "MMMM"),\n'
+            f'    "MonthShort", FORMAT([Date], "MMM"),\n'
+            f'    "YearMonth", FORMAT([Date], "YYYY-MM"),\n'
+            f'    "Day", DAY([Date]),\n'
+            f'    "DayOfWeek", WEEKDAY([Date], 2),\n'
+            f'    "DayName", FORMAT([Date], "dddd"),\n'
+            f'    "WeekNumber", WEEKNUM([Date], 2),\n'
+            f'    "IsWeekend", IF(WEEKDAY([Date], 2) > 5, TRUE(), FALSE()),\n'
+            f'    "IsCurrentYear", IF(YEAR([Date]) = YEAR(TODAY()), TRUE(), FALSE()),\n'
+            f'    "IsCurrentMonth", IF(YEAR([Date]) = YEAR(TODAY()) && MONTH([Date]) = MONTH(TODAY()), TRUE(), FALSE())'
+        )
+
+        if include_fiscal:
+            base_dax += (
+                f',\n'
+                f'    "FiscalYear", IF(MONTH([Date]) >= {fiscal_start_month}, YEAR([Date]) + 1, YEAR([Date])),\n'
+                f'    "FiscalQuarter", "FQ" & CEILING((MOD(MONTH([Date]) - {fiscal_start_month} + 12, 12) + 1) / 3, 1),\n'
+                f'    "FiscalMonth", MOD(MONTH([Date]) - {fiscal_start_month} + 12, 12) + 1'
+            )
+
+        base_dax += '\n)'
+        return base_dax
+
+    def _generate_calendar(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate a standard DAX calendar (date) table."""
+        # Get manager with connection check
+        table_crud = get_manager_or_error('table_crud_manager')
+        if isinstance(table_crud, dict):  # Error response
+            return table_crud
+
+        current_year = datetime.now().year
+        table_name = args.get('table_name', 'Date')
+        start_year = args.get('start_year', current_year - 5)
+        end_year = args.get('end_year', current_year + 2)
+        include_fiscal = args.get('include_fiscal', False)
+        fiscal_start_month = args.get('fiscal_start_month', 7)
+
+        # Validate year range
+        if start_year > end_year:
+            return {
+                'success': False,
+                'error': f'start_year ({start_year}) must be <= end_year ({end_year})',
+                'error_type': 'invalid_parameters',
+            }
+
+        if fiscal_start_month < 1 or fiscal_start_month > 12:
+            return {
+                'success': False,
+                'error': f'fiscal_start_month must be 1-12, got {fiscal_start_month}',
+                'error_type': 'invalid_parameters',
+            }
+
+        # Build the DAX expression
+        dax_expression = self._generate_calendar_dax(
+            start_year, end_year, include_fiscal, fiscal_start_month
+        )
+
+        # Create the calculated table
+        result = table_crud.create_table(
+            table_name=table_name,
+            description=f"Calendar table ({start_year}-{end_year})"
+            + (f", fiscal year starting month {fiscal_start_month}" if include_fiscal else ""),
+            expression=dax_expression,
+            hidden=False,
+        )
+
+        if not result.get('success'):
+            return result
+
+        # Try to mark as date table (set IsDateTable property via TOM)
+        mark_result = self._mark_as_date_table(table_crud, table_name)
+
+        result['calendar_info'] = {
+            'start_year': start_year,
+            'end_year': end_year,
+            'include_fiscal': include_fiscal,
+            'fiscal_start_month': fiscal_start_month if include_fiscal else None,
+            'marked_as_date_table': mark_result.get('success', False),
+        }
+        if not mark_result.get('success'):
+            result['calendar_info']['mark_date_table_note'] = mark_result.get('note', '')
+
+        return result
+
+    @staticmethod
+    def _mark_as_date_table(table_crud, table_name: str) -> Dict[str, Any]:
+        """Attempt to mark the table as a date table via TOM."""
+        try:
+            server, db, model = table_crud._get_server_db_model()
+            if not model:
+                return {'success': False, 'note': 'Could not connect to mark as date table'}
+
+            try:
+                table = next((t for t in model.Tables if t.Name == table_name), None)
+                if not table:
+                    return {'success': False, 'note': f"Table '{table_name}' not found for date table marking"}
+
+                # Find the Date column
+                date_col = next((c for c in table.Columns if c.Name == "Date"), None)
+                if not date_col:
+                    return {'success': False, 'note': "Date column not found in generated table"}
+
+                # Set the Date column as the key column for the date table
+                from Microsoft.AnalysisServices.Tabular import DataType, ObjectType
+                table.DataCategory = "Time"
+                date_col.IsKey = True
+
+                model.SaveChanges()
+                return {'success': True}
+
+            finally:
+                try:
+                    server.Disconnect()
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.warning(f"Could not mark '{table_name}' as date table: {e}")
+            return {'success': False, 'note': f'Could not mark as date table: {e}'}

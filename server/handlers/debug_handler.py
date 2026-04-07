@@ -9,11 +9,13 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from server.registry import ToolDefinition
+from server.progress import emit_progress
 from core.infrastructure.connection_state import connection_state
 from core.validation.error_handler import ErrorHandler
 from core.config.config_manager import config
@@ -32,6 +34,7 @@ VARIABLE_TRUNCATION_CHARS = config.get("debug.variable_truncation_chars", 100)
 # Module-level VQB cache — avoids rebuilding PBIP per call
 # Key: pbip_path, Value: (builder, timestamp)
 _vqb_cache: Dict[str, tuple] = {}
+_vqb_cache_lock = threading.Lock()
 _VQB_CACHE_TTL = config.get("debug.vqb_cache_ttl_seconds", 300)
 
 
@@ -208,21 +211,23 @@ def _get_visual_query_builder():
         )
 
     now = time.time()
-    cached = _vqb_cache.get(pbip_folder)
-    if cached is not None:
-        builder, ts = cached
-        if (now - ts) < _VQB_CACHE_TTL:
-            return builder, None
+    with _vqb_cache_lock:
+        cached = _vqb_cache.get(pbip_folder)
+        if cached is not None:
+            builder, ts = cached
+            if (now - ts) < _VQB_CACHE_TTL:
+                return builder, None
 
-    # Path changed — clear stale entries for other paths
-    if _vqb_cache and pbip_folder not in _vqb_cache:
-        _vqb_cache.clear()
+        # Path changed — clear stale entries for other paths
+        if _vqb_cache and pbip_folder not in _vqb_cache:
+            _vqb_cache.clear()
 
     try:
         from core.debug.visual_query_builder import VisualQueryBuilder
 
         builder = VisualQueryBuilder(pbip_folder)
-        _vqb_cache[pbip_folder] = (builder, now)
+        with _vqb_cache_lock:
+            _vqb_cache[pbip_folder] = (builder, now)
         return builder, None
     except Exception as e:
         return None, f"Error initializing VisualQueryBuilder: {e}"
@@ -802,6 +807,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
         clear_cache = args.get("clear_cache", True)
 
         # Get builder — needed for all operations
+        emit_progress(1, 5, "Discovering visual...")
         builder, error = _get_visual_query_builder()
         if error:
             return {"success": False, "error": error}
@@ -844,6 +850,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
             }
 
         # Step 2: Build filter context and base response
+        emit_progress(2, 5, "Building filters...")
         pbip_freshness = _check_pbip_freshness(connection_state.get_pbip_folder_path())
         ctx = _build_filter_context(
             builder, result, page_name, compact, include_slicers, pbip_freshness
@@ -851,11 +858,13 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
         response = ctx["response"]
 
         # Step 3: Apply manual filter overrides
+        emit_progress(3, 5, "Applying filter overrides...")
         query_to_execute = _apply_manual_filters(
             args, result, builder, response, ctx["data_filters"], result.dax_query
         )
 
         # Step 4: Execute query + advanced analysis
+        emit_progress(4, 5, "Executing DAX query...")
         _execute_visual_query(
             query_to_execute,
             response,
@@ -871,6 +880,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
             clear_cache=clear_cache,
         )
 
+        emit_progress(5, 5, "Complete")
         return response
 
     except Exception as e:
@@ -978,7 +988,8 @@ def handle_compare_measures(args: Dict[str, Any]) -> Dict[str, Any]:
                 orig_num = float(original_value)
                 opt_num = float(optimized_value)
                 difference = opt_num - orig_num
-                values_match = abs(difference) < 0.001  # Small tolerance for floating point
+                threshold = args.get("tolerance", 0.001)
+                values_match = abs(difference) < threshold
             except (ValueError, TypeError):
                 values_match = str(original_value) == str(optimized_value)
                 difference = "N/A (non-numeric)"
@@ -1023,63 +1034,6 @@ def handle_compare_measures(args: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in compare_measures: {e}", exc_info=True)
         return ErrorHandler.handle_unexpected_error("compare_measures", e)
-
-
-def handle_list_slicers(args: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    List all slicers and their current saved selections.
-
-    Shows which values are selected in each slicer (from saved PBIP state).
-    """
-    try:
-        page_name = args.get("page_name")
-        compact = args.get("compact", True)
-
-        builder, error = _get_visual_query_builder()
-        if error:
-            return {"success": False, "error": error}
-
-        slicers = builder.list_slicers(page_name)
-
-        if compact:
-            # Compact mode: minimal info per slicer
-            slicer_list = [
-                {
-                    "field": s.field_reference,
-                    "values": (
-                        s.selected_values[:5] if s.selected_values else []
-                    ),  # Limit to 5 values
-                    "count": len(s.selected_values) if len(s.selected_values) > 5 else None,
-                }
-                for s in slicers
-            ]
-            return {"success": True, "slicers": slicer_list, "total": len(slicer_list)}
-        else:
-            # Verbose mode: full details
-            slicer_list = [
-                {
-                    "id": s.slicer_id,
-                    "page": s.page_name,
-                    "field": s.field_reference,
-                    "table": s.table,
-                    "column": s.column,
-                    "selection_mode": s.selection_mode,
-                    "is_inverted": s.is_inverted,
-                    "selected_values": s.selected_values,
-                    "value_count": len(s.selected_values),
-                }
-                for s in slicers
-            ]
-            return {
-                "success": True,
-                "slicers": slicer_list,
-                "count": len(slicer_list),
-                "pbip_path": connection_state.pbip_path,
-            }
-
-    except Exception as e:
-        logger.error(f"Error in list_slicers: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error("list_slicers", e)
 
 
 def handle_drill_to_detail(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -2392,7 +2346,7 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
         if not qe:
             response["result"] = {"error": "Query executor not available"}
         else:
-            exec_result = qe.validate_and_execute_dax(query, top_n=0)
+            exec_result = qe.validate_and_execute_dax(query, top_n=args.get("top_n", 1000))
             response["result"] = exec_result
             if not exec_result.get("success"):
                 response["success"] = False
@@ -3379,7 +3333,7 @@ def _audit_single_page(builder, qe, page_name: str, args: Dict[str, Any]) -> Dic
         visuals = builder.list_visuals(page_name)
     except Exception as e:
         return {
-            "ok": False,
+            "success": False,
             "page": page_name,
             "status": "error",
             "error": str(e)[:200],
@@ -3394,7 +3348,7 @@ def _audit_single_page(builder, qe, page_name: str, args: Dict[str, Any]) -> Dic
 
     if not data_visuals:
         return {
-            "ok": True,
+            "success": True,
             "page": page_name,
             "status": "no_data_visuals",
             "total_visuals": len(visuals),
@@ -3451,7 +3405,7 @@ def _audit_single_page(builder, qe, page_name: str, args: Dict[str, Any]) -> Dic
     elapsed = round(time.time() - start_time, 1)
 
     return {
-        "ok": True,
+        "success": True,
         "page": page_name,
         "status": "audited",
         "visuals_total": len(data_visuals),
@@ -3487,14 +3441,14 @@ def handle_audit(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         builder, error = _get_visual_query_builder()
         if error:
-            return {"ok": False, "err": error}
+            return {"success": False, "error": error}
 
         if not connection_state.is_connected():
-            return {"ok": False, "err": "Not connected to Power BI Desktop"}
+            return {"success": False, "error": "Not connected to Power BI Desktop"}
 
         qe = connection_state.query_executor
         if not qe:
-            return {"ok": False, "err": "Query executor not available"}
+            return {"success": False, "error": "Query executor not available"}
 
         # --- Mode 1: Single page audit (page_name) ---
         single_page = args.get("page_name")
@@ -3504,8 +3458,8 @@ def handle_audit(args: Dict[str, Any]) -> Dict[str, Any]:
             page_match = [p for p in all_pages if p["name"].lower() == single_page.lower()]
             if not page_match:
                 return {
-                    "ok": False,
-                    "err": f"Page '{single_page}' not found",
+                    "success": False,
+                    "error": f"Page '{single_page}' not found",
                     "available_pages": [p["name"] for p in all_pages],
                 }
             return _audit_single_page(builder, qe, page_match[0]["name"], args)
@@ -3538,7 +3492,7 @@ def handle_audit(args: Dict[str, Any]) -> Dict[str, Any]:
                         "error": str(e)[:200],
                     })
             return {
-                "ok": True,
+                "success": True,
                 "mode": "discovery",
                 "total_pages": len(all_pages),
                 "pages": page_inventory,
@@ -3550,11 +3504,11 @@ def handle_audit(args: Dict[str, Any]) -> Dict[str, Any]:
         pages_to_audit = [p for p in all_pages if p["name"].lower() in target_lower]
 
         if not pages_to_audit:
-            return {"ok": False, "err": "No pages found to audit", "available_pages": [p["name"] for p in all_pages]}
+            return {"success": False, "error": "No pages found to audit", "available_pages": [p["name"] for p in all_pages]}
 
         # Run audit
         audit_report = {
-            "ok": True,
+            "success": True,
             "pages_audited": 0,
             "visuals_audited": 0,
             "visuals_ok": 0,
@@ -3812,10 +3766,11 @@ def register_debug_handlers(registry):
                         "description": "Additional visual types to skip (audit). Extends built-in skip list.",
                     },
                 },
-                "required": [],
+                "required": ["operation"],
             },
             category="debug",
             sort_order=90,
+            annotations={"readOnlyHint": True},
         ),
         ToolDefinition(
             name="09_Debug_Config",
@@ -3832,10 +3787,11 @@ def register_debug_handlers(registry):
                     "pbip_path": {"type": "string", "description": "PBIP folder path"},
                     "compact": {"type": "boolean"},
                 },
-                "required": [],
+                "required": ["operation"],
             },
             category="debug",
             sort_order=91,
+            annotations={"readOnlyHint": True},
         ),
         ToolDefinition(
             name="09_Validate",
@@ -3862,6 +3818,7 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=92,
+            annotations={"readOnlyHint": True},
         ),
         ToolDefinition(
             name="09_Profile",
@@ -3883,6 +3840,7 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=93,
+            annotations={"readOnlyHint": True},
         ),
         ToolDefinition(
             name="09_Document",
@@ -3904,6 +3862,7 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=94,
+            annotations={"readOnlyHint": False},
         ),
         ToolDefinition(
             name="09_Advanced_Analysis",
@@ -3935,6 +3894,7 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=95,
+            annotations={"readOnlyHint": True},
         ),
     ]
 

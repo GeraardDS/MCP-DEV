@@ -95,7 +95,8 @@ def register_column_operations_handler(registry):
             "required": ["operation"]
         },
         category="model",
-        sort_order=21  # 02 = Model Operations
+        sort_order=21,  # 02 = Model Operations
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     )
 
     registry.register(tool)

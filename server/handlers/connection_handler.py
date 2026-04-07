@@ -103,7 +103,8 @@ def register_connection_handlers(registry):
                 "required": []
             },
             category="core",
-            sort_order=10
+            sort_order=10,
+            annotations={"readOnlyHint": True},
         ),
         ToolDefinition(
             name="01_Connect_To_Instance",
@@ -117,7 +118,8 @@ def register_connection_handlers(registry):
                 "required": []
             },
             category="core",
-            sort_order=11
+            sort_order=11,
+            annotations={"readOnlyHint": False, "idempotentHint": True},
         ),
     ]
 

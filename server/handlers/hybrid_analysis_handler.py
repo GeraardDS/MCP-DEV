@@ -110,7 +110,8 @@ def register_hybrid_analysis_handlers(registry):
         handler=handle_generate_pbip_dependency_diagram,
         input_schema=TOOL_SCHEMAS.get('pbip_dependency_analysis', {}),
         category='pbip',
-        sort_order=72  # 07 = PBIP Analysis
+        sort_order=72,  # 07 = PBIP Analysis
+        annotations={"readOnlyHint": True},
     ))
 
     logger.info("Registered 1 hybrid analysis handler")

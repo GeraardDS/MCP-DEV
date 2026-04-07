@@ -869,7 +869,8 @@ def register_report_info_handler(registry):
         handler=handle_report_info,
         input_schema=TOOL_SCHEMAS.get('report_info', {}),
         category="pbip",
-        sort_order=71  # 07 = PBIP Analysis
+        sort_order=71,  # 07 = PBIP Analysis
+        annotations={"readOnlyHint": True},
     )
     registry.register(tool)
 

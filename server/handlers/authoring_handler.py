@@ -10,23 +10,9 @@ from pathlib import Path
 from typing import Any, Dict
 
 from server.registry import ToolDefinition
+from core.utilities.pbip_utils import resolve_definition_path
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_definition_path(pbip_path: str) -> Dict[str, Any]:
-    """Resolve and validate the definition path from a PBIP path."""
-    from core.utilities.pbip_utils import find_definition_folder
-
-    definition_path = find_definition_folder(pbip_path)
-    if not definition_path:
-        return {
-            "error": (
-                f"Could not find definition folder in: {pbip_path}."
-                " Ensure path points to a valid PBIP project."
-            )
-        }
-    return {"path": definition_path}
 
 
 def handle_pbip_authoring(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -66,7 +52,7 @@ def _op_clone_page(args: Dict[str, Any], pbip_path: str) -> Dict[str, Any]:
     """Clone a page with all visuals, regenerating IDs."""
     from core.pbip.authoring.clone_engine import CloneEngine
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if "error" in resolved:
         return {"success": False, **resolved}
 
@@ -114,7 +100,7 @@ def _op_create_page(args: Dict[str, Any], pbip_path: str) -> Dict[str, Any]:
     """Create a new empty page."""
     from core.pbip.authoring.page_builder import PageBuilder
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if "error" in resolved:
         return {"success": False, **resolved}
 
@@ -139,7 +125,7 @@ def _op_create_visual(args: Dict[str, Any], pbip_path: str) -> Dict[str, Any]:
     """Create a new visual on a page from a template spec."""
     from core.pbip.authoring.visual_builder import VisualBuilder
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if "error" in resolved:
         return {"success": False, **resolved}
 
@@ -234,7 +220,7 @@ def _op_create_visual_group(args: Dict[str, Any], pbip_path: str) -> Dict[str, A
     """Create a visual group container on a page."""
     from core.pbip.authoring.visual_builder import VisualBuilder
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if "error" in resolved:
         return {"success": False, **resolved}
 
@@ -287,7 +273,7 @@ def _op_delete_page(args: Dict[str, Any], pbip_path: str) -> Dict[str, Any]:
     """Delete a page and update pages.json."""
     from core.pbip.authoring.clone_engine import CloneEngine
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if "error" in resolved:
         return {"success": False, **resolved}
 
@@ -305,7 +291,7 @@ def _op_delete_visual(args: Dict[str, Any], pbip_path: str) -> Dict[str, Any]:
     """Delete a visual (and children if it's a group)."""
     from core.pbip.authoring.clone_engine import CloneEngine
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if "error" in resolved:
         return {"success": False, **resolved}
 
@@ -555,5 +541,6 @@ def register_authoring_handler(registry):
             input_schema=AUTHORING_SCHEMA,
             category="authoring",
             sort_order=1100,
+            annotations={"readOnlyHint": False, "destructiveHint": True},
         )
     )

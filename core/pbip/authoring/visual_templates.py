@@ -29,8 +29,6 @@ def _bool_literal(value: bool) -> Dict[str, Any]:
 
 def _number_literal(value: float) -> Dict[str, Any]:
     """Helper: wrap a number in Power BI's D-suffixed Literal format."""
-    if isinstance(value, int):
-        return _literal(f"{value}D")
     return _literal(f"{value}D")
 
 

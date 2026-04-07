@@ -21,18 +21,18 @@ def register_table_operations_handler(registry):
 
     tool = ToolDefinition(
         name="02_Table_Operations",
-        description="Unified table CRUD: list, describe, sample_data, create, update, delete, refresh.",
+        description="Unified table CRUD: list, describe, sample_data, create, update, delete, refresh, generate_calendar.",
         handler=handle_table_operations,
         input_schema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["list", "describe", "sample_data", "create", "update", "delete", "refresh"],
+                    "enum": ["list", "describe", "sample_data", "create", "update", "delete", "refresh", "generate_calendar"],
                 },
                 "table_name": {
                     "type": "string",
-                    "description": "Table name (required for all ops except list)"
+                    "description": "Table name (required for most ops except list; default 'Date' for generate_calendar)"
                 },
                 "new_name": {
                     "type": "string",
@@ -88,12 +88,29 @@ def register_table_operations_handler(registry):
                 "next_token": {
                     "type": "string",
                     "description": "Pagination token (list)"
+                },
+                "start_year": {
+                    "type": "integer",
+                    "description": "Start year for calendar (generate_calendar, default: current year - 5)"
+                },
+                "end_year": {
+                    "type": "integer",
+                    "description": "End year for calendar (generate_calendar, default: current year + 2)"
+                },
+                "include_fiscal": {
+                    "type": "boolean",
+                    "description": "Include fiscal year columns (generate_calendar, default: false)"
+                },
+                "fiscal_start_month": {
+                    "type": "integer",
+                    "description": "Fiscal year start month 1-12 (generate_calendar, default: 7 for July)"
                 }
             },
             "required": ["operation"]
         },
         category="model",
-        sort_order=20
+        sort_order=20,
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     )
 
     registry.register(tool)

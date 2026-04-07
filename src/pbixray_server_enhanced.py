@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, List
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, ImageContent, Resource
+from mcp.types import Tool, TextContent, ImageContent, Resource, Prompt, GetPromptResult
 
 # Add parent directory to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +39,17 @@ from server.registry import get_registry
 from server.dispatch import ToolDispatcher
 from server.handlers import register_all_handlers
 from server.resources import get_resource_manager
+from server.prompts import get_prompts, get_prompt_messages
+
+
+class _ToolError(Exception):
+    """Raised to signal an error response to the MCP framework.
+
+    The MCP SDK's call_tool decorator catches exceptions and wraps them in
+    CallToolResult(isError=True). By raising this with the JSON error text,
+    we get proper isError signaling without bypassing the framework.
+    """
+    pass
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("mcp_powerbi_finvision")
@@ -131,17 +142,33 @@ async def read_resource(uri: str) -> str:
         raise ValueError(f"Failed to read resource {uri}: {str(e)}")
 
 
+@app.list_prompts()
+async def list_prompts() -> List[Prompt]:
+    """List all available prompt templates"""
+    return get_prompts()
+
+
+@app.get_prompt()
+async def get_prompt(name: str, arguments: dict[str, str] | None = None) -> GetPromptResult:
+    """Get a prompt template by name with substituted arguments"""
+    return get_prompt_messages(name, arguments or {})
+
+
 @app.call_tool()
 async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageContent]:
     """Execute tool via dispatcher"""
     try:
         _t0 = time.time()
 
+        # Strip _meta from arguments if present (some MCP clients send it inside arguments)
+        if isinstance(arguments, dict):
+            arguments.pop('_meta', None)
+
         # Fast path: Skip validation for read-only metadata tools (5-15% speedup)
         fast_path_tools = {
             'list_tables', 'list_columns', 'list_measures', 'list_relationships',
-            'detect_powerbi_desktop', '02_Table_Operations', '02_Column_Operations',
-            '02_Measure_Operations', '03_List_Relationships', '01_Detect_PBI_Instances'
+            'detect_powerbi_desktop', '03_List_Relationships', '01_Detect_PBI_Instances',
+            '10_Show_User_Guide'
         }
 
         needs_validation = name not in fast_path_tools
@@ -151,29 +178,29 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
             if 'table' in arguments:
                 is_valid, error = InputValidator.validate_table_name(arguments['table'])
                 if not is_valid:
-                    return [TextContent(type="text", text=json.dumps({
+                    raise _ToolError(json.dumps({
                         'success': False,
                         'error': error,
                         'error_type': 'invalid_input'
-                    }, separators=(',', ':')))]
+                    }, separators=(',', ':')))
 
             if 'query' in arguments:
                 is_valid, error = InputValidator.validate_dax_query(arguments['query'])
                 if not is_valid:
-                    return [TextContent(type="text", text=json.dumps({
+                    raise _ToolError(json.dumps({
                         'success': False,
                         'error': error,
                         'error_type': 'invalid_input'
-                    }, separators=(',', ':')))]
+                    }, separators=(',', ':')))
 
         # Rate limiting (only check if enabled and tool has limit)
         if rate_limiter and rate_limiter.enabled and not rate_limiter.allow_request(name):
-            return [TextContent(type="text", text=json.dumps({
+            raise _ToolError(json.dumps({
                 'success': False,
                 'error': 'Rate limit exceeded',
                 'error_type': 'rate_limit',
                 'retry_after': rate_limiter.get_retry_after(name)
-            }, separators=(',', ':')))]
+            }, separators=(',', ':')))
 
         # Dispatch to handler (async to avoid blocking the event loop)
         result = await dispatcher.dispatch_async(name, arguments)
@@ -203,7 +230,7 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
                     }
                     if name in high_token_tools:
                         token_info = result['_limits_info']['token_usage']
-                        return [TextContent(type="text", text=json.dumps({
+                        raise _ToolError(json.dumps({
                             'ok': False,
                             'err': (
                                 f"Response blocked: {token_info['estimated_tokens']:,} tokens "
@@ -211,7 +238,7 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
                             ),
                             'err_type': 'token_limit_exceeded',
                             'fix': "Use summary_only=true, pagination (limit/offset), or export to file"
-                        }, separators=(',', ':')))]
+                        }, separators=(',', ':')))
 
                 # Add optimization suggestions (only for large results)
                 suggestion = agent_policy.suggest_optimizations(name, result)
@@ -271,6 +298,11 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
 
             return [TextContent(type="text", text=text_output)]
 
+        # Detect error responses from handlers (success=False or ok=False)
+        _is_error = False
+        if isinstance(result, dict):
+            _is_error = result.get('success') is False or result.get('ok') is False
+
         # Apply key compaction before final serialization (15-25% token savings)
         if isinstance(result, dict):
             from server.middleware import compact_keys
@@ -329,13 +361,19 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
                 logger.warning(f"Failed to spill large output to file: {e}")
                 # Fall through with original final_text
 
+        # Signal errors via _ToolError so the MCP framework sets isError=True
+        if _is_error:
+            raise _ToolError(final_text)
+
         return [TextContent(type="text", text=final_text)]
 
+    except _ToolError:
+        raise  # Let _ToolError propagate to the MCP framework for isError=True
     except Exception as e:
         logger.error(f"Error in {name}: {e}", exc_info=True)
-        return [TextContent(type="text", text=json.dumps(
+        raise _ToolError(json.dumps(
             ErrorHandler.handle_unexpected_error(name, e), separators=(',', ':')
-        ))]
+        ))
 
 
 async def main():

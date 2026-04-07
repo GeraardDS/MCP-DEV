@@ -75,8 +75,8 @@ class AnomalyDetector:
     # Configurable thresholds
     NULL_THRESHOLD_PCT = 0.5      # Warn if >50% nulls
     NULL_PRESENCE_PCT = 0.1       # Info if >10% nulls (presence check)
-    IQR_MULTIPLIER = 1.5          # Standard IQR outlier detection
-    MIN_ROWS_FOR_STATS = 5        # Minimum rows for statistical analysis
+    IQR_MULTIPLIER = 3.0          # Wider IQR bound to reduce false positives on financial data
+    MIN_ROWS_FOR_STATS = 10       # Minimum rows for statistical analysis
     HIGH_VARIANCE_CV = 2.0        # Coefficient of variation threshold
 
     # Columns that should typically be non-negative

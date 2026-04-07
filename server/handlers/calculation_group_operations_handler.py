@@ -58,7 +58,8 @@ def register_calculation_group_operations_handler(registry):
             "required": ["operation"]
         },
         category="model",
-        sort_order=24  # 02 = Model Operations
+        sort_order=24,  # 02 = Model Operations
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     )
 
     registry.register(tool)

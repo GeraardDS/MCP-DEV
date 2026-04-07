@@ -175,17 +175,17 @@ class InputValidator:
         # Check for null bytes
         if '\x00' in path:
             return False, "Path contains null bytes"
-        
+
+        # Check for path traversal in raw input (before normpath resolves it away)
+        if '..' in path:
+            return False, "Path contains traversal sequences (..)"
+
         # Normalize path
         try:
             normalized = os.path.normpath(path)
             resolved = Path(normalized).resolve()
         except (ValueError, OSError) as e:
             return False, f"Invalid path: {e}"
-        
-        # Check for path traversal
-        if '..' in normalized:
-            return False, "Path traversal detected (..) - not allowed"
         
         # Check extension if it's a file
         if '.' in os.path.basename(path):

@@ -74,7 +74,8 @@ def register_measure_operations_handler(registry):
             "required": ["operation"]
         },
         category="model",
-        sort_order=22  # 02 = Model Operations
+        sort_order=22,  # 02 = Model Operations
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     )
 
     registry.register(tool)

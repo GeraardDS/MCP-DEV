@@ -3,15 +3,11 @@ Server Handlers Package
 Individual handler modules for different tool categories
 """
 from server.handlers.connection_handler import register_connection_handlers
-# metadata_handler: merged into query_handler (04_Query_Operations + 04_Search_String)
-# query_trace_handler: merged into query_handler (04_Run_DAX mode=trace)
 from server.handlers.query_handler import register_query_handlers
 from server.handlers.analysis_handler import register_analysis_handlers
 from server.handlers.dependencies_handler import register_dependencies_handlers
 from server.handlers.column_usage_handler import register_column_usage_handler
-# export_dax_measures: merged into dependencies_handler (05_DAX_Operations.export)
 from server.handlers.documentation_handler import register_documentation_handlers
-# comparison_handler: merged into analysis_handler (06_Analysis_Operations.compare)
 from server.handlers.pbip_operations_handler import register_pbip_operations_handler
 from server.handlers.slicer_operations_handler import register_slicer_operations_handler
 from server.handlers.visual_operations_handler import (
@@ -35,7 +31,6 @@ from server.handlers.measure_operations_handler import register_measure_operatio
 # Phase 2 Extended CRUD Operations
 from server.handlers.relationship_operations_handler import register_relationship_operations_handler
 from server.handlers.calculation_group_operations_handler import register_calculation_group_operations_handler
-# role_operations: merged into query_handler (04_Query_Operations.roles)
 
 # Phase 3 Batch Operations & Transactions
 from server.handlers.batch_operations_handler import register_batch_operations_handler

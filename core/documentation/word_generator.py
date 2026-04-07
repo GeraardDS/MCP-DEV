@@ -5,8 +5,13 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+import itertools
+
 from .complexity_analyzer import calculate_measure_complexity
 from .utils import DEFAULT_BRANDING, ensure_dir, now_iso, safe_filename, truncate
+
+# Incrementing counter for unique bookmark IDs (avoids hash collisions)
+_bookmark_counter = itertools.count(1)
 
 
 def _add_bookmark(paragraph, bookmark_name: str) -> None:
@@ -15,14 +20,16 @@ def _add_bookmark(paragraph, bookmark_name: str) -> None:
         from docx.oxml import OxmlElement
         from docx.oxml.ns import qn
 
+        bookmark_id = str(next(_bookmark_counter))
+
         # Create bookmark start
         bookmark_start = OxmlElement("w:bookmarkStart")
-        bookmark_start.set(qn("w:id"), str(hash(bookmark_name) % 10000))
+        bookmark_start.set(qn("w:id"), bookmark_id)
         bookmark_start.set(qn("w:name"), bookmark_name)
 
         # Create bookmark end
         bookmark_end = OxmlElement("w:bookmarkEnd")
-        bookmark_end.set(qn("w:id"), str(hash(bookmark_name) % 10000))
+        bookmark_end.set(qn("w:id"), bookmark_id)
 
         # Insert at paragraph level
         paragraph._element.insert(0, bookmark_start)

@@ -183,10 +183,10 @@ def collect_model_documentation(
         db_name = summary.get("database_name") or "PowerBI_Model"
 
     # Fetch metadata once
-    tables_res = qe.execute_info_query("TABLES", top_n=100)
-    columns_res = qe.execute_info_query("COLUMNS", top_n=100)
-    measures_res = qe.execute_info_query("MEASURES", top_n=100)
-    relationships_res = qe.execute_info_query("RELATIONSHIPS", top_n=100)
+    tables_res = qe.execute_info_query("TABLES", top_n=5000)
+    columns_res = qe.execute_info_query("COLUMNS", top_n=5000)
+    measures_res = qe.execute_info_query("MEASURES", top_n=5000)
+    relationships_res = qe.execute_info_query("RELATIONSHIPS", top_n=5000)
 
     tables_rows = tables_res.get("rows", []) if tables_res.get("success") else []
     columns_rows = columns_res.get("rows", []) if columns_res.get("success") else []

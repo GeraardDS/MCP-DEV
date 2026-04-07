@@ -10,23 +10,9 @@ from pathlib import Path
 from typing import Any, Dict
 
 from server.registry import ToolDefinition
+from core.utilities.pbip_utils import resolve_definition_path
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_definition_path(pbip_path: str) -> Dict[str, Any]:
-    """Resolve and validate the definition path from a PBIP path."""
-    from core.utilities.pbip_utils import find_definition_folder
-
-    definition_path = find_definition_folder(pbip_path)
-    if not definition_path:
-        return {
-            "error": (
-                f"Could not find definition folder in: {pbip_path}."
-                " Ensure path points to a valid PBIP project."
-            )
-        }
-    return {"path": definition_path}
 
 
 def handle_pbip_prototype(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -57,7 +43,7 @@ def _op_generate_from_spec(args: Dict[str, Any], pbip_path: str) -> Dict[str, An
     """Generate a complete PBIP page from a structured specification."""
     from core.pbip.authoring.report_builder import ReportBuilder
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if "error" in resolved:
         return {"success": False, **resolved}
 
@@ -86,7 +72,7 @@ def _op_generate_html(args: Dict[str, Any], pbip_path: str) -> Dict[str, Any]:
     """
     from core.pbip.authoring.html.prototype_generator import PrototypeGenerator
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if "error" in resolved:
         return {"success": False, **resolved}
 
@@ -294,7 +280,7 @@ def _op_apply_html(args: Dict[str, Any], pbip_path: str) -> Dict[str, Any]:
     """Apply changes from an HTML prototype back to PBIP."""
     from core.pbip.authoring.html.prototype_parser import PrototypeParser
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if "error" in resolved:
         return {"success": False, **resolved}
 
@@ -392,5 +378,6 @@ def register_prototype_handler(registry):
             input_schema=PROTOTYPE_SCHEMA,
             category="authoring",
             sort_order=1101,
+            annotations={"readOnlyHint": False},
         )
     )

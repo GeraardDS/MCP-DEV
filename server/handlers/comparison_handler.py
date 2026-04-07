@@ -39,10 +39,8 @@ def handle_compare_pbi_models(args: Dict[str, Any]) -> Dict[str, Any]:
     old_port = args.get('old_port')
     new_port = args.get('new_port')
 
-    # If ports not provided, return instances list and ask user to specify
-    if not old_port or not new_port:
-        pass  # fall through to the block below
-    else:
+    # If ports provided, validate them before proceeding
+    if old_port and new_port:
         # Validate port values
         try:
             old_port = int(old_port)

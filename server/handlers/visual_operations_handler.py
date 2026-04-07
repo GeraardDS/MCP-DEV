@@ -17,6 +17,7 @@ from server.registry import ToolDefinition
 from core.utilities.pbip_utils import (
     normalize_path as _normalize_path,
     find_definition_folder as _find_definition_folder,
+    resolve_definition_path,
     load_json_file as _load_json_file,
     save_json_file as _save_json_file,
     get_page_display_name as _get_page_display_name,
@@ -1609,22 +1610,6 @@ def _op_update_visual_config(args: Dict[str, Any], definition_path: Path) -> Dic
     return result
 
 
-def _resolve_definition_path(pbip_path: str) -> Dict[str, Any]:
-    """Resolve and validate the definition path from a PBIP path.
-
-    Returns a dict with 'path' on success or 'error' on failure.
-    """
-    definition_path = _find_definition_folder(pbip_path)
-    if not definition_path:
-        return {
-            'error': (
-                f'Could not find definition folder in: {pbip_path}.'
-                ' Ensure path points to a valid PBIP project.'
-            )
-        }
-    return {'path': definition_path}
-
-
 def handle_visual_operations(args: Dict[str, Any]) -> Dict[str, Any]:
     """Dispatch for visual list, position, and config operations."""
     operation = args.get('operation', 'list')
@@ -1640,7 +1625,7 @@ def handle_visual_operations(args: Dict[str, Any]) -> Dict[str, Any]:
             ),
         }
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if 'error' in resolved:
         return {'success': False, 'error': resolved['error']}
     definition_path = resolved['path']
@@ -1684,7 +1669,7 @@ def handle_visual_sync(args: Dict[str, Any]) -> Dict[str, Any]:
             'error': 'operation parameter is required',
         }
 
-    resolved = _resolve_definition_path(pbip_path)
+    resolved = resolve_definition_path(pbip_path)
     if 'error' in resolved:
         return {'success': False, 'error': resolved['error']}
     definition_path = resolved['path']
@@ -1721,6 +1706,7 @@ def register_visual_operations_handler(registry):
         input_schema=TOOL_SCHEMAS.get('visual_operations', {}),
         category="docs",
         sort_order=80,
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     )
     registry.register(tool)
     logger.info("Registered visual_operations handler")
@@ -1740,6 +1726,7 @@ def register_visual_sync_handler(registry):
         input_schema=TOOL_SCHEMAS.get('visual_sync', {}),
         category="docs",
         sort_order=81,
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     )
     registry.register(tool)
     logger.info("Registered visual_sync handler")

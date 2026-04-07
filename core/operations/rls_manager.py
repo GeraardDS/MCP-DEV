@@ -93,44 +93,101 @@ class RLSManager:
             except Exception:
                 pass
 
-    def test_role_filter(self, role_name: str, test_query: str) -> Dict[str, Any]:
+    def test_role_filter(self, role_name: str, test_query: str, test_table: Optional[str] = None) -> Dict[str, Any]:
         """
-        Test RLS by executing query with role filter applied.
+        Test RLS by executing query with and without role filters applied.
+
+        Compares unfiltered results against results with the role's DAX filter
+        injected as a CALCULATETABLE wrapper, simulating the RLS filter context.
 
         Args:
             role_name: Role name to test
-            test_query: DAX query to execute with role filter
+            test_query: DAX query to execute (or auto-generated from test_table)
+            test_table: Optional table name — auto-generates a count query
 
         Returns:
-            Query results with role filter applied
+            Comparison of filtered vs unfiltered results
         """
         try:
-            # First, get the role filters
+            # Get role definitions
             roles_result = self.list_roles()
             if not roles_result.get('success'):
                 return roles_result
 
-            # Find the role
             role = next((r for r in roles_result['roles'] if r['name'] == role_name), None)
             if not role:
+                available = [r['name'] for r in roles_result.get('roles', [])]
                 return {
                     'success': False,
-                    'error': f"Role '{role_name}' not found"
+                    'error': f"Role '{role_name}' not found",
+                    'available_roles': available
                 }
 
-            # Execute test query normally
-            result_without_rls = self.executor.validate_and_execute_dax(test_query)
+            filters = role.get('table_permissions', [])
+            if not filters:
+                return {
+                    'success': True,
+                    'role': role_name,
+                    'message': f"Role '{role_name}' has no table filters defined",
+                    'role_filters': []
+                }
 
-            # Note: Actual RLS testing with impersonation requires XMLA
-            # For now, we show what the role filters are
+            # Auto-generate test query if table provided
+            if test_table and not test_query:
+                test_query = f"EVALUATE ROW(\"RowCount\", COUNTROWS('{test_table}'))"
+
+            if not test_query:
+                return {
+                    'success': False,
+                    'error': 'Either test_query or test_table parameter required'
+                }
+
+            # Execute unfiltered query
+            result_unfiltered = self.executor.validate_and_execute_dax(test_query)
+
+            # Build filtered version by wrapping with CALCULATETABLE + role filters
+            filter_results = []
+            for perm in filters:
+                table_name = perm.get('table', '')
+                filter_expr = perm.get('filter_expression', '')
+                if not filter_expr:
+                    continue
+
+                # Build a query that simulates the RLS filter
+                filtered_query = (
+                    f"EVALUATE CALCULATETABLE(\n"
+                    f"  {test_query.replace('EVALUATE ', '').strip()},\n"
+                    f"  {filter_expr}\n"
+                    f")"
+                )
+
+                result_filtered = self.executor.validate_and_execute_dax(filtered_query)
+
+                unfiltered_rows = len(result_unfiltered.get('rows', []))
+                filtered_rows = len(result_filtered.get('rows', []))
+
+                filter_results.append({
+                    'table': table_name,
+                    'filter_expression': filter_expr,
+                    'unfiltered_row_count': unfiltered_rows,
+                    'filtered_row_count': filtered_rows,
+                    'rows_removed': unfiltered_rows - filtered_rows,
+                    'filter_active': filtered_rows < unfiltered_rows,
+                    'filtered_query': filtered_query,
+                    'filtered_result': result_filtered
+                })
+
             return {
                 'success': True,
                 'role': role_name,
                 'test_query': test_query,
-                'result_without_rls': result_without_rls,
-                'role_filters': role.get('table_permissions', []),
-                'note': 'Full RLS impersonation testing requires XMLA endpoint connection',
-                'recommendation': 'Manually verify filters by adding WHERE clause to query'
+                'result_unfiltered': result_unfiltered,
+                'filter_tests': filter_results,
+                'summary': {
+                    'total_filters': len(filters),
+                    'filters_tested': len(filter_results),
+                    'filters_active': sum(1 for f in filter_results if f.get('filter_active'))
+                }
             }
 
         except Exception as e:
@@ -141,7 +198,7 @@ class RLSManager:
         """Check if all tables with sensitive data have RLS applied."""
         try:
             # Get all tables
-            tables_result = self.executor.execute_info_query("TABLES", top_n=100)
+            tables_result = self.executor.execute_info_query("TABLES", top_n=5000)
             if not tables_result.get('success'):
                 return tables_result
 

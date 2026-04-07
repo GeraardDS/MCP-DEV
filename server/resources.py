@@ -144,12 +144,16 @@ class ResourceManager:
             Resource content as string
         """
         try:
+            # Check dynamic resources — copy provider ref out of lock
+            provider = None
             with self._lock:
-                # Check if it's a dynamic resource
                 if uri in self._dynamic_resources:
                     provider = self._dynamic_resources[uri]['provider']
-                    return provider()
 
+            if provider is not None:
+                return provider()
+
+            with self._lock:
                 # Handle latest export alias
                 if uri == "powerbi://export/latest":
                     if not self._latest_export:
@@ -190,9 +194,10 @@ class ResourceManager:
 
     def get_resource_info(self, uri: str) -> Optional[Dict]:
         """Get metadata about a resource"""
-        if uri == "powerbi://export/latest" and self._latest_export:
-            uri = self._latest_export
-        return self._export_cache.get(uri)
+        with self._lock:
+            if uri == "powerbi://export/latest" and self._latest_export:
+                uri = self._latest_export
+            return self._export_cache.get(uri)
 
     def clear_cache(self):
         """Clear all cached resources"""

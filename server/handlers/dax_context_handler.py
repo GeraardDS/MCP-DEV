@@ -539,6 +539,7 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
     original_expression = expression
     measure_name = None
     measure_table = None
+    warnings = []
 
     dax_keywords = [
         'CALCULATE', 'FILTER', 'SUM', 'SUMX', 'AVERAGE', 'COUNT', 'COUNTROWS',
@@ -561,6 +562,8 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
 
         # Try to find the measure in the model using AMO
         server, db, model = _get_server_db_model(connection_state)
+        if not model and not AMO_AVAILABLE:
+            warnings.append("AMO assemblies not loaded — measure auto-fetch disabled")
         if model:
             try:
                 # Search for measure across all tables
@@ -1098,6 +1101,9 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                 'note': 'These articles were referenced during the analysis and provide detailed explanations of the patterns detected'
             }
 
+            if warnings:
+                response['warnings'] = warnings
+
             return response
 
         elif analysis_mode == 'debug':
@@ -1128,6 +1134,8 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                         'table': measure_table,
                         'note': f"Auto-fetched measure expression from [{measure_table}].[{measure_name}]"
                     }
+                if warnings:
+                    result['warnings'] = warnings
                 return result
 
             # Format output based on requested format
@@ -1156,6 +1164,8 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                         'table': measure_table,
                         'note': f"Auto-fetched measure expression from [{measure_table}].[{measure_name}]"
                     }
+                if warnings:
+                    result['warnings'] = warnings
                 return result
             else:
                 # 'steps' format - raw data
@@ -1185,6 +1195,8 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                         'table': measure_table,
                         'note': f"Auto-fetched measure expression from [{measure_table}].[{measure_name}]"
                     }
+                if warnings:
+                    result['warnings'] = warnings
                 return result
 
         elif analysis_mode == 'report':
@@ -1267,6 +1279,8 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     'table': measure_table,
                     'note': f"Auto-fetched measure expression from [{measure_table}].[{measure_name}]"
                 }
+            if warnings:
+                response['warnings'] = warnings
             return response
         else:
             return {
@@ -1302,7 +1316,8 @@ def register_dax_handlers(registry):
             handler=handle_dax_intelligence,
             input_schema=TOOL_SCHEMAS.get('dax_intelligence', {}),
             category="dax",
-            sort_order=50  # 05 = DAX Intelligence
+            sort_order=50,  # 05 = DAX Intelligence
+            annotations={"readOnlyHint": True},
         ),
     ]
 

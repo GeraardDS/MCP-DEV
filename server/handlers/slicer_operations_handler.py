@@ -1001,7 +1001,8 @@ def register_slicer_operations_handler(registry):
         handler=handle_slicer_operations,
         input_schema=TOOL_SCHEMAS.get('slicer_operations', {}),
         category="pbip",
-        sort_order=73  # 07 = PBIP Analysis
+        sort_order=73,  # 07 = PBIP Analysis
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     )
     registry.register(tool)
 

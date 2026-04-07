@@ -5,120 +5,20 @@ Pagination, truncation, formatting helpers
 from typing import Any, Dict, List, Optional, Tuple
 import json
 
-# Pagination and truncation limits
-MAX_PAGE_SIZE = 10000
-MAX_PAGINATION_OFFSET = 1000000
+# Re-export pagination functions from core (canonical source)
+from core.validation.pagination_helpers import (
+    paginate,
+    paginate_section,
+    apply_default_limits,
+    MAX_PAGE_SIZE,
+    MAX_PAGINATION_OFFSET,
+)
+
+# Truncation limits
 DEFAULT_MAX_TOKENS = 100000
 TRUNCATION_ITEM_LIMIT = 100
 TRUNCATION_STRING_LIMIT = 50000
 SUMMARY_THRESHOLD_TOKENS = 50000
-
-def paginate(result: Any, page_size: Optional[int], next_token: Optional[str], list_keys: List[str]) -> Any:
-    """
-    Paginate result arrays with continuation tokens
-
-    Args:
-        result: Result dict containing arrays to paginate
-        page_size: Items per page (must be between 1 and 10000)
-        next_token: Continuation token
-        list_keys: Keys in result dict that contain lists to paginate
-
-    Returns:
-        Result with paginated data and next_token if more data available
-    """
-    if not isinstance(result, dict) or not result.get('success'):
-        return result
-
-    if page_size is None or page_size <= 0:
-        return result
-
-    # Validate page_size bounds
-    if page_size > MAX_PAGE_SIZE:
-        return {
-            'success': False,
-            'error': f'page_size exceeds maximum allowed value of {MAX_PAGE_SIZE}',
-            'error_type': 'ValidationError'
-        }
-
-    # Parse token (format: "key:offset")
-    start_offset = 0
-    target_key = None
-    if next_token:
-        try:
-            parts = next_token.split(':', 1)
-            if len(parts) == 2:
-                target_key, offset_str = parts
-                start_offset = int(offset_str)
-                # Validate offset is non-negative and reasonable
-                if start_offset < 0 or start_offset > MAX_PAGINATION_OFFSET:
-                    return {
-                        'success': False,
-                        'error': 'Invalid next_token: offset out of valid range',
-                        'error_type': 'ValidationError'
-                    }
-        except (ValueError, AttributeError) as e:
-            return {
-                'success': False,
-                'error': f'Invalid next_token format: {str(e)}',
-                'error_type': 'ValidationError'
-            }
-
-    # Apply pagination to each list key
-    new_token = None
-    for key in list_keys:
-        if key not in result:
-            continue
-
-        arr = result.get(key, [])
-        if not isinstance(arr, list):
-            continue
-
-        # Skip if this isn't the target key (when continuing pagination)
-        if target_key and key != target_key:
-            continue
-
-        # Paginate
-        paginated, token = paginate_section(arr, page_size, start_offset)
-        result[key] = paginated
-
-        if token is not None:
-            new_token = f"{key}:{token}"
-            break
-
-    # Add pagination metadata
-    if new_token:
-        result['next_token'] = new_token
-        result['has_more'] = True
-    else:
-        result.pop('next_token', None)
-        result['has_more'] = False
-
-    return result
-
-def paginate_section(arr: Any, size: Optional[Any], offset: int = 0) -> Tuple[list, Optional[str]]:
-    """
-    Paginate a single array section
-
-    Returns:
-        (paginated_array, next_offset_or_none)
-    """
-    if not isinstance(arr, list):
-        return arr, None
-
-    if size is None or size <= 0:
-        return arr, None
-
-    try:
-        size = int(size)
-        offset = int(offset)
-    except (ValueError, TypeError):
-        return arr, None
-
-    end = offset + size
-    paginated = arr[offset:end]
-
-    next_token = str(end) if end < len(arr) else None
-    return paginated, next_token
 
 def schema_sample(rows: List[dict], sample_size: int) -> dict:
     """
@@ -206,23 +106,6 @@ def truncate_expression(expression: str, max_length: int = 500) -> str:
         return expression
 
     return expression[:max_length] + "... [truncated]"
-
-def apply_default_limits(arguments: dict, defaults: dict) -> dict:
-    """
-    Apply default values to missing arguments
-
-    Args:
-        arguments: Tool arguments
-        defaults: Default values dict
-
-    Returns:
-        Arguments with defaults applied
-    """
-    args = dict(arguments)
-    for key, default_value in defaults.items():
-        if key not in args or args[key] is None:
-            args[key] = default_value
-    return args
 
 def add_note(result: Any, note: str) -> Any:
     """Add a note to result metadata"""

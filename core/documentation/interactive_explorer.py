@@ -74,19 +74,19 @@ class InteractiveDependencyExplorer:
 
             # Fetch raw data from Power BI
             logger.debug("Fetching TABLES data...")
-            tables_result = self.query_executor.execute_info_query("TABLES", top_n=100)
+            tables_result = self.query_executor.execute_info_query("TABLES", top_n=5000)
             logger.debug(f"TABLES result: success={tables_result.get('success')}, rows={len(tables_result.get('rows', []))}")
 
             logger.debug("Fetching COLUMNS data...")
-            columns_result = self.query_executor.execute_info_query("COLUMNS", top_n=100)
+            columns_result = self.query_executor.execute_info_query("COLUMNS", top_n=5000)
             logger.debug(f"COLUMNS result: success={columns_result.get('success')}, rows={len(columns_result.get('rows', []))}")
 
             logger.debug("Fetching MEASURES data...")
-            measures_result = self.query_executor.execute_info_query("MEASURES", top_n=100)
+            measures_result = self.query_executor.execute_info_query("MEASURES", top_n=5000)
             logger.debug(f"MEASURES result: success={measures_result.get('success')}, rows={len(measures_result.get('rows', []))}")
 
             logger.debug("Fetching RELATIONSHIPS data...")
-            relationships_result = self.query_executor.execute_info_query("RELATIONSHIPS", top_n=100)
+            relationships_result = self.query_executor.execute_info_query("RELATIONSHIPS", top_n=5000)
             logger.debug(f"RELATIONSHIPS result: success={relationships_result.get('success')}, rows={len(relationships_result.get('rows', []))}")
 
             if not all(
@@ -680,8 +680,9 @@ class InteractiveDependencyExplorer:
         success_count = 0
         fail_count = 0
 
-        # Process ALL tables, not just first 15
-        for table in tables_raw:
+        # Cap table previews to avoid excessive DAX queries and memory usage
+        MAX_PREVIEW_TABLES = 25
+        for table in tables_raw[:MAX_PREVIEW_TABLES]:
             table_name = self._get_field(table, "Name")
             if not table_name:
                 continue

@@ -61,6 +61,7 @@ class FilterExpression:
 # NOTE: Only 'sf ' (slicer field) prefix indicates field parameters.
 # The 's ' prefix is for regular selection/disconnected slicer tables (NOT field parameters).
 # True field parameters have SystemFlags="2" or contain NAMEOF() in their DAX.
+# NOTE: These patterns are tuned for Finvision model naming conventions. Other deployments may need to customize.
 FIELD_PARAMETER_PATTERNS = [
     "sf filter",  # Field parameter filter tables (sf Filter 1, sf Filter X)
     "sf row",  # Row drill field parameters (sf Row Drill)

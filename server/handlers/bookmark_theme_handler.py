@@ -13,7 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 def _find_report_folder(pbip_path: str) -> str:
-    """Find the .Report folder from a PBIP path."""
+    """Find the .Report folder from a PBIP path.
+
+    Note: This returns the .Report folder itself, not the definition/ subfolder.
+    Differs from pbip_utils.find_definition_folder which returns .Report/definition/.
+    Bookmark and theme analyzers need the .Report root, not the definition subfolder.
+    """
     path_obj = Path(pbip_path)
 
     # Check if path is already a .Report folder
@@ -202,7 +207,8 @@ def register_bookmark_theme_handlers(registry):
             handler=handle_analyze_bookmarks,
             input_schema=TOOL_SCHEMAS.get('analyze_bookmarks', {}),
             category="pbip",
-            sort_order=75  # 07 = PBIP Analysis
+            sort_order=75,  # 07 = PBIP Analysis
+            annotations={"readOnlyHint": True},
         ),
         ToolDefinition(
             name="07_Analyze_Theme_Compliance",
@@ -210,7 +216,8 @@ def register_bookmark_theme_handlers(registry):
             handler=handle_theme_compliance,
             input_schema=TOOL_SCHEMAS.get('analyze_theme_compliance', {}),
             category="pbip",
-            sort_order=76  # 07 = PBIP Analysis
+            sort_order=76,  # 07 = PBIP Analysis
+            annotations={"readOnlyHint": True},
         ),
     ]
 

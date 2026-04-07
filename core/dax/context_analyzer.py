@@ -385,9 +385,10 @@ class DaxContextAnalyzer:
             else:
                 current_arg += char
 
-        # Add the last argument
+        # Add the last argument (don't require filters to be non-empty —
+        # this is the only filter when CALCULATE has a single filter arg)
         arg = current_arg.strip()
-        if arg and filters:
+        if arg:
             filters.append(arg[:trunc] + "..." if len(arg) > trunc else arg)
 
         return filters

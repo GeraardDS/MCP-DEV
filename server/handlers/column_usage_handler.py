@@ -911,7 +911,8 @@ def register_column_usage_handler(registry):
         handler=handle_column_usage_mapping,
         input_schema=input_schema,
         category="dax",
-        sort_order=54  # 05 = DAX Intelligence
+        sort_order=54,  # 05 = DAX Intelligence
+        annotations={"readOnlyHint": True},
     )
 
     registry.register(tool)

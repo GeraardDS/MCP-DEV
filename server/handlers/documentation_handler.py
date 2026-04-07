@@ -66,6 +66,7 @@ def register_documentation_handlers(registry):
         },
         category="docs",
         sort_order=80,
+        annotations={"readOnlyHint": False},
     )
 
     registry.register(tool)

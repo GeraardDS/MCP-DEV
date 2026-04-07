@@ -6,7 +6,7 @@ Token Optimization: Supports deferred tool loading to reduce initial token usage
 Core tools are always loaded; other categories load on-demand.
 """
 from typing import Dict, Callable, Any, List, Set, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 import logging
 
@@ -97,17 +97,18 @@ _TOOL_TO_CATEGORY = {
 }
 
 # Category descriptions for discovery
+# tool_count is computed dynamically by get_discovery_info() from CATEGORY_TOOLS
 CATEGORY_INFO = {
-    ToolCategory.CORE: {"name": "Connection & Help", "description": "Connect to Power BI, get help", "tool_count": 3},
-    ToolCategory.MODEL: {"name": "Model Operations", "description": "Table/column/measure/relationship CRUD", "tool_count": 6},
-    ToolCategory.BATCH: {"name": "Batch & Transactions", "description": "Batch operations with ACID transactions", "tool_count": 2},
-    ToolCategory.QUERY: {"name": "Query & Search", "description": "DAX queries, search objects, roles", "tool_count": 3},
-    ToolCategory.DAX: {"name": "DAX Intelligence", "description": "DAX analysis, dependencies, optimization", "tool_count": 3},
-    ToolCategory.ANALYSIS: {"name": "Analysis", "description": "Model analysis, BPA, comparison", "tool_count": 1},
-    ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis, SVG visuals", "tool_count": 8},
-    ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs, visual editing", "tool_count": 3},
-    ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation", "tool_count": 6},
-    ToolCategory.AUTHORING: {"name": "Report Authoring", "description": "Create, clone, prototype PBIP report pages and visuals", "tool_count": 2},
+    ToolCategory.CORE: {"name": "Connection & Help", "description": "Connect to Power BI, get help"},
+    ToolCategory.MODEL: {"name": "Model Operations", "description": "Table/column/measure/relationship CRUD"},
+    ToolCategory.BATCH: {"name": "Batch & Transactions", "description": "Batch operations with ACID transactions"},
+    ToolCategory.QUERY: {"name": "Query & Search", "description": "DAX queries, search objects, roles"},
+    ToolCategory.DAX: {"name": "DAX Intelligence", "description": "DAX analysis, dependencies, optimization"},
+    ToolCategory.ANALYSIS: {"name": "Analysis", "description": "Model analysis, BPA, comparison"},
+    ToolCategory.PBIP: {"name": "PBIP Analysis", "description": "Offline PBIP/report analysis, SVG visuals"},
+    ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs, visual editing"},
+    ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation"},
+    ToolCategory.AUTHORING: {"name": "Report Authoring", "description": "Create, clone, prototype PBIP report pages and visuals"},
 }
 
 
@@ -120,6 +121,8 @@ class ToolDefinition:
     input_schema: Dict[str, Any]
     category: str = "general"
     sort_order: int = 999  # Default to end if not specified
+    annotations: Optional[Dict[str, Any]] = field(default=None)  # MCP ToolAnnotations hints (readOnlyHint, destructiveHint, etc.)
+    output_schema: Optional[Dict[str, Any]] = field(default=None)  # JSON Schema for structured output validation
 
 
 class HandlerRegistry:
@@ -210,7 +213,7 @@ class HandlerRegistry:
                              If True, returns all tools.
                              If False, returns only core tools.
         """
-        from mcp.types import Tool
+        from mcp.types import Tool, ToolAnnotations
 
         use_deferred = self._deferred_mode if include_deferred is None else not include_deferred
 
@@ -224,11 +227,22 @@ class HandlerRegistry:
                 if not is_core:
                     continue
 
-            tools.append(Tool(
-                name=tool_def.name,
-                description=tool_def.description,
-                inputSchema=tool_def.input_schema
-            ))
+            # Build MCP Tool kwargs
+            tool_kwargs = {
+                "name": tool_def.name,
+                "description": tool_def.description,
+                "inputSchema": tool_def.input_schema,
+            }
+
+            # Pass through annotations if defined
+            if tool_def.annotations:
+                tool_kwargs["annotations"] = ToolAnnotations(**tool_def.annotations)
+
+            # Pass through output schema if defined
+            if tool_def.output_schema:
+                tool_kwargs["outputSchema"] = tool_def.output_schema
+
+            tools.append(Tool(**tool_kwargs))
         return tools
 
     def get_tools_by_category(self, category: str) -> List[ToolDefinition]:

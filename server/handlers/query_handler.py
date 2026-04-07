@@ -160,11 +160,15 @@ def handle_get_m_expressions(args: Dict[str, Any]) -> Dict[str, Any]:
 
     return result
 
+_role_handler_singleton = None
+
 def handle_get_roles(args: Dict[str, Any]) -> Dict[str, Any]:
     """List RLS/OLS security roles with permissions"""
-    from core.operations.role_operations import RoleOperationsHandler
-    handler = RoleOperationsHandler()
-    return handler.execute({'operation': 'list'})
+    global _role_handler_singleton
+    if _role_handler_singleton is None:
+        from core.operations.role_operations import RoleOperationsHandler
+        _role_handler_singleton = RoleOperationsHandler()
+    return _role_handler_singleton.execute({'operation': 'list'})
 
 
 def handle_query_operations(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -180,11 +184,34 @@ def handle_query_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         return handle_search_objects(args)
     elif operation == 'roles':
         return handle_get_roles(args)
+    elif operation == 'test_rls':
+        return _handle_test_rls(args)
     else:
         return {
             'success': False,
-            'error': f'Unknown operation: {operation}. Valid: data_sources, m_expressions, search_objects, roles'
+            'error': f'Unknown operation: {operation}. Valid: data_sources, m_expressions, search_objects, roles, test_rls'
         }
+
+
+def _handle_test_rls(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Test RLS role filter by comparing filtered vs unfiltered results."""
+    from core.infrastructure.connection_state import connection_state
+
+    if not connection_state.is_connected():
+        return {'success': False, 'error': 'Not connected to Power BI Desktop'}
+
+    rls_mgr = connection_state.rls_manager
+    if not rls_mgr:
+        return {'success': False, 'error': 'RLS manager not available'}
+
+    role_name = args.get('role_name')
+    if not role_name:
+        return {'success': False, 'error': 'role_name parameter required'}
+
+    test_query = args.get('test_query', '')
+    test_table = args.get('test_table', '')
+
+    return rls_mgr.test_role_filter(role_name, test_query, test_table)
 
 
 def register_query_handlers(registry):
@@ -209,18 +236,22 @@ def register_query_handlers(registry):
                 "required": ["query"]
             },
             category="query",
-            sort_order=40
+            sort_order=40,
+            annotations={"readOnlyHint": True},
         ),
         ToolDefinition(
             name="04_Query_Operations",
-            description="Query model metadata: data_sources, m_expressions, search_objects, roles",
+            description="Query model metadata: data_sources, m_expressions, search_objects, roles, test_rls",
             handler=handle_query_operations,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["data_sources", "m_expressions", "search_objects", "roles"]},
+                    "operation": {"type": "string", "enum": ["data_sources", "m_expressions", "search_objects", "roles", "test_rls"]},
                     "pattern": {"type": "string", "description": "Search pattern (search_objects)"},
                     "types": {"type": "array", "items": {"type": "string", "enum": ["tables", "columns", "measures"]}, "description": "Object types (search_objects)"},
+                    "role_name": {"type": "string", "description": "RLS role to test (test_rls)"},
+                    "test_query": {"type": "string", "description": "DAX query to run with/without RLS filter (test_rls)"},
+                    "test_table": {"type": "string", "description": "Table to auto-generate count query for (test_rls)"},
                     "limit": {"type": "integer", "description": "Max results (m_expressions)"},
                     "page_size": {"type": "integer"},
                     "next_token": {"type": "string"}
@@ -228,7 +259,8 @@ def register_query_handlers(registry):
                 "required": ["operation"]
             },
             category="query",
-            sort_order=41
+            sort_order=41,
+            annotations={"readOnlyHint": True},
         ),
         ToolDefinition(
             name="04_Search_String",
@@ -246,7 +278,8 @@ def register_query_handlers(registry):
                 "required": ["search_text"]
             },
             category="query",
-            sort_order=42
+            sort_order=42,
+            annotations={"readOnlyHint": True},
         ),
     ]
 

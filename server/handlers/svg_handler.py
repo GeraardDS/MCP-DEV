@@ -83,7 +83,8 @@ def register_svg_operations_handler(registry):
             "required": ["operation"]
         },
         category="pbip",
-        sort_order=50
+        sort_order=50,
+        annotations={"readOnlyHint": False},
     )
 
     registry.register(tool)

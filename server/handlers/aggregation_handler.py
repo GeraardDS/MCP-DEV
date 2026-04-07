@@ -70,13 +70,15 @@ def handle_aggregation_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
             ]
             result.report_summary.pages = filtered_pages
 
-        # Always generate HTML report
-        export_dir = Path(pbip_path).parent / "exports" / "aggregation_analysis"
-        export_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        model_name = result.model_name.replace(" ", "_")
-        html_output_path = output_path if output_path and output_format == "html" else str(export_dir / f"{model_name}_Aggregation_{timestamp}.html")
-        saved_path = report_builder.save_html_report(html_output_path)
+        # Generate HTML report only when requested or alongside json format
+        saved_path = None
+        if output_format in ("html", "json"):
+            export_dir = Path(pbip_path).parent / "exports" / "aggregation_analysis"
+            export_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            model_name = result.model_name.replace(" ", "_")
+            html_output_path = output_path if output_path and output_format == "html" else str(export_dir / f"{model_name}_Aggregation_{timestamp}.html")
+            saved_path = report_builder.save_html_report(html_output_path)
 
         # Generate output based on format
         if output_format == "html":
@@ -116,8 +118,6 @@ def handle_aggregation_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
             return {
                 "success": True,
                 "format": "detailed",
-                "html_report_path": saved_path,
-                "message": f"HTML report saved to {saved_path}",
                 "report": detailed_text,
             }
 
@@ -126,8 +126,6 @@ def handle_aggregation_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
             return {
                 "success": True,
                 "format": "summary",
-                "html_report_path": saved_path,
-                "message": f"HTML report saved to {saved_path}",
                 "report": summary_text,
             }
 
@@ -187,6 +185,7 @@ def register_aggregation_handler(registry) -> None:
         input_schema=get_aggregation_schema(),
         category="pbip",
         sort_order=74,  # 07 = PBIP Analysis
+        annotations={"readOnlyHint": True},
     )
     registry.register(tool)
 

@@ -98,7 +98,8 @@ def register_relationship_operations_handler(registry):
             "required": ["operation"]
         },
         category="model",
-        sort_order=23  # 02 = Model Operations
+        sort_order=23,  # 02 = Model Operations
+        annotations={"readOnlyHint": False, "destructiveHint": True},
     )
 
     registry.register(tool)

@@ -558,7 +558,8 @@ def register_dependencies_handlers(registry):
             "required": ["operation"]
         },
         category="dax",
-        sort_order=51
+        sort_order=51,
+        annotations={"readOnlyHint": True},
     )
 
     registry.register(tool)

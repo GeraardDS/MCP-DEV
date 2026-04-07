@@ -353,6 +353,32 @@ def _handle_query_unused(args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+def _handle_scan_broken_refs(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Scan visual.json files for broken field references against the model."""
+    pbip_path = args.get("pbip_path")
+    if not pbip_path:
+        return {"success": False, "error": "pbip_path is required"}
+
+    try:
+        from core.pbip.pbip_visual_validator import scan_broken_visual_references
+
+        path = _normalize_pbip_path(pbip_path)
+
+        # Try to use cached model data for faster lookups
+        tmdl_model = None
+        try:
+            data = _cache.get_or_parse(path)
+            tmdl_model = data.model_data
+        except Exception:
+            pass  # Fall back to on-disk TMDL parsing inside the validator
+
+        return scan_broken_visual_references(pbip_path, tmdl_model=tmdl_model)
+
+    except Exception as e:
+        logger.error(f"Error scanning broken references: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
 def _handle_validate_model(args: Dict[str, Any]) -> Dict[str, Any]:
     """Run TMDL validation on a PBIP folder."""
     pbip_path = args.get("pbip_path")
@@ -689,6 +715,7 @@ def handle_pbip_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         "query_measures": _handle_query_measures,
         "query_relationships": _handle_query_relationships,
         "query_unused": _handle_query_unused,
+        "scan_broken_refs": _handle_scan_broken_refs,
         "git_diff": _handle_git_diff,
     }
 
@@ -711,7 +738,7 @@ def register_pbip_operations_handler(registry):
             "Offline PBIP analysis and queries (no live connection needed):"
             " analyze, validate_model, compare_models, generate_documentation,"
             " query_dependencies, query_measures, query_relationships,"
-            " query_unused, git_diff."
+            " query_unused, scan_broken_refs, git_diff."
         ),
         handler=handle_pbip_operations,
         input_schema={
@@ -724,7 +751,7 @@ def register_pbip_operations_handler(registry):
                         "compare_models", "generate_documentation",
                         "query_dependencies", "query_measures",
                         "query_relationships", "query_unused",
-                        "git_diff",
+                        "scan_broken_refs", "git_diff",
                     ],
                 },
                 "pbip_path": {
@@ -785,6 +812,7 @@ def register_pbip_operations_handler(registry):
         },
         category="pbip",
         sort_order=70,
+        annotations={"readOnlyHint": True},
     )
     registry.register(tool)
     logger.info("Registered unified pbip_operations handler")

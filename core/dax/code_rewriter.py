@@ -135,9 +135,20 @@ class DaxCodeRewriter:
         # Check bracket balance (square brackets for column/measure references)
         bracket_depth = 0
         in_string = False
-        for ch in dax:
+        skip_next = False
+        for i, ch in enumerate(dax):
+            if skip_next:
+                skip_next = False
+                continue
             if ch == '"':
-                in_string = not in_string
+                if in_string:
+                    # Check for escaped double-quote ""
+                    if i + 1 < len(dax) and dax[i + 1] == '"':
+                        skip_next = True
+                        continue
+                    in_string = False
+                else:
+                    in_string = True
             elif not in_string:
                 if ch == "[":
                     bracket_depth += 1
@@ -474,9 +485,14 @@ class DaxCodeRewriter:
             # Skip string literals
             if ch == '"':
                 i += 1
-                while i < length and dax[i] != '"':
+                while i < length:
+                    if dax[i] == '"':
+                        if i + 1 < length and dax[i + 1] == '"':
+                            i += 2  # Skip escaped double-quote
+                            continue
+                        break
                     i += 1
-                i += 1  # skip closing quote
+                i += 1  # Skip closing quote
                 continue
 
             # Skip line comments

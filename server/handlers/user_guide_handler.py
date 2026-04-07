@@ -149,31 +149,27 @@ ACID transactions for atomic model changes with rollback.
 
 ---
 
-## CATEGORY 04: QUERY & SEARCH (5 tools)
+## CATEGORY 04: QUERY & SEARCH (3 tools)
 
 ### 04_Run_DAX
 Execute DAX query with auto limits.
 - **Parameters**:
   - `query` (str, required): DAX EVALUATE statement
   - `top_n` (int, default 100): Row limit
-  - `mode` (str, default 'auto'): 'auto'|'analyze'|'simple'
+  - `mode` (str, default 'auto'): 'auto'|'analyze'|'simple'|'trace'
     - auto: Smart mode selection
     - analyze: Include timing analysis
     - simple: Preview only
+    - trace: SE/FE timing analysis
+  - `clear_cache` (bool, default true): Clear VertiPaq cache (trace mode only)
 
-### 04_Get_Data_Sources
-List all data sources. No parameters. Returns connection strings, types, credentials info.
-
-### 04_Get_M_Expressions
-List M/Power Query expressions.
-- **Parameters**:
-  - `limit` (int, optional): Max expressions to return
-
-### 04_Search_Objects
-Search tables/columns/measures by name pattern (wildcard).
-- **Parameters**:
-  - `pattern` (str): Search pattern
-  - `types` (array): Filter by ['tables', 'columns', 'measures']
+### 04_Query_Operations
+Query model metadata: data_sources, m_expressions, search_objects, roles.
+- **operation** (required): `data_sources` | `m_expressions` | `search_objects` | `roles`
+- **Key parameters**:
+  - `pattern` (str): Search pattern (search_objects)
+  - `types` (array): Filter by ['tables', 'columns', 'measures'] (search_objects)
+  - `limit` (int): Max results (m_expressions)
   - `page_size` / `next_token`: Pagination
 
 ### 04_Search_String
@@ -186,7 +182,16 @@ Search inside DAX expressions and measure names.
 
 ---
 
-## CATEGORY 05: DAX INTELLIGENCE (5 tools)
+## CATEGORY 05: DAX INTELLIGENCE (3 tools)
+
+### 05_DAX_Operations
+Consolidated DAX operations: analyze_dependencies, measure_impact, export_dax.
+- **operation** (required): `analyze_dependencies` | `measure_impact` | `export_dax`
+- **Key parameters**:
+  - `table` (str): Table name (analyze_dependencies, measure_impact)
+  - `measure` (str): Measure name (analyze_dependencies, measure_impact)
+  - `include_diagram` (bool, default true): Include Mermaid diagram (analyze_dependencies)
+  - `output_path` (str): Directory path (export_dax)
 
 ### 05_DAX_Intelligence
 Comprehensive DAX analysis with optimization recommendations.
@@ -203,27 +208,6 @@ Comprehensive DAX analysis with optimization recommendations.
   - `include_profiling` (bool, default true): Include performance
   - `breakpoints` (array[int]): Char positions for debugging
 - **Workflow**: Tool provides analysis recommendations -> AI writes optimized DAX
-
-### 05_Analyze_Dependencies
-Analyze measure dependencies with interactive diagram.
-- **Parameters**:
-  - `table` (str, required): Table name
-  - `measure` (str, required): Measure name
-  - `include_diagram` (bool, default true): Include Mermaid diagram
-- **Returns**: Formatted dependency tree + interactive HTML diagram (auto-opens in browser)
-
-### 05_Get_Measure_Impact
-Get what depends on this measure (reverse dependencies).
-- **Parameters**:
-  - `table` (str, required): Table name
-  - `measure` (str, required): Measure name
-- **Returns**: List of measures that reference this measure
-
-### 05_Export_DAX_Measures
-Export all DAX measures to CSV.
-- **Parameters**:
-  - `output_path` (str, optional): Directory path (default: exports/)
-- **Returns**: CSV with Table, Measure_Name, Display_Folder, DAX_Expression
 
 ### 05_Column_Usage_Mapping
 Analyze column usage - find unused columns, check measure dependencies.
@@ -519,7 +503,7 @@ Advanced analysis operations.
 2. `05_DAX_Intelligence` (mode='all') - analyze DAX
 3. `02_Measure_Operations` (operation='create') - create new measure
 4. `04_Run_DAX` - test with real data
-5. `05_Analyze_Dependencies` - verify dependencies
+5. `05_DAX_Operations` (operation='analyze_dependencies') - verify dependencies
 
 ### Model Documentation
 1. `06_Simple_Analysis` (mode='all') - get model overview
@@ -556,7 +540,7 @@ Advanced analysis operations.
 - Use `06_Simple_Analysis` for quick checks, `06_Full_Analysis` for thorough review
 - Run `05_DAX_Intelligence` with mode='all' for complete analysis recommendations
 - Always use dry_run=true first for find_replace and bulk_rename operations
-- Check `05_Analyze_Dependencies` and `05_Get_Measure_Impact` before modifying/deleting measures
+- Check `05_DAX_Operations` (operation='analyze_dependencies' or 'measure_impact') before modifying/deleting measures
 - PBIP tools (07_*) work offline without Power BI Desktop connection
 - Debug tools (09_*) combine PBIP report layout with live model data
 - Use `03_Batch_Operations` for bulk changes (3-5x faster than individual operations)
@@ -575,7 +559,8 @@ def register_user_guide_handlers(registry):
             "required": []
         },
         category="core",
-        sort_order=110
+        sort_order=110,
+        annotations={"readOnlyHint": True},
     )
     registry.register(tool)
     logger.info("Registered user guide handler")

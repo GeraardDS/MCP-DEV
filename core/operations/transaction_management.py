@@ -1,6 +1,15 @@
 """
 Transaction management handler
-Handles ACID transactions for atomic model changes
+
+NOTE: This is an operation-tracking system, NOT true ACID transactions.
+Begin/commit/rollback only update in-memory status flags — they do NOT
+undo or atomically apply model changes. Model writes via TOM are applied
+immediately when the individual operation handlers execute. The transaction
+record tracks which operations were performed within a logical group, but
+rollback does not reverse those operations.
+
+For true transactional model changes, use the Tabular Editor CLI or the
+TOM BeginUpdate/EndUpdate pattern via C# scripting.
 """
 from typing import Dict, Any
 import logging
@@ -121,7 +130,12 @@ class TransactionManagementHandler(BaseOperationsHandler):
         }
 
     def _rollback_transaction(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Rollback a transaction"""
+        """Mark a transaction as rolled back.
+
+        WARNING: This only updates the tracking record's status. It does NOT
+        reverse any model changes that were made during the transaction.
+        Model writes via TOM are applied immediately and cannot be undone here.
+        """
         transaction_id = args.get('transaction_id')
 
         if not transaction_id:
@@ -159,7 +173,7 @@ class TransactionManagementHandler(BaseOperationsHandler):
             'success': True,
             'transaction_id': transaction_id,
             'status': 'rolled_back',
-            'message': f'Transaction {transaction_id} rolled back successfully',
+            'message': f'Transaction {transaction_id} marked as rolled back (tracking only — model changes are NOT reversed)',
             'operations_count': operations_count
         }
 
