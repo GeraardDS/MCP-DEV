@@ -152,8 +152,8 @@ def _messages_debug_visual(args: dict[str, str]) -> list[PromptMessage]:
     user_text = (
         f"Debug{visual_clause} on page '{page_name}'.\n\n"
         f"Steps:\n"
-        f"1. Ensure you are connected via 01_Connect_To_Instance.\n"
-        f"2. Set the PBIP path via 09_Debug_Config (operation='set_pbip_path') "
+        f"1. Ensure you are connected via 01_Connection.\n"
+        f"2. Set the PBIP path via 09_Debug_Operations (operation='set_pbip_path') "
         f"if not already configured.\n"
         f"3. Run 09_Debug_Operations with operation='visual', "
         f"page_name='{page_name}'"
@@ -188,7 +188,7 @@ def _messages_analyze_model(args: dict[str, str]) -> list[PromptMessage]:
     )
 
     steps = [
-        "1. Ensure you are connected via 01_Connect_To_Instance.",
+        "1. Ensure you are connected via 01_Connection.",
     ]
 
     if depth == "fast":
@@ -255,17 +255,17 @@ def _messages_create_measure(args: dict[str, str]) -> list[PromptMessage]:
         f"Create measure '{measure_name}' in table '{table_name}' with "
         f"expression:\n```dax\n{expression}\n```\n\n"
         f"Steps:\n"
-        f"1. Ensure you are connected via 01_Connect_To_Instance.\n"
+        f"1. Ensure you are connected via 01_Connection.\n"
         f"2. Run 05_DAX_Intelligence with operation='analyze', "
         f"expression=\"{expression}\" to check for anti-patterns, circular "
         f"references, and performance issues.\n"
         f"3. Review the analysis results. If critical issues are found, "
         f"suggest a corrected expression and confirm with the user before "
         f"proceeding.\n"
-        f"4. Run 02_Measure_Operations with operation='create', "
+        f"4. Run 02_Model_Operations with operation='create', "
         f"table='{table_name}', name='{measure_name}', "
         f"expression=\"{expression}\"{format_clause}.\n"
-        f"5. Verify the measure was created by running 02_Measure_Operations "
+        f"5. Verify the measure was created by running 02_Model_Operations "
         f"with operation='get', table='{table_name}', name='{measure_name}'.\n"
         f"6. Report: measure created, any warnings from validation, and the "
         f"final expression used."
@@ -290,7 +290,7 @@ def _messages_document_report(args: dict[str, str]) -> list[PromptMessage]:
     )
 
     steps = [
-        f"1. Run 09_Debug_Config with operation='set_pbip_path', "
+        f"1. Run 09_Debug_Operations with operation='set_pbip_path', "
         f"pbip_path='{pbip_path}' to configure the PBIP project path.",
         f"2. Run 09_Document with operation='generate', format='{output_format}' "
         f"to produce the report documentation.",
@@ -337,12 +337,12 @@ def _messages_optimize_slow_measure(args: dict[str, str]) -> list[PromptMessage]
     user_text = (
         f"Investigate slow measure '{measure_name}' on page '{page_name}'.\n\n"
         f"Steps:\n"
-        f"1. Ensure you are connected via 01_Connect_To_Instance.\n"
+        f"1. Ensure you are connected via 01_Connection.\n"
         f"2. Run 05_DAX_Intelligence with operation='analyze', "
         f"measure='{measure_name}' to inspect the DAX expression for "
         f"anti-patterns (nested CALCULATE, row-by-row iteration, excessive "
         f"FILTER usage, etc.).\n"
-        f"3. Run 09_Debug_Config with operation='set_pbip_path' if not "
+        f"3. Run 09_Debug_Operations with operation='set_pbip_path' if not "
         f"already set.\n"
         f"4. Run 09_Debug_Operations with operation='visual', "
         f"page_name='{page_name}', trace=true to capture SE/FE timing for "
