@@ -71,7 +71,6 @@ CATEGORY_TOOLS = {
     ],
     ToolCategory.AUTHORING: [
         "11_PBIP_Authoring",
-        "11_PBIP_Prototype",
     ],
 }
 

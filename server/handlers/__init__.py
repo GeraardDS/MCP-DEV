@@ -1,5 +1,5 @@
 """
-Server Handlers Package — 22 tools registered (v13 consolidation)
+Server Handlers Package — 23 tools registered (v7.1)
 
 Tool inventory:
   01_Connection, 02_Model_Operations, 02_TMDL_Operations, 03_Batch_Operations,
@@ -32,7 +32,7 @@ from server.handlers.svg_handler import register_svg_operations_handler
 
 
 def register_all_handlers(registry):
-    """Register all handlers with the registry — 22 tools total"""
+    """Register all handlers with the registry — 23 tools total"""
     register_connection_handlers(registry)         # 01_Connection
     register_model_operations_handler(registry)    # 02_Model_Operations
     register_tmdl_operations_handler(registry)     # 02_TMDL_Operations
