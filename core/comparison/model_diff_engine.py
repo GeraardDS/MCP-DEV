@@ -868,10 +868,40 @@ class ModelDiffer:
         roles1_names = set(roles1.keys())
         roles2_names = set(roles2.keys())
 
+        modified = []
+        for name in roles1_names & roles2_names:
+            r1, r2 = roles1[name], roles2[name]
+            changes = {}
+
+            # Compare filter expressions per table
+            filters1 = {f.get('table', ''): f.get('expression', '') for f in r1.get('table_permissions', [])}
+            filters2 = {f.get('table', ''): f.get('expression', '') for f in r2.get('table_permissions', [])}
+            if filters1 != filters2:
+                added_tables = set(filters2) - set(filters1)
+                removed_tables = set(filters1) - set(filters2)
+                changed_tables = {t for t in set(filters1) & set(filters2) if filters1[t] != filters2[t]}
+                changes["filter_expressions"] = {
+                    "added_tables": list(added_tables),
+                    "removed_tables": list(removed_tables),
+                    "changed_tables": list(changed_tables),
+                }
+
+            # Compare members
+            members1 = set(r1.get('members', []))
+            members2 = set(r2.get('members', []))
+            if members1 != members2:
+                changes["members"] = {
+                    "added": list(members2 - members1),
+                    "removed": list(members1 - members2),
+                }
+
+            if changes:
+                modified.append({"name": name, "changes": changes})
+
         return {
             "added": list(roles2_names - roles1_names),
             "removed": list(roles1_names - roles2_names),
-            "modified": []  # TODO: Detailed role comparison if needed
+            "modified": modified,
         }
 
     def _compare_perspectives(self) -> Dict[str, Any]:
@@ -882,10 +912,41 @@ class ModelDiffer:
         persp1_names = set(persp1.keys())
         persp2_names = set(persp2.keys())
 
+        modified = []
+        for name in persp1_names & persp2_names:
+            p1, p2 = persp1[name], persp2[name]
+            objects1 = set()
+            objects2 = set()
+            for t in p1.get('tables', []):
+                tname = t.get('name', '')
+                objects1.add(f"table:{tname}")
+                for c in t.get('columns', []):
+                    objects1.add(f"column:{tname}.{c}")
+                for m in t.get('measures', []):
+                    objects1.add(f"measure:{tname}.{m}")
+                for h in t.get('hierarchies', []):
+                    objects1.add(f"hierarchy:{tname}.{h}")
+            for t in p2.get('tables', []):
+                tname = t.get('name', '')
+                objects2.add(f"table:{tname}")
+                for c in t.get('columns', []):
+                    objects2.add(f"column:{tname}.{c}")
+                for m in t.get('measures', []):
+                    objects2.add(f"measure:{tname}.{m}")
+                for h in t.get('hierarchies', []):
+                    objects2.add(f"hierarchy:{tname}.{h}")
+
+            if objects1 != objects2:
+                modified.append({
+                    "name": name,
+                    "added_objects": sorted(objects2 - objects1),
+                    "removed_objects": sorted(objects1 - objects2),
+                })
+
         return {
             "added": list(persp2_names - persp1_names),
             "removed": list(persp1_names - persp2_names),
-            "modified": []  # TODO: Detailed perspective comparison if needed
+            "modified": modified,
         }
 
     def _compare_model_properties(self) -> Dict[str, Any]:
