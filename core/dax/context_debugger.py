@@ -478,21 +478,29 @@ RETURN M1 + M2 + M3""",
             # Determine if we have improvements
             has_improvements = len(improvements) > 0
 
+            # Validate rewriter draft — discard if it contains obvious errors
+            validated_draft = None
+            if rewriter_suggestion:
+                draft = rewriter_suggestion.strip()
+                # Check for circular references: VAR _@col = [@col] inside same ADDCOLUMNS
+                # Check for obviously broken patterns
+                import re as _re
+                has_circular_ref = bool(_re.search(
+                    r'VAR\s+_@\w+\s*=\s*\[@\w+\]', draft
+                ))
+                if has_circular_ref:
+                    logger.warning("Rewriter draft contains circular extended column references — discarding")
+                else:
+                    validated_draft = draft
+
             return {
                 "has_improvements": has_improvements,
                 "improvements_count": len(improvements),
                 "improvements": improvements,
                 "original_code": dax_expression.strip(),
-                "rewriter_draft": rewriter_suggestion.strip() if rewriter_suggestion else None,
+                "rewriter_draft": validated_draft,
                 "summary": self._generate_improvement_summary(improvements),
-                "transformation_details": transformation_details,
-                "AI_INSTRUCTION": (
-                    "🚨 IMPORTANT: The 'rewriter_draft' field contains a SUGGESTED optimization from the code rewriter. "
-                    "You (the AI) should review ALL analysis data (context transitions, anti-patterns, VertiPaq metrics, "
-                    "best practices) and write your OWN optimized DAX measure. The rewriter draft is just a starting point - "
-                    "you may improve upon it, combine it with other optimizations, or write something entirely different "
-                    "based on the full analysis. Always explain your optimization choices to the user."
-                )
+                "transformation_details": transformation_details
             }
 
         except Exception as e:

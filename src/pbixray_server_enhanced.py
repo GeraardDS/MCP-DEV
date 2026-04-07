@@ -320,7 +320,7 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
                 from datetime import datetime
                 spill_dir = os.path.join(parent_dir, 'output')
                 os.makedirs(spill_dir, exist_ok=True)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
                 safe_name = name.replace(' ', '_')[:30]
                 spill_path = os.path.join(spill_dir, f'{safe_name}_{timestamp}.json')
                 with open(spill_path, 'w', encoding='utf-8') as f:

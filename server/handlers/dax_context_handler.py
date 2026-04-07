@@ -399,6 +399,77 @@ def handle_debug_dax_context(args: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+def _merge_and_deduplicate_issues(best_practices_result, rules_analysis, anti_patterns, expression):
+    """Merge issues from all analyzers, deduplicate by rule_id, group occurrences, annotate false positives."""
+    # Known false positives — patterns that are structurally necessary in certain contexts
+    FALSE_POSITIVE_CONTEXTS = {
+        'PERF_CALCULATETABLE_FILTER': {
+            'trigger': '@',  # Extended columns in FILTER can't be CALCULATETABLE boolean filters
+            'note': 'FILTER on extended column [@col] — CALCULATETABLE cannot filter extended columns directly'
+        },
+        'CORR_IFERROR_USAGE': {
+            'trigger': 'XIRR',  # XIRR can fail legitimately, no alternative
+            'note': 'IFERROR on XIRR is unavoidable — XIRR can fail when no solution exists'
+        },
+        'PERF_UNNECESSARY_ITERATOR': {
+            'trigger': '@',  # SUMX over extended columns can't use SUM
+            'note': 'SUM cannot operate on extended columns ([@col]) — SUMX is required'
+        },
+        'PY_SUMX_SINGLE_COLUMN': {
+            'trigger': '@',
+            'note': 'SUM cannot operate on extended columns ([@col]) — SUMX is required'
+        },
+    }
+
+    all_issues = {}  # keyed by rule_id
+
+    # Collect from best_practices
+    if best_practices_result:
+        for issue in best_practices_result.get('issues', []):
+            rid = issue.get('rule_id', issue.get('title', 'unknown'))
+            if rid not in all_issues:
+                all_issues[rid] = {
+                    'rule_id': rid,
+                    'severity': issue.get('severity', 'medium'),
+                    'title': issue.get('title', ''),
+                    'desc': issue.get('desc', ''),
+                    'fix': issue.get('fix_suggestion', ''),
+                    'occurrences': 0
+                }
+            all_issues[rid]['occurrences'] += 1
+
+    # Collect from static_analysis (skip if already seen by rule_id)
+    if rules_analysis:
+        for issue in rules_analysis.get('issues', []):
+            rid = issue.get('rule_id', issue.get('desc', 'unknown')[:50])
+            if rid not in all_issues:
+                all_issues[rid] = {
+                    'rule_id': rid,
+                    'severity': issue.get('severity', 'medium'),
+                    'title': issue.get('title', rid),
+                    'desc': issue.get('desc', ''),
+                    'fix': issue.get('fix_suggestion', ''),
+                    'occurrences': 1
+                }
+
+    # Annotate false positives
+    for rid, ctx in FALSE_POSITIVE_CONTEXTS.items():
+        if rid in all_issues and ctx['trigger'] in expression:
+            all_issues[rid]['false_positive'] = ctx['note']
+            all_issues[rid]['severity'] = 'info'  # Downgrade to info
+
+    # Sort by severity
+    severity_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+    sorted_issues = sorted(all_issues.values(), key=lambda x: severity_order.get(x['severity'], 5))
+
+    return {
+        'total': len(sorted_issues),
+        'score': best_practices_result.get('overall_score', 0) if best_practices_result else None,
+        'health_score': rules_analysis.get('health_score') if rules_analysis else None,
+        'items': sorted_issues
+    }
+
+
 def _format_debug_steps_friendly(expression: str, steps) -> str:
     """Format debug steps in a user-friendly way"""
     lines = []
@@ -568,18 +639,24 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
     measure_table = None
     warnings = []
 
-    dax_keywords = [
-        'CALCULATE', 'FILTER', 'SUM', 'SUMX', 'AVERAGE', 'COUNT', 'COUNTROWS',
-        'IF', 'SWITCH', 'VAR', 'RETURN', 'ALL', 'VALUES', 'DISTINCT', 'RELATED',
-        'SELECTEDVALUE', 'DIVIDE', 'MAX', 'MIN', 'EVALUATE', '=', '+', '-', '*', '/',
-        '[', '(', ')', '{', '}', '&&', '||', '<', '>', '<=', '>=', '<>'
-    ]
+    # Operators/symbols that definitely indicate a DAX expression (not a measure name)
+    dax_expression_indicators = ['=', '+', '-', '*', '/', '[', '(', ')', '{', '}',
+                                  '&&', '||', '<', '>', '<=', '>=', '<>']
+
+    # DAX keywords checked with word boundary matching to avoid false positives
+    # e.g. "Return" in "Period Return TWR" should NOT trigger keyword detection
+    import re as _re
+    dax_keyword_pattern = _re.compile(
+        r'(?<![A-Za-z_])(CALCULATE|FILTER|SUMX?|AVERAGE|COUNTROWS?|SWITCH|VAR\s|'
+        r'RETURN\s|ALL|VALUES|DISTINCT|RELATED|SELECTEDVALUE|DIVIDE|EVALUATE)(?![A-Za-z_])',
+        _re.IGNORECASE
+    )
 
     # Check if this looks like a simple measure name (not a DAX expression)
     is_likely_measure_name = (
         len(expression) < 150 and  # Measure names are typically short
-        not any(keyword in expression.upper() for keyword in dax_keywords[:15]) and  # No major DAX keywords
-        expression.count('[') == 0 and  # No column references
+        not dax_keyword_pattern.search(expression) and  # No word-boundary DAX keywords
+        not any(op in expression for op in dax_expression_indicators) and  # No operators
         expression.count('(') == 0  # No function calls
     )
 
@@ -805,137 +882,75 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                 'validation': validation_result,
                 'mode': 'all',
 
-                # ============================================
-                # 🚨 CRITICAL AI INSTRUCTIONS - READ FIRST 🚨
-                # ============================================
-                'AI_INSTRUCTIONS': {
-                    'READ_THIS_FIRST': '🚨 This response contains ONLY structured data fields. There is NO text report field. You must read and present the structured fields below.',
-
-                    'FORMATTING_CRITICAL': '🚨 CRITICAL FORMATTING: Each section MUST be a separate markdown section with a ### header followed by content. Use --- horizontal rules between major sections. DO NOT put everything in one code block or one continuous paragraph. Each analysis area gets its own distinct section with a header.',
-
-                    'PRIORITY_1_SHOW_ANNOTATED_CODE_FIRST': '🚨 MANDATORY: Start with "### Annotated DAX Code" header, then display annotated_dax_code.code in a ```dax code block. Then OUTSIDE the code block, show "**Legend:**" followed by the legend as a bullet list. Add --- after this section.',
-
-                    'PRIORITY_2_PRESENT_ANALYSIS_SUMMARY': 'Add "### Analysis Summary" header. Present analysis_summary as a clean table or bullet list showing: complexity score, total transitions, patterns detected, improvements available, best practices score. Add --- after.',
-
-                    'PRIORITY_3_BEST_PRACTICES': 'Add "### Best Practices Analysis" header. Show issues grouped by priority (HIGH, MEDIUM, LOW). Each issue on its own line. Add --- after.',
-
-                    'PRIORITY_4_ANTI_PATTERNS': 'Add "### Anti-Pattern Detection" header. For each pattern: show pattern name, matched instances, link to article. Add --- after.',
-
-                    'PRIORITY_5_CONTEXT_TRANSITIONS': 'Add "### Context Transition Analysis" header. List each transition with function, line, type, and performance impact. Add --- after.',
-
-                    'PRIORITY_6_IMPROVEMENTS': 'Add "### Improvement Opportunities" header. Number each improvement with before/after examples where applicable. Add --- after.',
-
-                    'PRIORITY_7_CALL_TREE': 'Add "### Call Tree Visualization" header. Display call_tree.visualization in a ```text code block to preserve the tree structure. The visualization already includes its own legend. Add --- after.',
-
-                    'PRIORITY_8_VERTIPAQ': 'If vertipaq_analysis has data, add "### VertiPaq Analysis" header. Show column metrics in a table format. Add --- after.',
-
-                    'PRIORITY_9_WRITE_OPTIMIZED_CODE': '🚨 CRITICAL: Add "### Optimized DAX Code" header. YOU (the AI) MUST write the complete optimized DAX measure. The rewriter_draft field is just a SUGGESTION. Write production-ready code in a ```dax code block. Add --- after.',
-
-                    'PRIORITY_10_EXPLAIN_CHANGES': 'Add "### Optimization Explanation" header. Explain what specific optimizations you applied and WHY they improve performance. Reference articles_referenced when relevant.',
-
-                    'DATA_STRUCTURE_GUIDE': 'Key fields: annotated_dax_code.code (visual code), annotated_dax_code.legend (show as bullets), analysis_summary (stats), best_practices_analysis.issues (violations), anti_patterns.pattern_matches (patterns), context_analysis.transitions (transitions), improvements.details (improvement list), call_tree.visualization (pre-formatted tree - put in ```text block), vertipaq_analysis.column_analysis (metrics), articles_referenced.articles (links)',
-
-                    'WORKFLOW_SUMMARY': 'SECTION HEADERS: ### Annotated DAX Code → --- → ### Analysis Summary → --- → ### Best Practices Analysis → --- → ### Anti-Pattern Detection → --- → ### Context Transitions → --- → ### Improvements → --- → ### Call Tree Visualization → --- → ### VertiPaq Analysis → --- → ### Optimized DAX Code → --- → ### Optimization Explanation'
-                },
-
-                # ============================================
-                # ANNOTATED DAX CODE - SHOW THIS FIRST!
-                # ============================================
                 'annotated_dax_code': {
                     'code': annotated_dax,
                     'legend': {
-                        '🔄': 'Iterator function (creates row context)',
-                        '📊': 'Measure reference (implicit CALCULATE)',
+                        '🔄': 'Iterator (row context)',
+                        '📊': 'Measure ref (implicit CALCULATE)',
                         '⚡': 'Explicit CALCULATE/CALCULATETABLE',
-                        '🔴': 'HIGH performance impact',
-                        '🟡': 'MEDIUM performance impact',
-                        '🟢': 'LOW performance impact'
-                    },
-                    'formatting_instructions': '🚨 CRITICAL FORMATTING: Put the "code" field inside a ```dax code block. The "legend" field must be rendered OUTSIDE the code block as a markdown bullet list AFTER the closing ``` backticks. NEVER include the legend inside the code block - it breaks formatting.'
+                        '🔴': 'HIGH impact',
+                        '🟡': 'MEDIUM impact',
+                        '🟢': 'LOW impact'
+                    }
                 },
                 'analysis_summary': {
-                    'complexity_score': result_analyze.complexity_score,
-                    'max_nesting_level': result_analyze.max_nesting_level,
-                    'total_transitions': len(result_analyze.transitions),
-                    'patterns_detected': anti_patterns.get('patterns_detected', 0),
-                    'improvements_available': improvements.get('has_improvements', False),
-                    'improvements_count': improvements.get('improvements_count', 0),
-                    'best_practices_score': best_practices_result.get('overall_score', 0) if best_practices_result else None,
-                    'best_practices_issues': best_practices_result.get('total_issues', 0) if best_practices_result else 0,
-                    'health_score': rules_analysis.get('health_score') if rules_analysis else None,
-                    'static_analysis_issues': rules_analysis.get('issue_count', 0) if rules_analysis else 0
+                    'complexity': result_analyze.complexity_score,
+                    'nesting': result_analyze.max_nesting_level,
+                    'transitions': len(result_analyze.transitions),
+                    'anti_patterns': anti_patterns.get('patterns_detected', 0),
+                    'improvements': improvements.get('improvements_count', 0)
                 },
-                'context_analysis': {
-                    'summary': result_analyze.summary,
-                    'complexity_score': result_analyze.complexity_score,
-                    'max_nesting_level': result_analyze.max_nesting_level,
-                    'transitions': [
-                        {
-                            'function': t.function,
-                            'line': t.line,
-                            'column': t.column,
-                            'type': t.type.value,
-                            'performance_impact': t.performance_impact.value,
-                            'explanation': t.explanation
-                        }
-                        for t in result_analyze.transitions
-                    ]
-                },
-                'best_practices_analysis': best_practices_result if best_practices_result else {'note': 'Best practices analysis not available'},
+                'context_transitions': [
+                    {
+                        'fn': t.function,
+                        'line': t.line,
+                        'type': t.type.value,
+                        'impact': t.performance_impact.value,
+                        'why': t.explanation
+                    }
+                    for t in result_analyze.transitions
+                ],
+                # ── Merge & deduplicate issues from all analyzers ──
+                # Collect issues from best_practices + static_analysis + anti_patterns
+                'issues': _merge_and_deduplicate_issues(
+                    best_practices_result, rules_analysis, anti_patterns, expression
+                ),
                 'anti_patterns': {
-                    'success': anti_patterns.get('success', False),
                     'patterns_detected': anti_patterns.get('patterns_detected', 0),
                     'pattern_matches': anti_patterns.get('pattern_matches', {}),
-                    'recommendations': anti_patterns.get('recommendations', []),
-                    'articles': anti_patterns.get('articles', []),
-                    'error': anti_patterns.get('error') if not anti_patterns.get('success') else None
+                    'recommendations': anti_patterns.get('recommendations', [])
                 },
-                'static_analysis': rules_analysis if rules_analysis else {'note': 'Static analysis not available'},
                 'improvements': {
                     'has_improvements': improvements.get('has_improvements', False),
-                    'summary': improvements.get('summary', 'No improvements suggested'),
                     'count': improvements.get('improvements_count', 0),
                     'details': improvements.get('improvements', []),
-                    'original_code': expression,
                     'rewriter_draft': improvements.get('rewriter_draft')
                 },
-                'vertipaq_analysis': vertipaq_analysis if vertipaq_analysis and vertipaq_analysis.get('success') else {
-                    'note': 'VertiPaq analysis not available',
-                    'reason': vertipaq_analysis.get('error') if vertipaq_analysis else 'Analysis failed or not connected to model'
-                },
-                'call_tree': call_tree_data,
-                'debug_steps': debug_steps_data,
-
-                # ============================================
-                # 🚨 AI WRITES THE FINAL OPTIMIZED MEASURE 🚨
-                # ============================================
-                'optimized_measure': {
-                    'rewriter_draft': improvements.get('rewriter_draft'),
-                    'has_optimization_opportunities': improvements.get('has_improvements', False),
-                    'opportunities_count': improvements.get('improvements_count', 0),
-                    'AI_INSTRUCTION': (
-                        '🚨 CRITICAL: YOU (the AI) must write the final optimized DAX measure. '
-                        'The rewriter_draft field (if present) is just a SUGGESTION from the code rewriter. '
-                        'Review ALL analysis data: context transitions, anti-patterns, VertiPaq metrics, best practices, '
-                        'and the rewriter suggestions. Then write your OWN complete, production-ready optimized DAX. '
-                        'You may use the rewriter draft as a starting point, improve upon it, or write something '
-                        'entirely different based on the full analysis. ALWAYS explain your optimization choices.'
-                    )
-                },
-                # PROMINENT ARTICLE REFERENCES SECTION
-                'articles_referenced': {
-                    'total_count': len(unique_articles),
-                    'articles': unique_articles,
-                    'note': 'These articles were referenced during the analysis and provide detailed explanations of the patterns detected'
-                }
+                'call_tree': call_tree_data.get('visualization', '') if call_tree_data else None
             }
 
-            if measure_name:
-                response['measure_info'] = {
-                    'name': measure_name,
-                    'table': measure_table,
-                    'note': f"Auto-fetched measure expression from [{measure_table}].[{measure_name}]"
+            # Add optional sections only when they have data
+            if vertipaq_analysis and vertipaq_analysis.get('columns_analyzed', 0) > 0:
+                response['vertipaq'] = {
+                    'columns': vertipaq_analysis.get('column_analysis', {}),
+                    'total_size_mb': vertipaq_analysis.get('total_size_mb', 0),
+                    'high_cardinality': vertipaq_analysis.get('high_cardinality_columns', [])
                 }
+
+            if measure_name:
+                response['measure'] = measure_name
+                response['table'] = measure_table
+
+            # Only include articles with actual pattern matches (strip full content, keep url+title)
+            matched_articles = [
+                {'title': a.get('title', ''), 'url': a.get('url', '')}
+                for a in unique_articles if a.get('matched_patterns')
+            ]
+            if matched_articles:
+                response['articles'] = matched_articles
+
+            # Strip None values
+            response = {k: v for k, v in response.items() if v is not None}
 
             return response
 
@@ -1017,49 +1032,16 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                 'validation': validation_result,
                 'mode': 'analyze',
 
-                # ============================================
-                # 🚨 CRITICAL AI INSTRUCTIONS - READ FIRST 🚨
-                # ============================================
-                'AI_INSTRUCTIONS': {
-                    'READ_THIS_FIRST': '🚨 This response contains ONLY structured data fields. You must read and present the structured fields below.',
-
-                    'FORMATTING_CRITICAL': '🚨 CRITICAL FORMATTING: Each section MUST be a separate markdown section with a ### header followed by content. Use --- horizontal rules between major sections. DO NOT put everything in one code block or one continuous paragraph.',
-
-                    'PRIORITY_1_SHOW_ANNOTATED_CODE_FIRST': '🚨 MANDATORY: Start with "### Annotated DAX Code" header, then display annotated_dax_code.code in a ```dax code block. Then OUTSIDE the code block, show "**Legend:**" followed by the legend as a bullet list. Add --- after this section.',
-
-                    'PRIORITY_2_BEST_PRACTICES': 'Add "### Best Practices Analysis" header. Show issues grouped by priority (HIGH, MEDIUM, LOW). Each issue on its own line. Add --- after.',
-
-                    'PRIORITY_3_ANTI_PATTERNS': 'Add "### Anti-Pattern Detection" header. For each pattern: show pattern name, matched instances, link to article. Add --- after.',
-
-                    'PRIORITY_4_TRANSITIONS': 'Add "### Context Transition Analysis" header. List each transition with function, line, type, and performance impact. Add --- after.',
-
-                    'PRIORITY_5_IMPROVEMENTS': 'Add "### Improvement Opportunities" header. Number each improvement with before/after examples where applicable. Add --- after.',
-
-                    'PRIORITY_6_VERTIPAQ': 'If vertipaq_analysis has data, add "### VertiPaq Analysis" header. Show column metrics in a table format. Add --- after.',
-
-                    'PRIORITY_7_WRITE_OPTIMIZED_CODE': '🚨 CRITICAL: Add "### Optimized DAX Code" header. YOU (the AI) MUST write the complete optimized DAX measure. The rewriter_draft field is just a SUGGESTION. Write production-ready code in a ```dax code block. Add --- after.',
-
-                    'PRIORITY_8_EXPLAIN_CHANGES': 'Add "### Optimization Explanation" header. Explain what specific optimizations you applied and WHY they improve performance. Reference articles_referenced when relevant.',
-
-                    'DATA_STRUCTURE_GUIDE': 'Key fields: annotated_dax_code.code (visual code), annotated_dax_code.legend (show as bullets), best_practices_analysis.issues (violations), anti_patterns.pattern_matches (patterns), analysis.transitions (transitions), improvements.details (improvement list), vertipaq_analysis.column_analysis (metrics), articles_referenced.articles (links)',
-
-                    'WORKFLOW_SUMMARY': 'SECTION HEADERS: ### Annotated DAX Code → --- → ### Best Practices Analysis → --- → ### Anti-Pattern Detection → --- → ### Context Transitions → --- → ### Improvements → --- → ### VertiPaq Analysis → --- → ### Optimized DAX Code → --- → ### Optimization Explanation'
-                },
-
-                # ============================================
-                # ANNOTATED DAX CODE - SHOW THIS FIRST!
-                # ============================================
                 'annotated_dax_code': {
                     'code': annotated_dax,
                     'legend': {
-                        '🔄': 'Iterator function (creates row context)',
-                        '📊': 'Measure reference (implicit CALCULATE)',
+                        '🔄': 'Iterator (row context)',
+                        '📊': 'Measure ref (implicit CALCULATE)',
                         '⚡': 'Explicit CALCULATE/CALCULATETABLE',
-                        '🔴': 'HIGH performance impact',
-                        '🟡': 'MEDIUM performance impact',
-                        '🟢': 'LOW performance impact'
-                    },
-                    'formatting_instructions': '🚨 CRITICAL FORMATTING: Put the "code" field inside a ```dax code block. The "legend" field must be rendered OUTSIDE the code block as a markdown bullet list AFTER the closing ``` backticks. NEVER include the legend inside the code block - it breaks formatting.'
+                        '🔴': 'HIGH impact',
+                        '🟡': 'MEDIUM impact',
+                        '🟢': 'LOW impact'
+                    }
                 },
                 'analysis': result.to_dict() if hasattr(result, 'to_dict') else result
             }
@@ -1104,29 +1086,19 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     'rewriter_draft': improvements.get('rewriter_draft')
                 }
 
-            # ============================================
-            # 🚨 AI WRITES THE FINAL OPTIMIZED MEASURE 🚨
-            # ============================================
-            response['final_optimized_measure'] = {
+            response['optimized_measure'] = {
                 'rewriter_draft': improvements.get('rewriter_draft'),
                 'has_optimization_opportunities': improvements.get('has_improvements', False),
-                'opportunities_count': improvements.get('improvements_count', 0),
-                'AI_INSTRUCTION': (
-                    '🚨 CRITICAL: YOU (the AI) must write the final optimized DAX measure. '
-                    'The rewriter_draft field (if present) is just a SUGGESTION from the code rewriter. '
-                    'Review ALL analysis data: context transitions, anti-patterns, VertiPaq metrics, best practices, '
-                    'and the rewriter suggestions. Then write your OWN complete, production-ready optimized DAX. '
-                    'You may use the rewriter draft as a starting point, improve upon it, or write something '
-                    'entirely different based on the full analysis. ALWAYS explain your optimization choices.'
-                )
+                'opportunities_count': improvements.get('improvements_count', 0)
             }
 
-            # PROMINENT ARTICLE REFERENCES
-            response['articles_referenced'] = {
-                'total_count': len(unique_articles),
-                'articles': unique_articles,
-                'note': 'These articles were referenced during the analysis and provide detailed explanations of the patterns detected'
-            }
+            # Only include articles when patterns were actually detected
+            matched_articles = [a for a in unique_articles if a.get('matched_patterns')]
+            if matched_articles:
+                response['articles_referenced'] = {
+                    'total': len(matched_articles),
+                    'articles': matched_articles
+                }
 
             if warnings:
                 response['warnings'] = warnings
@@ -1285,17 +1257,10 @@ def handle_dax_intelligence(args: Dict[str, Any]) -> Dict[str, Any]:
                     vertipaq_analysis=vertipaq_analysis
                 )
 
-                response['final_optimized_measure'] = {
+                response['optimized_measure'] = {
                     'rewriter_draft': improvements.get('rewriter_draft'),
                     'has_optimization_opportunities': improvements.get('has_improvements', False),
-                    'opportunities_count': improvements.get('improvements_count', 0),
-                    'AI_INSTRUCTION': (
-                        '🚨 CRITICAL: YOU (the AI) must write the final optimized DAX measure. '
-                        'The rewriter_draft field (if present) is just a SUGGESTION from the code rewriter. '
-                        'Review ALL analysis data from the report and write your OWN complete, production-ready optimized DAX. '
-                        'You may use the rewriter draft as a starting point, improve upon it, or write something '
-                        'entirely different based on the full analysis. ALWAYS explain your optimization choices.'
-                    )
+                    'opportunities_count': improvements.get('improvements_count', 0)
                 }
             except Exception as e:
                 logger.warning(f"Could not extract optimized measure: {e}")

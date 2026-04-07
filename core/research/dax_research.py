@@ -72,8 +72,7 @@ class DaxResearchProvider:
             patterns = config.get("patterns", [])
 
             if not patterns:
-                # General framework article - always include
-                matched_articles.append(article_id)
+                # Skip general framework articles — only include articles that match actual patterns
                 continue
 
             article_matches = []

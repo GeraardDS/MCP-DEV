@@ -244,16 +244,6 @@ def register_query_handlers(registry):
                 "idempotentHint": True,
                 "openWorldHint": True,
             },
-            output_schema={
-                "type": "object",
-                "properties": {
-                    "success": {"type": "boolean"},
-                    "results": {"type": "array", "items": {"type": "object"}},
-                    "row_count": {"type": "integer"},
-                    "truncated": {"type": "boolean"},
-                    "execution_time_ms": {"type": "number"},
-                },
-            },
         ),
         ToolDefinition(
             name="04_Query_Operations",

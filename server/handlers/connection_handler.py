@@ -130,27 +130,6 @@ def register_connection_handlers(registry):
             "idempotentHint": False,
             "openWorldHint": True,
         },
-        output_schema={
-            "type": "object",
-            "properties": {
-                "success": {"type": "boolean"},
-                "instances": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "index": {"type": "integer"},
-                            "port": {"type": "integer"},
-                            "database": {"type": "string"},
-                            "pid": {"type": "integer"},
-                        },
-                    },
-                    "description": "List of detected PBI instances (detect operation)",
-                },
-                "database": {"type": "string", "description": "Connected database name (connect operation)"},
-                "model_name": {"type": "string"},
-            },
-        },
     )
     registry.register(tool)
     logger.info("Registered connection handler")
