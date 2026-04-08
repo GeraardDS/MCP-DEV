@@ -10,6 +10,7 @@ import threading
 from functools import partial
 from server.registry import get_registry
 from core.validation.error_handler import ErrorHandler
+from core.config.config_manager import config
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,50 @@ class ToolDispatcher:
                     'error_type': 'unknown_tool',
                     'available_tools': [t.name for t in self.registry.get_all_tools()[:10]]
                 }
+
+            # Security gates (read-only mode + destructive confirmation)
+            read_only = config.get('security.read_only_mode', False)
+            confirm_destructive = config.get('security.confirm_destructive', False)
+
+            if read_only or confirm_destructive:
+                tool_def = self.registry.get_tool_def(tool_name)
+                annotations = tool_def.annotations or {}
+
+                # Read-only mode enforcement
+                if read_only and not annotations.get('readOnlyHint', False):
+                    logger.warning(
+                        f"Read-only mode: blocked tool '{tool_name}'"
+                    )
+                    return {
+                        'success': False,
+                        'error': f'Tool "{tool_name}" blocked: server is in read-only mode',
+                        'error_type': 'read_only_mode'
+                    }
+
+                # Confirmation gate for destructive operations
+                if (
+                    confirm_destructive
+                    and annotations.get('destructiveHint')
+                    and not arguments.get('confirmed', False)
+                ):
+                    logger.info(
+                        f"Confirmation gate: blocked '{tool_name}' "
+                        f"(operation={arguments.get('operation', 'N/A')})"
+                    )
+                    return {
+                        'success': False,
+                        'error_type': 'confirmation_required',
+                        'message': (
+                            f'Tool "{tool_name}" is destructive. '
+                            f'Re-call with confirmed=true to proceed.'
+                        ),
+                        'tool': tool_name,
+                        'operation': arguments.get('operation', 'unknown'),
+                        'args_received': {
+                            k: v for k, v in arguments.items()
+                            if k != 'confirmed'
+                        },
+                    }
 
             # Get handler
             handler = self.registry.get_handler(tool_name)

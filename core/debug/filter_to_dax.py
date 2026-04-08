@@ -5,6 +5,7 @@ Converts PBIP filter definitions and slicer selections to executable DAX express
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 
@@ -60,6 +61,7 @@ class FilterExpression:
 # NOTE: Only 'sf ' (slicer field) prefix indicates field parameters.
 # The 's ' prefix is for regular selection/disconnected slicer tables (NOT field parameters).
 # True field parameters have SystemFlags="2" or contain NAMEOF() in their DAX.
+# NOTE: These patterns are tuned for Finvision model naming conventions. Other deployments may need to customize.
 FIELD_PARAMETER_PATTERNS = [
     "sf filter",  # Field parameter filter tables (sf Filter 1, sf Filter X)
     "sf row",  # Row drill field parameters (sf Row Drill)
@@ -828,6 +830,12 @@ class FilterToDaxConverter:
             elif isinstance(value, float):
                 return TypedValue(value, "decimal")
             return TypedValue(value, "unknown")
+
+        # Handle datetime literals: datetime'2025-05-05T00:00:00' -> DATE(2025, 5, 5)
+        dt_match = re.match(r"datetime'(\d{4})-(\d{2})-(\d{2})T[\d:.]+'", value)
+        if dt_match:
+            date_str = f"{dt_match.group(1)}-{dt_match.group(2)}-{dt_match.group(3)}"
+            return TypedValue(date_str, "date")
 
         # Handle quoted literals with L suffix: 'value'L -> value (STRING)
         if value.endswith("'L") and value.startswith("'"):

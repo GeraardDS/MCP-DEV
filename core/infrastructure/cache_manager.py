@@ -150,8 +150,8 @@ class EnhancedCacheManager:
     
     def _should_evict(self, new_entry_size: int) -> bool:
         """Check if eviction needed for new entry."""
-        # Check entry count limit (use > to allow exactly max_entries items)
-        if self.max_entries > 0 and len(self.cache) > self.max_entries:
+        # Check entry count limit (evict when at capacity to keep at most max_entries items)
+        if self.max_entries > 0 and len(self.cache) >= self.max_entries:
             return True
         
         # Check size limit

@@ -119,6 +119,9 @@ exports/*
 !exports/.gitkeep
 core/exports/
 
+# Output directory (tool execution results)
+output/
+
 # Distribution packages
 *.zip
 *.mcpb

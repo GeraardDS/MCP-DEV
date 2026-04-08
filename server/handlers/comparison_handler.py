@@ -1,6 +1,8 @@
 """
-Comparison Handler
-Handles model comparison operations with workflow templates
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
+
+Called by analysis_handler.py (06_Analysis_Operations.compare mode).
 """
 from typing import Dict, Any
 import logging
@@ -39,10 +41,8 @@ def handle_compare_pbi_models(args: Dict[str, Any]) -> Dict[str, Any]:
     old_port = args.get('old_port')
     new_port = args.get('new_port')
 
-    # If ports not provided, return instances list and ask user to specify
-    if not old_port or not new_port:
-        pass  # fall through to the block below
-    else:
+    # If ports provided, validate them before proceeding
+    if old_port and new_port:
         # Validate port values
         try:
             old_port = int(old_port)

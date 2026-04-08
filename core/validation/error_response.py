@@ -72,7 +72,7 @@ def not_connected_error() -> dict:
     """Standard 'not connected' error response."""
     return quick_error(
         "Not connected to Power BI",
-        fix="Run 01_Connect_To_Instance",
+        fix="Run 01_Connection",
         error_type="not_connected"
     )
 

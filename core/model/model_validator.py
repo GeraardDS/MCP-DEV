@@ -133,7 +133,7 @@ class ModelValidator:
         issues = []
 
         try:
-            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=100)
+            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=5000)
             if not rels_result.get('success'):
                 return issues
 
@@ -186,7 +186,7 @@ class ModelValidator:
 
         try:
             # Get relationships to identify dimension tables
-            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=100)
+            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=5000)
             if not rels_result.get('success'):
                 return issues
 
@@ -244,7 +244,7 @@ class ModelValidator:
         issues = []
 
         try:
-            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=100)
+            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=5000)
             if not rels_result.get('success'):
                 return issues
 
@@ -291,23 +291,63 @@ class ModelValidator:
         return issues
 
     def _check_measure_references(self) -> List[Dict[str, Any]]:
-        """Check for invalid measure references."""
+        """Check for invalid measure references using basic bracket-reference extraction."""
+        import re
         issues = []
 
         try:
-            measures_result = self.executor.execute_info_query("MEASURES", top_n=100)
+            measures_result = self.executor.execute_info_query("MEASURES", top_n=5000)
             if not measures_result.get('success'):
                 return issues
 
-            # Get all measure names
-            measure_names = {m.get('Name') for m in measures_result['rows']}
+            # Build set of all known measure names
+            measure_names = set()
+            for m in measures_result['rows']:
+                name = m.get('Name')
+                if name:
+                    measure_names.add(name)
 
-            # Check each measure's expression for invalid references
-            # This is simplified - full implementation would parse DAX properly
-            for measure in measures_result['rows'][:20]:  # Check first 20
+            # Also get column names to exclude from measure-ref checks
+            columns_result = self.executor.execute_info_query("COLUMNS", top_n=5000)
+            column_names = set()
+            if columns_result.get('success'):
+                for c in columns_result['rows']:
+                    col_name = c.get('Name') or c.get('[ExplicitName]')
+                    if col_name:
+                        column_names.add(col_name)
+
+            # Pattern: standalone [Name] references (not preceded by table name or ')
+            # This is a heuristic — a full DAX parser would be more accurate
+            bracket_ref_pattern = re.compile(r'(?<![\'"\w])\[([^\]]+)\]')
+
+            for measure in measures_result['rows']:
                 expr = measure.get('Expression', '')
-                # Basic check for [MeasureName] pattern
-                # Would need full DAX parser for complete validation
+                if not expr:
+                    continue
+
+                measure_name = measure.get('Name', '')
+                table_name = measure.get('TableName', '') or measure.get('[TableID]', '')
+
+                # Extract bracket references from the expression
+                refs = bracket_ref_pattern.findall(expr)
+                for ref in refs:
+                    # Skip known columns, the measure itself, and common DAX keywords
+                    if ref in column_names or ref == measure_name:
+                        continue
+                    if ref.upper() in ('VALUE', 'VALUES', 'ROWS', 'COLUMNS'):
+                        continue
+
+                    # If ref looks like a measure name but isn't in our set, flag it
+                    if ref not in measure_names and not ref.startswith('$'):
+                        issues.append({
+                            'type': 'invalid_measure_reference',
+                            'severity': 'medium',
+                            'table': table_name,
+                            'measure': measure_name,
+                            'reference': ref,
+                            'description': f"Measure '{measure_name}' references unknown '[{ref}]' — may be a renamed or deleted measure",
+                            'recommendation': f"Verify that '[{ref}]' exists in the model or update the reference"
+                        })
 
         except Exception as e:
             logger.warning(f"Error checking measure references: {e}")
@@ -319,7 +359,7 @@ class ModelValidator:
         issues = []
 
         try:
-            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=100)
+            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=5000)
             if not rels_result.get('success'):
                 return issues
 

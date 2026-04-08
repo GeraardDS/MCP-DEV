@@ -1404,6 +1404,11 @@ class VisualQueryBuilder:
             if vt == "string":
                 escaped = str(raw).replace('"', '""')
                 return f'"{escaped}"'
+            if vt == "date":
+                s = str(raw)
+                if len(s) >= 10:
+                    return f"DATE({s[:4]}, {int(s[5:7])}, {int(s[8:10])})"
+                return f'"{s}"'
             if vt == "boolean":
                 return "TRUE" if str(raw).lower() == "true" else "FALSE"
             if vt in ("integer", "decimal"):
@@ -1415,7 +1420,12 @@ class VisualQueryBuilder:
             return "TRUE" if val else "FALSE"
         if isinstance(val, (int, float)) and not isinstance(val, bool):
             return str(val)
-        escaped = str(val).replace('"', '""')
+        # Catch raw datetime literals that weren't wrapped in TypedValue
+        str_val = str(val)
+        dt_match = re.match(r"datetime'(\d{4})-(\d{2})-(\d{2})T[\d:.]+'", str_val)
+        if dt_match:
+            return f"DATE({dt_match.group(1)}, {int(dt_match.group(2))}, {int(dt_match.group(3))})"
+        escaped = str_val.replace('"', '""')
         return f'"{escaped}"'
 
     def _format_values_as_treatas_set(self, values: List[Any], include_blank: bool = False) -> str:

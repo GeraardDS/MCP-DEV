@@ -39,16 +39,23 @@ def get_dll_paths() -> DllPaths:
 
 
 def load_amo_assemblies():
-    """Load AMO/TOM assemblies into CLR. Returns True if successful."""
+    """Load AMO/TOM assemblies into CLR. Returns True if at least one DLL was loaded."""
     try:
         import clr
         paths = get_dll_paths()
+        loaded = 0
         if os.path.exists(paths.core_dll):
             clr.AddReference(paths.core_dll)
+            loaded += 1
         if os.path.exists(paths.amo_dll):
             clr.AddReference(paths.amo_dll)
+            loaded += 1
         if os.path.exists(paths.tabular_dll):
             clr.AddReference(paths.tabular_dll)
+            loaded += 1
+        if loaded == 0:
+            logger.warning("No AMO/TOM DLLs found to load")
+            return False
         return True
     except Exception as e:
         logger.warning(f"AMO/TOM assemblies not available: {e}")

@@ -72,20 +72,24 @@ class DaxResearchProvider:
             patterns = config.get("patterns", [])
 
             if not patterns:
-                # General framework article - always include
-                matched_articles.append(article_id)
+                # Skip general framework articles — only include articles that match actual patterns
                 continue
 
             article_matches = []
             for pattern in patterns:
                 try:
                     for match in re.finditer(pattern, query, re.IGNORECASE | re.DOTALL):
-                        context_start = max(0, match.start() - 50)
-                        context_end = min(len(query), match.end() + 50)
+                        matched = match.group(0).strip()
+                        # Truncate large matches — some regexes match entire VAR blocks
+                        if len(matched) > 150:
+                            matched = matched[:150] + "..."
+                        context_start = max(0, match.start() - 40)
+                        context_end = min(len(query), match.start() + 120)
+                        ctx = query[context_start:context_end].strip()
 
                         article_matches.append({
-                            "matched_text": match.group(0).strip(),
-                            "context": query[context_start:context_end].strip()
+                            "matched_text": matched,
+                            "context": ctx
                         })
                 except re.error:
                     logger.warning(f"Invalid regex pattern in article {article_id}")

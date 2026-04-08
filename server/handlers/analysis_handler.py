@@ -5,6 +5,7 @@ Handles model analysis tools including simple analysis, full analysis, BPA, perf
 from typing import Dict, Any
 import logging
 from server.registry import ToolDefinition
+from server.progress import emit_progress
 from core.infrastructure.connection_state import connection_state
 from core.validation.error_handler import ErrorHandler
 from core.utilities.business_impact import enrich_issue_with_impact, add_impact_summary
@@ -866,6 +867,7 @@ def handle_full_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
     max_seconds = args.get('max_seconds', None)
 
     # Run the analysis
+    emit_progress(1, 3, "Running analysis...")
     result = agent_policy.analysis_orch.comprehensive_analysis(
         connection_state,
         scope=scope,
@@ -877,6 +879,7 @@ def handle_full_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     # Enrich issues with business impact context
+    emit_progress(2, 3, "Enriching results...")
     if result.get('success') and result.get('issues'):
         try:
             enriched_issues = []
@@ -893,6 +896,7 @@ def handle_full_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
             logger.error(f"Error enriching issues with business impact: {e}", exc_info=True)
             # Don't fail the analysis if enrichment fails
 
+    emit_progress(3, 3, "Complete")
     return result
 
 def handle_analysis_operations(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -942,7 +946,13 @@ def register_analysis_handlers(registry):
             "required": []
         },
         category="analysis",
-        sort_order=60
+        sort_order=60,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
     )
 
     registry.register(tool)

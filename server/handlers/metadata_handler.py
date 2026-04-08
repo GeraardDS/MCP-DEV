@@ -1,9 +1,8 @@
 """
-Metadata Handler
-Handles searching tables, columns, measures.
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
 
-Note: register_metadata_handlers() was removed — these handler functions are
-used by query_handler.py (04_Query_Operations + 04_Search_String).
+Provides handle_search_string and handle_search_objects for query_handler.py.
 """
 from typing import Dict, Any
 import logging

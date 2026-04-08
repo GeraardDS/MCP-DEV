@@ -143,7 +143,9 @@ class BPAAnalyzer:
         Rules whose ID already exists are silently skipped to
         avoid duplicates.
         """
-        # Resolve config/bpa_rules/ relative to project root
+        # Resolve config/bpa_rules/ relative to project root.
+        # Assumes layout: <project_root>/core/analysis/bpa_analyzer.py
+        # (two parent directories up from this file reaches the project root).
         script_dir = os.path.dirname(
             os.path.abspath(__file__)
         )
@@ -499,11 +501,12 @@ class BPAAnalyzer:
             "Description": (
                 "Calculation items should have "
                 "sequential ordinal values without gaps "
-                "for predictable evaluation order."
+                "for predictable evaluation order. "
+                "Only applies when there are 2+ items."
             ),
             "Scope": "CalculationGroup",
             "Expression": (
-                'calculationItems.Count > 0'
+                'calculationItems.Count > 1'
             ),
             "FixExpression": (
                 "Review and re-number calculation item "
@@ -806,7 +809,6 @@ class BPAAnalyzer:
         try:
             # Safety checks
             if not expression or not isinstance(expression, str):
-                self._eval_depth -= 1
                 return False
 
             expression = re.sub(r'\s+', ' ', expression).strip()
@@ -823,10 +825,8 @@ class BPAAnalyzer:
                     for c in t.get('columns', []) or []:
                         if str(c.get('name')) == col:
                             # Return the column name for regex/name checks
-                            self._eval_depth -= 1
                             return str(c.get('name'))
                 # Fallback to returning the literal reference string
-                self._eval_depth -= 1
                 return expression
 
             # IMPORTANT: Handle certain function patterns first to avoid corrupting
@@ -851,7 +851,6 @@ class BPAAnalyzer:
                 pattern = pattern.replace('(?i)', '')
                 compiled = self._compile_regex(pattern, flags)
                 result = bool(compiled.search(str(value) if value is not None else ''))
-                self._eval_depth -= 1
                 return result
 
             # Handle Collection.AnyFalse / Collection.AnyTrue
@@ -876,7 +875,6 @@ class BPAAnalyzer:
                 elif isinstance(collection, dict):
                     # Any dict value false
                     result = any(not bool(v) for v in collection.values())
-                self._eval_depth -= 1
                 return result
 
             anytrue_match = re.match(r'([A-Za-z0-9_.]+)\.AnyTrue$', expression)
@@ -897,7 +895,6 @@ class BPAAnalyzer:
                                 break
                 elif isinstance(collection, dict):
                     result = any(bool(v) for v in collection.values())
-                self._eval_depth -= 1
                 return result
 
             # Handle string.IsNullOrWhitespace(field)
@@ -906,7 +903,6 @@ class BPAAnalyzer:
                 field = null_match.group(1)
                 value = self.evaluate_expression(field, context)
                 result = not str(value).strip() if value is not None else True
-                self._eval_depth -= 1
                 return result
 
             # Handle Name.ToUpper().Contains("str")
@@ -915,7 +911,6 @@ class BPAAnalyzer:
                 substring = contains_match.group(1)
                 name = context.get('obj', {}).get('name', '')
                 result = substring.upper() in str(name).upper()
-                self._eval_depth -= 1
                 return result
 
             # Handle Convert.ToInt64(expr) op value
@@ -943,7 +938,6 @@ class BPAAnalyzer:
                     result = int_val != value
                 else:
                     result = False
-                self._eval_depth -= 1
                 return result
 
             # Handle GetAnnotation("name")
@@ -951,7 +945,6 @@ class BPAAnalyzer:
             if ann_match:
                 ann_name = ann_match.group(1)
                 result = self.get_annotation(context.get('obj', {}), ann_name)
-                self._eval_depth -= 1
                 return result if result is not None else ""
 
             # Handle .Any(condition) BEFORE paren reducer
@@ -988,7 +981,6 @@ class BPAAnalyzer:
                 if cmp_val == 'false':
                     any_result = not any_result
                 # cmp_val == 'true' or None: keep as-is
-                self._eval_depth -= 1
                 return any_result
 
             # Now reduce simple parenthesis outside of the handled patterns above
@@ -1037,7 +1029,6 @@ class BPAAnalyzer:
                 delimiter = ' or ' if ' or ' in expression else ' || '
                 parts = expression.split(delimiter)
                 result = any(self.evaluate_expression(p.strip(), context) for p in parts)
-                self._eval_depth -= 1
                 return result
 
             # Handle logical AND
@@ -1045,13 +1036,11 @@ class BPAAnalyzer:
                 delimiter = ' and ' if ' and ' in expression else ' && '
                 parts = expression.split(delimiter)
                 result = all(self.evaluate_expression(p.strip(), context) for p in parts)
-                self._eval_depth -= 1
                 return result
 
             # Handle NOT
             if expression.startswith('not ') or expression.startswith('!'):
                 result = not self.evaluate_expression(expression.lstrip('not !').strip(), context)
-                self._eval_depth -= 1
                 return result
 
             # Handle .Any(condition)
@@ -1061,14 +1050,11 @@ class BPAAnalyzer:
                 inner_expr = any_match.group(2)
                 collection = self._get_by_path(context, collection_path)
                 if not isinstance(collection, list):
-                    self._eval_depth -= 1
                     return False
                 for item in collection:
                     item_context = {**context, 'it': item, 'current': item}
                     if self.evaluate_expression(inner_expr, item_context):
-                        self._eval_depth -= 1
                         return True
-                self._eval_depth -= 1
                 return False
 
             # Handle .Count() or .Count with optional comparison
@@ -1108,7 +1094,6 @@ class BPAAnalyzer:
                         result = count_val
                 else:
                     result = count_val
-                self._eval_depth -= 1
                 return result
 
             # Handle .Where(condition).Count()
@@ -1118,13 +1103,11 @@ class BPAAnalyzer:
                 inner_expr = where_count_match.group(2)
                 collection = self._get_by_path(context, collection_path)
                 if not isinstance(collection, list):
-                    self._eval_depth -= 1
                     return 0
                 filtered = []
                 for item in collection:
                     if self.evaluate_expression(inner_expr, {**context, 'it': item, 'current': item}):
                         filtered.append(item)
-                self._eval_depth -= 1
                 return len(filtered)
 
             # Handle simple property == value (support dotted left side)
@@ -1147,7 +1130,6 @@ class BPAAnalyzer:
                     result = prop_value != value
                 else:
                     result = prop_value == value
-                self._eval_depth -= 1
                 return result
 
             # Handle numeric comparisons: prop > N, prop < N, etc.
@@ -1181,7 +1163,6 @@ class BPAAnalyzer:
                     result = num_val <= threshold
                 else:
                     result = False
-                self._eval_depth -= 1
                 return result
 
             # Handle property-to-property comparison (e.g., Name == current.Name)
@@ -1196,7 +1177,6 @@ class BPAAnalyzer:
                     result = lv == rv
                 else:
                     result = lv != rv
-                self._eval_depth -= 1
                 return result
 
             # Handle math expressions like (a + b) / Math.Max(c,d) > e
@@ -1213,7 +1193,6 @@ class BPAAnalyzer:
                     result = (numerator / max_val) > threshold if max_val > 0 else False
                 except (ValueError, TypeError, ZeroDivisionError):
                     result = False
-                self._eval_depth -= 1
                 return result
 
             # Handle addition
@@ -1223,24 +1202,22 @@ class BPAAnalyzer:
                     result = sum(float(self.evaluate_expression(p.strip(), context) or 0) for p in parts if p.strip())
                 except (ValueError, TypeError):
                     result = 0
-                self._eval_depth -= 1
                 return result
 
             # Handle property access (support dotted paths)
             if re.match(r'^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$', expression):
                 result = self._get_by_path(context, expression)
-                self._eval_depth -= 1
                 return result
 
             # If unhandled, log and return False
             logger.debug(f"Unhandled expression: {expression[:100]}")
-            self._eval_depth -= 1
             return False
 
         except Exception as e:
             logger.warning(f"Expression evaluation error: {e} for: {expression[:100]}")
-            self._eval_depth -= 1
             return False
+        finally:
+            self._eval_depth -= 1
 
     def _get_by_path(self, context: Dict, path: str) -> Any:
         """Get value by dot path.

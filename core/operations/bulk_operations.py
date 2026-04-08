@@ -85,7 +85,7 @@ class BulkOperationsManager:
                 'suggestions': [
                     'Connection to Power BI Desktop was lost before batch could start',
                     'Ensure Power BI Desktop is running',
-                    'Try reconnecting using 01_Connect_To_Instance'
+                    'Try reconnecting using 01_Connection'
                 ]
             }
 

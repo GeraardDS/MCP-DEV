@@ -1,18 +1,14 @@
 """
-Report Info Handler
-Tool 14: Get PBIP report structure information
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
 
-Returns pure data about:
-- All pages in the report
-- Filters on all pages (report-level filters from report.json)
-- Filter pane filters per page
-- All visual items per page
+Provides handle_report_info and handle_report_measure_usage for report_operations_handler.py
+(07_Report_Operations.info and .measure_usage operations).
 """
 from typing import Dict, Any, List, Optional
 import logging
 import os
 from pathlib import Path
-from server.registry import ToolDefinition
 from core.validation.error_handler import ErrorHandler
 from core.utilities.json_utils import load_json
 from core.utilities.pbip_utils import (
@@ -370,6 +366,14 @@ def _extract_visual_info(visual_data: Dict, visual_path: Path) -> Dict:
         result['group_display_name'] = visual_group.get('displayName', '')
         result['group_mode'] = visual_group.get('groupMode', '')
 
+    # Annotations (name-value pairs)
+    annotations = visual_data.get('annotations', [])
+    if annotations:
+        result['annotations'] = annotations
+
+    # Mobile layout presence
+    result['has_mobile_layout'] = (visual_path.parent / 'mobile.json').exists()
+
     return result
 
 
@@ -447,6 +451,11 @@ def _get_page_info(page_folder: Path, summary_only: bool = False) -> Dict:
         'page_id': page_folder.name,
         'display_name': page_data.get('displayName', page_folder.name),
     }
+
+    # Page annotations
+    annotations = page_data.get('annotations', [])
+    if annotations:
+        page_info['annotations'] = annotations
 
     if not summary_only:
         page_info['display_option'] = page_data.get('displayOption', '')
@@ -779,13 +788,15 @@ def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
             'error': f'No pages folder found in: {definition_path}'
         }
 
-    # Load report.json for "Filters on all pages"
+    # Load report.json for "Filters on all pages" and annotations
     report_json_path = definition_path / "report.json"
     report_level_filters = []
+    report_annotations = []
     if report_json_path.exists():
         report_data = _load_json_file(report_json_path)
         if report_data:
             report_level_filters = _extract_report_filters(report_data)
+            report_annotations = report_data.get('annotations', [])
 
     # Collect page information
     pages = []
@@ -852,6 +863,9 @@ def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
         'pages': pages
     }
 
+    if report_annotations:
+        result['annotations'] = report_annotations
+
     # Optionally exclude report-level filters
     if not include_filters:
         result.pop('filters_on_all_pages', None)
@@ -859,18 +873,3 @@ def handle_report_info(args: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def register_report_info_handler(registry):
-    """Register report info handler"""
-    from server.tool_schemas import TOOL_SCHEMAS
-
-    tool = ToolDefinition(
-        name="07_Report_Info",
-        description="Report analysis: info (pages/visuals/filters), measure_usage (measures per page, CSV export).",
-        handler=handle_report_info,
-        input_schema=TOOL_SCHEMAS.get('report_info', {}),
-        category="pbip",
-        sort_order=71  # 07 = PBIP Analysis
-    )
-    registry.register(tool)
-
-    logger.info("Registered report_info handler")

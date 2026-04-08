@@ -817,6 +817,34 @@ class CallbackDetector:
         Returns:
             List of CallbackDetection results sorted by line
         """
+        # Try unified analyzer first (new engine)
+        try:
+            from core.dax.analyzer.unified_analyzer import DaxUnifiedAnalyzer
+
+            result = DaxUnifiedAnalyzer().analyze(dax_expression)
+            detections = []
+            for issue in result.issues:
+                if issue.rule_id.startswith("CB"):
+                    detections.append(
+                        CallbackDetection(
+                            rule_id=issue.rule_id,
+                            severity=issue.severity,
+                            description=issue.description,
+                            fix_suggestion=issue.fix_suggestion,
+                            line=issue.line,
+                            match_text=issue.match_text or "",
+                        )
+                    )
+            detections.sort(key=lambda d: (d.line, d.rule_id))
+            return detections
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Unified analyzer fallback: %s", e
+            )
+
+        # Original implementation follows
         # Normalize to remove comments before analysis
         normalized = normalize_dax(dax_expression)
 
@@ -839,6 +867,46 @@ class CallbackDetector:
         Returns:
             Dict with detections list and summary counts
         """
+        # Try unified analyzer first (new engine)
+        try:
+            from core.dax.analyzer.unified_analyzer import DaxUnifiedAnalyzer
+
+            result = DaxUnifiedAnalyzer().analyze(dax_expression)
+            cb_fmt = result.to_callback_format()
+            # Convert to original detect_dict format (callback_detections + summary)
+            cb_detections = []
+            for issue in result.issues:
+                if issue.rule_id.startswith("CB"):
+                    cb_detections.append(
+                        {
+                            "rule_id": issue.rule_id,
+                            "severity": issue.severity,
+                            "description": issue.description,
+                            "fix_suggestion": issue.fix_suggestion,
+                            "line": issue.line,
+                            "match_text": issue.match_text or "",
+                        }
+                    )
+            critical = sum(1 for d in cb_detections if d["severity"] == "critical")
+            high = sum(1 for d in cb_detections if d["severity"] == "high")
+            medium = sum(1 for d in cb_detections if d["severity"] == "medium")
+            return {
+                "callback_detections": cb_detections,
+                "summary": {
+                    "total": len(cb_detections),
+                    "critical": critical,
+                    "high": high,
+                    "medium": medium,
+                },
+            }
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Unified analyzer fallback: %s", e
+            )
+
+        # Original implementation follows
         detections = self.detect(dax_expression)
 
         critical = sum(1 for d in detections if d.severity == "critical")

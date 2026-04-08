@@ -87,7 +87,7 @@ def dump_json(data: Any, file_path: Union[str, Path], indent: int = 2) -> None:
     Example:
         >>> dump_json({"key": "value"}, "output.json")
     """
-    with open(file_path, 'wb' if HAS_ORJSON else 'w') as f:
+    with open(file_path, 'wb' if HAS_ORJSON else 'w', encoding=None if HAS_ORJSON else 'utf-8') as f:
         if HAS_ORJSON:
             # orjson option for pretty printing
             f.write(orjson.dumps(data, option=orjson.OPT_INDENT_2))

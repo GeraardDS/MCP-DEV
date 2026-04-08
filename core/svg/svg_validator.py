@@ -72,9 +72,10 @@ class SVGValidator:
                 "Consider simplifying if you plan to add more complexity."
             )
 
-        # Check for unsupported elements
+        # Check for unsupported elements (match tag followed by whitespace, > or /)
+        svg_lower = svg_code.lower()
         for element in cls.UNSUPPORTED_ELEMENTS:
-            if f'<{element}' in svg_code.lower():
+            if re.search(rf'<{element}[\s>/]', svg_lower):
                 issues.append(f"Unsupported element <{element}> found. Power BI will not render this.")
 
         # Check for unsupported event attributes

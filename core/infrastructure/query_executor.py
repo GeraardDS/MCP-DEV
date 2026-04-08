@@ -973,7 +973,9 @@ class OptimizedQueryExecutor:
             return {'success': False, 'error': str(e)}
 
     def _escape_dax_string(self, text: str) -> str:
-        return text.replace("'", "''") if text else text
+        if not text:
+            return text
+        return text.replace("'", "''").replace('"', '""')
 
     def _get_info_columns(self, function_name: str) -> List[str]:
         column_map = {
@@ -1552,7 +1554,8 @@ class OptimizedQueryExecutor:
             }
 
             # Get table basic info
-            table_query = f"EVALUATE FILTER(INFO.TABLES(), [Name] = \"{table_name}\")"
+            escaped_table = table_name.replace('"', '""')
+            table_query = f'EVALUATE FILTER(INFO.TABLES(), [Name] = "{escaped_table}")'
             table_result = self.validate_and_execute_dax(table_query)
             if table_result.get('success') and table_result.get('rows'):
                 result['table_info'] = table_result['rows'][0]
@@ -1960,38 +1963,41 @@ class OptimizedQueryExecutor:
 
             cmd = AdomdCommand(query, self.connection)
             reader = cmd.ExecuteReader()
+            try:
+                # Get column names
+                columns = []
+                for i in range(reader.FieldCount):
+                    columns.append(reader.GetName(i))
 
-            # Get column names
-            columns = []
-            for i in range(reader.FieldCount):
-                columns.append(reader.GetName(i))
-
-            # Read all rows
-            rows = []
-            while reader.Read():
-                row_dict = {}
-                for i, col_name in enumerate(columns):
-                    value = reader.GetValue(i)
-                    # Convert to Python types
-                    if value is None:
-                        row_dict[col_name] = None
-                    else:
-                        # Handle different .NET types
-                        value_str = str(value)
-                        try:
-                            # Try to convert numeric values
-                            if value_str.isdigit():
-                                row_dict[col_name] = int(value_str)
-                            elif '.' in value_str and value_str.replace('.', '').replace('-', '').isdigit():
-                                row_dict[col_name] = float(value_str)
-                            else:
+                # Read all rows
+                rows = []
+                while reader.Read():
+                    row_dict = {}
+                    for i, col_name in enumerate(columns):
+                        value = reader.GetValue(i)
+                        # Convert to Python types
+                        if value is None:
+                            row_dict[col_name] = None
+                        else:
+                            # Handle different .NET types
+                            value_str = str(value)
+                            try:
+                                # Try to convert numeric values
+                                if value_str.isdigit():
+                                    row_dict[col_name] = int(value_str)
+                                elif '.' in value_str and value_str.replace('.', '').replace('-', '').isdigit():
+                                    row_dict[col_name] = float(value_str)
+                                else:
+                                    row_dict[col_name] = value_str
+                            except Exception:
                                 row_dict[col_name] = value_str
-                        except Exception:
-                            row_dict[col_name] = value_str
 
-                rows.append(row_dict)
-
-            reader.Close()
+                    rows.append(row_dict)
+            finally:
+                try:
+                    reader.Close()
+                except Exception:
+                    pass
             execution_time = (time.time() - start_time) * 1000  # Convert to ms
 
             logger.info(f"DMV query executed: {len(rows)} rows in {execution_time:.2f}ms")

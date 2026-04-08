@@ -1,6 +1,6 @@
 [project]
 name = "mcp-powerbi-finvision"
-version = "6.6.2"
+version = "7.1.0"
 description = "Production-ready MCP server for Power BI Desktop analysis"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10,18 +10,22 @@ authors = [
 license = {text = "MIT"}
 
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.23.0,<2.0.0",
     "pythonnet>=3.0.3",
     "WMI>=1.5.1",
     "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0,<5.0.0",
     "psutil>=5.9.0",
-    "pbixray>=0.1.0,<0.2.0",
-    "openpyxl>=3.1.0",
-    "reportlab>=4.0.0",
+    "pbixray>=0.4.0,<1.0.0",
+    "openpyxl>=3.1.0,<4.0.0",
+    "reportlab>=4.0.0,<5.0.0",
     "python-docx>=0.8.11",
-    "matplotlib>=3.8.0",
+    "matplotlib>=3.8.0,<4.0.0",
     "networkx>=3.2.0",
-    "pillow>=10.0.0",
+    "orjson>=3.9.0,<4.0.0",
+    "tqdm>=4.66.0,<5.0.0",
+    "polars>=1.35.0,<2.0.0",
+    "pillow>=10.0.0,<11.0.0",
 ]
 
 [project.optional-dependencies]

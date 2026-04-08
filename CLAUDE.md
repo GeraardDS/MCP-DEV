@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MCP-PowerBi-Finvision is a Python-based Model Context Protocol (MCP) server for Power BI Desktop analysis. It connects to running Power BI Desktop instances via .NET interop (pythonnet/CLR) over stdio, providing 50+ tools across 9 categories for DAX debugging, TMDL editing, model operations, and offline PBIP analysis. Windows-only (requires .NET Framework 4.7.2+, Power BI Desktop).
+MCP-PowerBi-Finvision is a Python-based Model Context Protocol (MCP) server for Power BI Desktop analysis. It connects to running Power BI Desktop instances via .NET interop (pythonnet/CLR) over stdio, providing 23 tools across 10 categories for DAX debugging, TMDL editing, model operations, and offline PBIP analysis. Windows-only (requires .NET Framework 4.7.2+, Power BI Desktop).
 
 ## Commands
 
@@ -61,7 +61,7 @@ Tool calls flow: MCP `call_tool()` -> input validation -> rate limiting -> `Tool
   - `operations/` - CRUD managers (table, column, measure, relationship, calculation group, RLS)
   - `dax/` - DAX analysis, injection, context debugging
   - `tmdl/` - TMDL parsing, validation, editing, script generation
-  - `pbip/` - Offline PBIP project analysis, report parsing, dependency engine
+  - `pbip/` - PBIP report analysis, parsing, dependency engine, filter/bookmark/theme/CF engines, page/visual/field operations, extension measures, visual calculations, authoring subsystem
   - `analysis/` - BPA analyzer, model analysis
   - `comparison/` - Model comparison orchestration
   - `config/` - Configuration management (default_config.json + local overrides)
@@ -86,7 +86,33 @@ def register_foo_handler(registry):
 
 ### Tool Categories and Deferred Loading
 
-Tools are grouped by `ToolCategory` enum in `server/registry.py` (CORE, MODEL, BATCH, QUERY, DAX, ANALYSIS, PBIP, DOCS, DEBUG). A pre-computed `_TOOL_TO_CATEGORY` reverse lookup provides O(1) category resolution. Tool names follow the pattern `NN_Tool_Name` where NN indicates category order.
+Tools are grouped by `ToolCategory` enum in `server/registry.py` (CORE, MODEL, BATCH, QUERY, DAX, ANALYSIS, PBIP, DOCS, DEBUG, AUTHORING). A pre-computed `_TOOL_TO_CATEGORY` reverse lookup provides O(1) category resolution. Tool names follow the pattern `NN_Tool_Name` where NN indicates category order.
+
+**v13 consolidation (38→22 tools):**
+
+- `01_Connection` — Detect PBI instances + connect (merged from 2 tools)
+- `02_Model_Operations` — Unified CRUD: table/column/measure/relationship/calc_group (merged from 5 tools)
+- `02_TMDL_Operations` — TMDL export, find/replace, bulk rename, migration
+- `03_Batch_Operations` — Batch create/update/delete (transactions internalized)
+- `04_Run_DAX` — DAX execution with trace analysis
+- `04_Query_Operations` — Data sources, M expressions, search, roles, RLS, search_string
+- `05_DAX_Intelligence` — DAX analysis, optimization, dependencies, impact, export
+- `05_Column_Usage_Mapping` — Column/measure usage analysis + CSV export
+- `06_Analysis_Operations` — BPA, model analysis, model comparison
+- `07_Report_Operations` — Report info, measure_usage, rename, rebind, backup, restore, schema, extension measures
+- `07_PBIP_Operations` — Model analysis, validation, comparison, docs, git_diff, dependency HTML, aggregation
+- `07_Page_Operations` — Page CRUD, display, filters, interactions
+- `07_Visual_Operations` — Visual CRUD, formatting, data binding, sync, interactions, templates
+- `07_Bookmark_Operations` — Bookmark CRUD + HTML analysis
+- `07_Theme_Operations` — Theme colors, formatting, fonts, text classes, CF rules
+- `08_Documentation_Word` — Word doc generation
+- `09_Debug_Operations` — Visual debug, SE/FE trace, compare, drill, audit, config
+- `09_Validate` — Cross-visual validation, expected values, filter permutations
+- `09_Profile` — Performance profiling, decomposition, contribution, trends, root cause
+- `09_Document` — Page/report documentation, measure/filter lineage
+- `10_Show_User_Guide` — User guide
+- `11_PBIP_Authoring` — Page/visual cloning, creation, deletion, templates
+- `SVG_Visual_Operations` — SVG measure templates (40+)
 
 ### Key Singletons
 

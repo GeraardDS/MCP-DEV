@@ -98,15 +98,16 @@ class RateLimiter:
             (acquired, wait_time) - wait_time is None if acquired, else seconds to wait
         """
         start_time = time.time()
-        
-        with self.lock:
-            while True:
+
+        while True:
+            sleep_duration = None
+            with self.lock:
                 current_time = time.time()
-                
+
                 # Refill buckets
                 self._refill_tokens(current_time)
                 self._refill_tool_tokens(tool_name, current_time)
-                
+
                 # Check global limit
                 if self.global_tokens >= cost:
                     # Check tool-specific limit (if exists)
@@ -128,15 +129,17 @@ class RateLimiter:
                 else:
                     # Global limit exceeded
                     wait_time = self._calculate_global_wait_time(cost, current_time)
-                
+
                 # If no timeout or timeout exceeded, return throttled
                 if timeout is None or (current_time - start_time) >= timeout:
                     self.tool_throttle_counts[tool_name] += 1
                     logger.warning(f"Rate limit exceeded for {tool_name} (wait: {wait_time:.2f}s)")
                     return False, wait_time
-                
-                # Wait a bit and retry
-                time.sleep(min(0.1, wait_time))
+
+                sleep_duration = min(0.1, wait_time)
+
+            # Sleep outside the lock to avoid blocking other threads
+            time.sleep(sleep_duration)
 
     # --- Convenience API expected by server wrapper ---
     def allow_request(self, tool_name: str, cost: float = 1.0) -> bool:

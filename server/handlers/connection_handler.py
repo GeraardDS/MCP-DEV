@@ -90,38 +90,46 @@ def handle_connect_to_powerbi(args: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Error connecting: {e}", exc_info=True)
         return ErrorHandler.handle_unexpected_error('connect_to_powerbi', e)
 
+def handle_connection(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Unified connection handler"""
+    operation = args.get('operation', 'detect')
+    if operation == 'detect':
+        return handle_detect_powerbi_desktop(args)
+    elif operation == 'connect':
+        return handle_connect_to_powerbi(args)
+    else:
+        return {'success': False, 'error': f'Unknown operation: {operation}. Valid: detect, connect'}
+
+
 def register_connection_handlers(registry):
     """Register connection handlers"""
-    tools = [
-        ToolDefinition(
-            name="01_Detect_PBI_Instances",
-            description="Detect running Power BI Desktop instances",
-            handler=handle_detect_powerbi_desktop,
-            input_schema={
-                "type": "object",
-                "properties": {},
-                "required": []
-            },
-            category="core",
-            sort_order=10
-        ),
-        ToolDefinition(
-            name="01_Connect_To_Instance",
-            description="Connect to Power BI Desktop (auto-detect or specify model_index)",
-            handler=handle_connect_to_powerbi,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "model_index": {"type": "integer", "description": "Index of the model to connect to (default: 0)"}
+    tool = ToolDefinition(
+        name="01_Connection",
+        description="Detect running Power BI Desktop instances (detect) or connect to one (connect).",
+        handler=handle_connection,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["detect", "connect"],
+                    "default": "detect"
                 },
-                "required": []
+                "model_index": {
+                    "type": "integer",
+                    "description": "Index of the model to connect to (default: 0, connect only)"
+                }
             },
-            category="core",
-            sort_order=11
-        ),
-    ]
-
-    for tool in tools:
-        registry.register(tool)
-
-    logger.info(f"Registered {len(tools)} connection handlers")
+            "required": []
+        },
+        category="core",
+        sort_order=10,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+    registry.register(tool)
+    logger.info("Registered connection handler")

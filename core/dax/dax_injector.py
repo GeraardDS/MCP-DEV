@@ -199,7 +199,7 @@ class DAXInjector:
                 "suggestions": [
                     "The connection to Power BI Desktop was lost",
                     "Ensure Power BI Desktop is still running",
-                    "Try reconnecting using 01_Connect_To_Instance"
+                    "Try reconnecting using 01_Connection"
                 ]
             }
 

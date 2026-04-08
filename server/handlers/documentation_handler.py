@@ -66,6 +66,12 @@ def register_documentation_handlers(registry):
         },
         category="docs",
         sort_order=80,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
 
     registry.register(tool)

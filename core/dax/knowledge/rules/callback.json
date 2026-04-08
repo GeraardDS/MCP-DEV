@@ -1,0 +1,125 @@
+[
+  {
+    "rule_id": "CB001",
+    "category": "performance",
+    "severity": "critical",
+    "title": "IF/SWITCH inside iterator expression — callback risk",
+    "description": "IF or SWITCH in the expression argument of an iterator (SUMX, AVERAGEX, etc.) forces row-by-row Formula Engine evaluation. The engine cannot batch-evaluate conditional logic across rows.",
+    "pattern_type": "function_in_context",
+    "match": {
+      "context_functions": ["SUMX", "AVERAGEX", "MINX", "MAXX", "COUNTX", "RANKX", "PRODUCTX"],
+      "target": ["IF", "SWITCH"],
+      "arg_position": "expression"
+    },
+    "fix_suggestion": "Move the conditional logic outside the iterator using VAR, or restructure with CALCULATE",
+    "estimated_improvement": "2-5x",
+    "rewrite_strategy": "extract_conditional_from_iterator",
+    "references": [
+      {
+        "source": "SQLBI",
+        "url": "https://www.sqlbi.com/articles/optimizing-if-conditions-using-variables/"
+      }
+    ]
+  },
+  {
+    "rule_id": "CB002",
+    "category": "performance",
+    "severity": "critical",
+    "title": "IFERROR/ISERROR inside iterator — callback risk",
+    "description": "IFERROR or ISERROR in the expression argument of an iterator forces step-by-step error checking for every row, completely preventing SE optimization.",
+    "pattern_type": "function_in_context",
+    "match": {
+      "context_functions": ["SUMX", "AVERAGEX", "MINX", "MAXX", "COUNTX", "RANKX", "PRODUCTX"],
+      "target": ["IFERROR", "ISERROR"],
+      "arg_position": "expression"
+    },
+    "fix_suggestion": "Handle the error condition explicitly before the iterator, or use DIVIDE for division errors",
+    "estimated_improvement": "3-10x",
+    "rewrite_strategy": "remove_error_from_iterator",
+    "references": [
+      {
+        "source": "Microsoft Learn",
+        "url": "https://learn.microsoft.com/en-us/power-bi/guidance/dax-error-functions"
+      }
+    ]
+  },
+  {
+    "rule_id": "CB003",
+    "category": "performance",
+    "severity": "high",
+    "title": "Nested iterators — O(n*m) callback risk",
+    "description": "An iterator inside another iterator (e.g., SUMX inside SUMX) creates O(n*m) row-by-row evaluation. This scales quadratically with table size.",
+    "pattern_type": "function_in_context",
+    "match": {
+      "context_functions": ["SUMX", "AVERAGEX", "MINX", "MAXX", "COUNTX", "RANKX", "PRODUCTX"],
+      "target": ["SUMX", "AVERAGEX", "MINX", "MAXX", "COUNTX", "RANKX", "PRODUCTX"],
+      "arg_position": "expression"
+    },
+    "fix_suggestion": "Flatten with SUMMARIZECOLUMNS, or use CALCULATE to avoid the inner iteration",
+    "estimated_improvement": "5-100x",
+    "rewrite_strategy": "flatten_nested_iterators",
+    "references": [
+      {
+        "source": "SQLBI",
+        "url": "https://www.sqlbi.com/articles/nested-iterators-performance/"
+      }
+    ]
+  },
+  {
+    "rule_id": "CB004",
+    "category": "performance",
+    "severity": "medium",
+    "title": "FILTER over bare table reference",
+    "description": "FILTER with a bare table name (not wrapped in ALL/VALUES/etc.) iterates the table under the current filter context. This is often correct but can unexpectedly scan large tables.",
+    "pattern_type": "bare_table_arg",
+    "match": {
+      "function": "FILTER",
+      "arg_position": "first_arg"
+    },
+    "fix_suggestion": "Consider whether you need FILTER(ALL(Table), ...) or FILTER(VALUES(Table[Col]), ...) for explicit intent",
+    "references": [
+      {
+        "source": "SQLBI",
+        "url": "https://www.sqlbi.com/articles/the-definitive-guide-to-the-dax-filter-function/"
+      }
+    ]
+  },
+  {
+    "rule_id": "CB005",
+    "category": "performance",
+    "severity": "high",
+    "title": "FORMAT forces FE evaluation",
+    "description": "FORMAT is not SE-pushable and forces the entire expression into the single-threaded Formula Engine. Use measure FormatString or client-side formatting.",
+    "pattern_type": "function_usage",
+    "match": {
+      "functions": ["FORMAT"]
+    },
+    "fix_suggestion": "Use the measure's FormatString property or report-level formatting instead",
+    "estimated_improvement": "2-5x",
+    "rewrite_strategy": "remove_format",
+    "references": [
+      {
+        "source": "SQLBI",
+        "url": "https://www.sqlbi.com/articles/format-function-performance-in-dax/"
+      }
+    ]
+  },
+  {
+    "rule_id": "CB006",
+    "category": "correctness",
+    "severity": "low",
+    "title": "LASTDATE — prefer MAX for date comparison",
+    "description": "LASTDATE returns a single-row table, which can cause unexpected behavior in comparisons. MAX returns a scalar date value, which is simpler and more predictable.",
+    "pattern_type": "function_usage",
+    "match": {
+      "functions": ["LASTDATE"]
+    },
+    "fix_suggestion": "Replace LASTDATE(DateColumn) with MAX(DateColumn) for scalar date comparisons",
+    "references": [
+      {
+        "source": "SQLBI",
+        "url": "https://www.sqlbi.com/articles/time-intelligence-in-power-bi-desktop/"
+      }
+    ]
+  }
+]

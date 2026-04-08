@@ -38,7 +38,8 @@ def _classify_tables(summary: Dict[str, Any]) -> Dict[str, List[str]]:
         # Any table in top quartile of column counts and not already classified as dimension could be fact-like
         counts = sorted([c for _, c in col_items])
         if counts:
-            q3 = counts[int(0.75 * (len(counts) - 1))]
+            q3_idx = min(int(0.75 * len(counts)), len(counts) - 1)
+            q3 = counts[q3_idx]
             for nm, c in col_items:
                 if c >= q3 and nm not in dims and nm not in facts:
                     facts.append(nm)

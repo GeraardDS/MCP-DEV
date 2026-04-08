@@ -5,6 +5,7 @@ Configuration management for PBIXRay MCP Server
 import json
 import logging
 import os
+import threading
 from typing import Any, Dict, Optional
 
 from core.utilities.json_utils import load_json
@@ -34,33 +35,35 @@ class ConfigManager:
         
         self.config_dir = config_dir
         self.config = {}
+        self._lock = threading.RLock()
         self._load_config()
     
     def _load_config(self):
         """Load configuration from default and local files."""
-        try:
-            # Load default configuration
-            default_config_path = os.path.join(self.config_dir, "default_config.json")
-            if os.path.exists(default_config_path):
-                self.config = load_json(default_config_path)
-                logger.info("Loaded default configuration")
-            else:
-                logger.warning(f"Default config not found at {default_config_path}")
-                self.config = self._get_fallback_config()
+        with self._lock:
+            try:
+                # Load default configuration
+                default_config_path = os.path.join(self.config_dir, "default_config.json")
+                if os.path.exists(default_config_path):
+                    self.config = load_json(default_config_path)
+                    logger.info("Loaded default configuration")
+                else:
+                    logger.warning(f"Default config not found at {default_config_path}")
+                    self.config = self._get_fallback_config()
 
-            # Load local overrides if they exist
-            local_config_path = os.path.join(self.config_dir, "local_config.json")
-            if os.path.exists(local_config_path):
-                local_config = load_json(local_config_path)
-                self._merge_config(self.config, local_config)
-                logger.info("Applied local configuration overrides")
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in config file: {e}")
-            self.config = self._get_fallback_config()
-        except Exception as e:
-            logger.error(f"Error loading configuration: {e}")
-            self.config = self._get_fallback_config()
+                # Load local overrides if they exist
+                local_config_path = os.path.join(self.config_dir, "local_config.json")
+                if os.path.exists(local_config_path):
+                    local_config = load_json(local_config_path)
+                    self._merge_config(self.config, local_config)
+                    logger.info("Applied local configuration overrides")
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in config file: {e}")
+                self.config = self._get_fallback_config()
+            except Exception as e:
+                logger.error(f"Error loading configuration: {e}")
+                self.config = self._get_fallback_config()
     
     def _merge_config(self, base: Dict[str, Any], override: Dict[str, Any]):
         """Recursively merge override config into base config."""
@@ -110,23 +113,24 @@ class ConfigManager:
     def get(self, key_path: str, default: Any = None) -> Any:
         """
         Get configuration value using dot notation.
-        
+
         Args:
             key_path: Dot-separated path to config value (e.g., 'server.timeout_seconds')
             default: Default value if key not found
-            
+
         Returns:
             Configuration value or default
         """
-        keys = key_path.split('.')
-        value = self.config
-        
-        try:
-            for key in keys:
-                value = value[key]
-            return value
-        except (KeyError, TypeError):
-            return default
+        with self._lock:
+            keys = key_path.split('.')
+            value = self.config
+
+            try:
+                for key in keys:
+                    value = value[key]
+                return value
+            except (KeyError, TypeError):
+                return default
     
     def get_section(self, section: str) -> Dict[str, Any]:
         """

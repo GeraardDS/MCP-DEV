@@ -32,9 +32,9 @@ def scan_m_practices(query_executor: Any, dmv_cap: int = 1000, issues_max: Optio
                 issues.append({'rule': 'M001', 'severity': 'warning', 'name': name, 'description': 'Table.Buffer used; can cause high memory usage if misapplied.'})
             if 'web.contents(' in expr_lower and ('relativepath' not in expr_lower and 'query=' not in expr_lower):
                 issues.append({'rule': 'M002', 'severity': 'info', 'name': name, 'description': 'Web.Contents without RelativePath/Query options may be less cache-friendly.'})
-            # Detect absolute Windows (C:\) or URL-like (C:/) paths
-            if 'excel.workbook(file.contents(' in expr_lower and (':\\' in expr_lower or ':/' in expr_lower):
-                issues.append({'rule': 'M003', 'severity': 'warning', 'name': name, 'description': 'Excel.Workbook(File.Contents) with absolute path detected; consider parameterizing path.'})
+            # Detect absolute Windows (C:\) or URL-like (C:/) paths in any File.Contents call
+            if 'file.contents(' in expr_lower and (':\\' in expr_lower or ':/' in expr_lower):
+                issues.append({'rule': 'M003', 'severity': 'warning', 'name': name, 'description': 'File.Contents with absolute path detected; consider parameterizing path.'})
             if 'table.selectrows(' in expr_lower:
                 issues.append({'rule': 'M004', 'severity': 'info', 'name': name, 'description': 'Table.SelectRows found; ensure filtering is pushed to source where possible.'})
         if isinstance(issues_max, int) and issues_max > 0 and len(issues) > issues_max:

@@ -110,6 +110,7 @@ class ColumnUsageAnalyzer:
         self._ref_index: Optional[DaxReferenceIndex] = None
         self._cached_result: Optional[ColumnUsageResult] = None
         self._cache_valid = False
+        self._cached_include_dax = False
 
     def _ensure_reference_index(self) -> DaxReferenceIndex:
         """Lazily build the reference index for DAX parsing"""
@@ -129,6 +130,7 @@ class ColumnUsageAnalyzer:
         """Invalidate the cached analysis results"""
         self._cached_result = None
         self._cache_valid = False
+        self._cached_include_dax = False
         self._ref_index = None
         logger.debug("Column usage cache invalidated")
 
@@ -144,9 +146,13 @@ class ColumnUsageAnalyzer:
             ColumnUsageResult with complete mappings
         """
         # Return cached result if valid
+        # If include_dax is requested but cache was built without DAX, force refresh
         if self._cache_valid and self._cached_result and not force_refresh:
-            logger.debug("Returning cached column usage mapping")
-            return self._cached_result
+            if include_dax and not self._cached_include_dax:
+                logger.debug("Cache hit but include_dax requested; rebuilding with DAX")
+            else:
+                logger.debug("Returning cached column usage mapping")
+                return self._cached_result
 
         logger.info("Building complete column-measure mapping...")
 
@@ -429,6 +435,7 @@ class ColumnUsageAnalyzer:
         # Cache the result
         self._cached_result = result
         self._cache_valid = True
+        self._cached_include_dax = include_dax
 
         logger.info(f"Column usage mapping complete: {result.total_columns_analyzed} columns, "
                    f"{result.total_measures_analyzed} measures, {result.columns_with_usage} columns used")

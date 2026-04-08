@@ -8,9 +8,13 @@ echo ========================================
 echo.
 
 :: ----------------------------------------
-:: Step 1: Check for Git + network
+:: Step 1: Check prerequisites
 :: ----------------------------------------
-echo [Step 1/7] Checking prerequisites (Git, network)...
+echo [Step 1/7] Checking prerequisites...
+
+:: If running from inside the repo, Git is not needed — skip the check
+set "SCRIPT_DIR_CHECK=%~dp0"
+if exist "!SCRIPT_DIR_CHECK!requirements.txt" goto :skip_git_check
 
 git --version >nul 2>&1
 if !errorlevel! neq 0 (
@@ -21,6 +25,8 @@ if !errorlevel! neq 0 (
     pause
     exit /b 1
 )
+
+:skip_git_check
 
 :: Quick network connectivity check
 ping -n 1 -w 3000 dev.azure.com >nul 2>&1

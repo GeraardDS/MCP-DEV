@@ -9,11 +9,13 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from server.registry import ToolDefinition
+from server.progress import emit_progress
 from core.infrastructure.connection_state import connection_state
 from core.validation.error_handler import ErrorHandler
 from core.config.config_manager import config
@@ -32,6 +34,7 @@ VARIABLE_TRUNCATION_CHARS = config.get("debug.variable_truncation_chars", 100)
 # Module-level VQB cache — avoids rebuilding PBIP per call
 # Key: pbip_path, Value: (builder, timestamp)
 _vqb_cache: Dict[str, tuple] = {}
+_vqb_cache_lock = threading.Lock()
 _VQB_CACHE_TTL = config.get("debug.vqb_cache_ttl_seconds", 300)
 
 
@@ -100,10 +103,27 @@ def _build_trace_response(trace_result: dict) -> dict:
         "se_pct": trace_result.get("se_pct", 0.0),
     }
     se_events_list = trace_result.get("se_events", [])
+
+    # Deduplicate xmSQL query text: store unique queries in a lookup,
+    # reference by index in each event to avoid ~70-85% size bloat.
+    query_lookup: list = []
+    query_to_idx: dict = {}
+    compact_se_events: list = []
+    for evt in se_events_list:
+        query_text = evt.get("query", "")
+        if query_text not in query_to_idx:
+            query_to_idx[query_text] = len(query_lookup)
+            query_lookup.append(query_text)
+        compact_evt = {k: v for k, v in evt.items() if k != "query"}
+        compact_evt["query_idx"] = query_to_idx[query_text]
+        compact_se_events.append(compact_evt)
+
     response = {
         "runner": "native",
         "performance": perf,
-        "se_events": se_events_list,
+        "se_queries_lookup": query_lookup,
+        "se_events": compact_se_events,
+        "_se_events_raw": se_events_list,  # Internal: full events for cache consumers
         "cache_cleared": trace_result.get("cache_cleared", False),
         "summary": (
             f"Total: {perf['total_ms']}ms | "
@@ -113,7 +133,7 @@ def _build_trace_response(trace_result: dict) -> dict:
             f"SE cache: {perf['se_cache_hits']}"
         ),
     }
-    # Deep SE event analysis
+    # Deep SE event analysis (uses original list with inline query text)
     if se_events_list:
         try:
             from core.dax.se_event_analyzer import SeEventAnalyzer
@@ -191,21 +211,23 @@ def _get_visual_query_builder():
         )
 
     now = time.time()
-    cached = _vqb_cache.get(pbip_folder)
-    if cached is not None:
-        builder, ts = cached
-        if (now - ts) < _VQB_CACHE_TTL:
-            return builder, None
+    with _vqb_cache_lock:
+        cached = _vqb_cache.get(pbip_folder)
+        if cached is not None:
+            builder, ts = cached
+            if (now - ts) < _VQB_CACHE_TTL:
+                return builder, None
 
-    # Path changed — clear stale entries for other paths
-    if _vqb_cache and pbip_folder not in _vqb_cache:
-        _vqb_cache.clear()
+        # Path changed — clear stale entries for other paths
+        if _vqb_cache and pbip_folder not in _vqb_cache:
+            _vqb_cache.clear()
 
     try:
         from core.debug.visual_query_builder import VisualQueryBuilder
 
         builder = VisualQueryBuilder(pbip_folder)
-        _vqb_cache[pbip_folder] = (builder, now)
+        with _vqb_cache_lock:
+            _vqb_cache[pbip_folder] = (builder, now)
         return builder, None
     except Exception as e:
         return None, f"Error initializing VisualQueryBuilder: {e}"
@@ -657,9 +679,12 @@ def _execute_visual_query(
                         response["se_fe_trace"] = {"error": trace_result["_error"]}
                     else:
                         trace_response = _build_trace_response(trace_result)
-                        response["se_fe_trace"] = trace_response
-                        # Cache for auto-retrieval by optimize
+                        # Cache full response (with _se_events_raw) for optimize
                         connection_state.store_trace_result(trace_response)
+                        # Strip internal keys before sending to user
+                        response["se_fe_trace"] = {
+                            k: v for k, v in trace_response.items() if not k.startswith('_')
+                        }
             except Exception as te:
                 logger.error(f"SE/FE trace failed: {te}", exc_info=True)
                 response["se_fe_trace"] = {"error": str(te)}
@@ -782,6 +807,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
         clear_cache = args.get("clear_cache", True)
 
         # Get builder — needed for all operations
+        emit_progress(1, 5, "Discovering visual...")
         builder, error = _get_visual_query_builder()
         if error:
             return {"success": False, "error": error}
@@ -824,6 +850,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
             }
 
         # Step 2: Build filter context and base response
+        emit_progress(2, 5, "Building filters...")
         pbip_freshness = _check_pbip_freshness(connection_state.get_pbip_folder_path())
         ctx = _build_filter_context(
             builder, result, page_name, compact, include_slicers, pbip_freshness
@@ -831,11 +858,13 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
         response = ctx["response"]
 
         # Step 3: Apply manual filter overrides
+        emit_progress(3, 5, "Applying filter overrides...")
         query_to_execute = _apply_manual_filters(
             args, result, builder, response, ctx["data_filters"], result.dax_query
         )
 
         # Step 4: Execute query + advanced analysis
+        emit_progress(4, 5, "Executing DAX query...")
         _execute_visual_query(
             query_to_execute,
             response,
@@ -851,6 +880,7 @@ def handle_debug_visual(args: Dict[str, Any]) -> Dict[str, Any]:
             clear_cache=clear_cache,
         )
 
+        emit_progress(5, 5, "Complete")
         return response
 
     except Exception as e:
@@ -958,7 +988,8 @@ def handle_compare_measures(args: Dict[str, Any]) -> Dict[str, Any]:
                 orig_num = float(original_value)
                 opt_num = float(optimized_value)
                 difference = opt_num - orig_num
-                values_match = abs(difference) < 0.001  # Small tolerance for floating point
+                threshold = args.get("tolerance", 0.001)
+                values_match = abs(difference) < threshold
             except (ValueError, TypeError):
                 values_match = str(original_value) == str(optimized_value)
                 difference = "N/A (non-numeric)"
@@ -1003,63 +1034,6 @@ def handle_compare_measures(args: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in compare_measures: {e}", exc_info=True)
         return ErrorHandler.handle_unexpected_error("compare_measures", e)
-
-
-def handle_list_slicers(args: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    List all slicers and their current saved selections.
-
-    Shows which values are selected in each slicer (from saved PBIP state).
-    """
-    try:
-        page_name = args.get("page_name")
-        compact = args.get("compact", True)
-
-        builder, error = _get_visual_query_builder()
-        if error:
-            return {"success": False, "error": error}
-
-        slicers = builder.list_slicers(page_name)
-
-        if compact:
-            # Compact mode: minimal info per slicer
-            slicer_list = [
-                {
-                    "field": s.field_reference,
-                    "values": (
-                        s.selected_values[:5] if s.selected_values else []
-                    ),  # Limit to 5 values
-                    "count": len(s.selected_values) if len(s.selected_values) > 5 else None,
-                }
-                for s in slicers
-            ]
-            return {"success": True, "slicers": slicer_list, "total": len(slicer_list)}
-        else:
-            # Verbose mode: full details
-            slicer_list = [
-                {
-                    "id": s.slicer_id,
-                    "page": s.page_name,
-                    "field": s.field_reference,
-                    "table": s.table,
-                    "column": s.column,
-                    "selection_mode": s.selection_mode,
-                    "is_inverted": s.is_inverted,
-                    "selected_values": s.selected_values,
-                    "value_count": len(s.selected_values),
-                }
-                for s in slicers
-            ]
-            return {
-                "success": True,
-                "slicers": slicer_list,
-                "count": len(slicer_list),
-                "pbip_path": connection_state.pbip_path,
-            }
-
-    except Exception as e:
-        logger.error(f"Error in list_slicers: {e}", exc_info=True)
-        return ErrorHandler.handle_unexpected_error("list_slicers", e)
 
 
 def handle_drill_to_detail(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1737,11 +1711,76 @@ def handle_profile(args: Dict[str, Any]) -> Dict[str, Any]:
                 max_combinations=args.get("max_combinations", 15),
             )
 
+        elif operation == "decompose":
+            if not page_name:
+                return {"success": False, "error": "page_name is required for decompose"}
+            return ops.decompose_value(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                dimension=args.get("dimension"),
+                top_n=args.get("top_n", 10),
+            )
+
+        elif operation == "contribution":
+            if not page_name:
+                return {
+                    "success": False,
+                    "error": "page_name is required for contribution analysis",
+                }
+            return ops.contribution_analysis(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                dimension=args.get("dimension"),
+                top_n=args.get("top_n", 10),
+            )
+
+        elif operation == "trend":
+            if not page_name:
+                return {"success": False, "error": "page_name is required for trend analysis"}
+            return ops.trend_analysis(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                date_column=args.get("date_column"),
+                granularity=args.get("granularity", "month"),
+            )
+
+        elif operation == "root_cause":
+            if not page_name:
+                return {"success": False, "error": "page_name is required for root_cause analysis"}
+            return ops.root_cause_analysis(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                baseline_filters=args.get("baseline_filters"),
+                comparison_filters=args.get("comparison_filters"),
+                dimensions=args.get("dimensions"),
+                top_n=args.get("top_n", 5),
+            )
+
+        elif operation == "export":
+            return ops.export_debug_report(
+                page_name=page_name,
+                visual_id=args.get("visual_id"),
+                visual_name=args.get("visual_name"),
+                format=args.get("format", "markdown"),
+            )
+
         else:
             return {
                 "success": False,
                 "error": f"Unknown operation: {operation}",
-                "available_operations": ["page", "filter_matrix"],
+                "available_operations": [
+                    "page",
+                    "filter_matrix",
+                    "decompose",
+                    "contribution",
+                    "trend",
+                    "root_cause",
+                    "export",
+                ],
             }
 
     except Exception as e:
@@ -2356,9 +2395,12 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
                     response["se_fe_trace"] = {"error": trace_result["_error"]}
                 else:
                     trace_response = _build_trace_response(trace_result)
-                    response["se_fe_trace"] = trace_response
-                    # Cache for auto-retrieval by optimize
+                    # Cache full response (with _se_events_raw) for optimize
                     connection_state.store_trace_result(trace_response)
+                    # Strip internal keys before sending to user
+                    response["se_fe_trace"] = {
+                        k: v for k, v in trace_response.items() if not k.startswith('_')
+                    }
         except Exception as te:
             logger.error(f"SE/FE trace failed: {te}", exc_info=True)
             response["se_fe_trace"] = {"error": str(te)}
@@ -2369,7 +2411,7 @@ def _handle_run_dax(args: Dict[str, Any]) -> Dict[str, Any]:
         if not qe:
             response["result"] = {"error": "Query executor not available"}
         else:
-            exec_result = qe.validate_and_execute_dax(query, top_n=0)
+            exec_result = qe.validate_and_execute_dax(query, top_n=args.get("top_n", 1000))
             response["result"] = exec_result
             if not exec_result.get("success"):
                 response["success"] = False
@@ -2907,8 +2949,9 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
                 if timing_provided:
                     timing_source = "cached_trace"
                     # Also grab SE events from cache if not explicitly provided
+                    # Use _se_events_raw (full query text) for analyzer compatibility
                     if not se_events_input:
-                        se_events_input = cached.get("se_events", [])
+                        se_events_input = cached.get("_se_events_raw") or cached.get("se_events", [])
 
         if not timing_provided:
             return {
@@ -3132,6 +3175,479 @@ def handle_optimize_measure(args: Dict[str, Any]) -> Dict[str, Any]:
         return ErrorHandler.handle_unexpected_error("optimize_measure", e)
 
 
+# =============================================================================
+# AUDIT OPERATION — Automated full-report visual audit
+# =============================================================================
+
+# Visual types that are never data visuals (skip in audit)
+_AUDIT_SKIP_TYPES = {
+    "shape", "image", "button", "bookmarknavigator", "textbox",
+    "group", "actionButton", "basicShape",
+}
+
+MAX_AUDIT_ROWS = config.get("debug.audit_max_rows_per_visual", 20)
+
+
+def _is_data_visual(visual: Dict) -> bool:
+    """Check if a visual is a data visual worth auditing."""
+    vtype = (visual.get("type") or "").lower().replace(" ", "")
+    friendly = (visual.get("name") or "").lower()
+    measures = visual.get("measures", [])
+
+    # Skip non-data types
+    if vtype in _AUDIT_SKIP_TYPES:
+        return False
+    if "visual group" in friendly or "Visual Group" in visual.get("type", ""):
+        return False
+    if "bookmark" in vtype.lower():
+        return False
+
+    # Must have at least one measure
+    return len(measures) > 0
+
+
+def _audit_build_and_execute(
+    builder: Any, qe: Any, page_name: str, visual: Dict, max_rows: int
+) -> Dict[str, Any]:
+    """Build query for a visual and execute it. Returns audit result dict."""
+    visual_id = visual.get("id")
+    visual_name = visual.get("name", "")
+    visual_type = visual.get("type", "")
+    measures = visual.get("measures", [])
+
+    result_entry = {
+        "visual_id": visual_id,
+        "visual_name": visual_name,
+        "visual_type": visual_type,
+        "measures": measures,
+        "status": "pending",
+    }
+
+    try:
+        # Load column types for accurate filter generation
+        try:
+            builder.load_column_types(qe)
+        except Exception:
+            pass
+
+        # Build the visual query
+        build_result = builder.build_visual_query(
+            page_name=page_name,
+            visual_id=visual_id,
+            include_slicers=True,
+        )
+
+        if not build_result:
+            result_entry["status"] = "skipped"
+            result_entry["reason"] = "Could not build query"
+            return result_entry
+
+        query = build_result.dax_query
+        result_entry["query"] = query
+
+        # Execute the query
+        exec_result = qe.validate_and_execute_dax(query, top_n=max_rows)
+
+        if exec_result.get("success"):
+            rows = exec_result.get("rows", [])
+            result_entry["status"] = "ok"
+            result_entry["row_count"] = len(rows)
+            result_entry["ms"] = exec_result.get("execution_time_ms")
+            result_entry["data"] = rows
+
+            if not rows:
+                result_entry["status"] = "empty"
+                result_entry["flag"] = "No rows returned"
+            elif all(all(v is None for v in row.values()) for row in rows):
+                result_entry["status"] = "all_null"
+                result_entry["flag"] = "All values are NULL"
+
+            # Run anomaly detection
+            if rows and len(rows) > 1:
+                try:
+                    from core.debug.anomaly_detector import analyze_results
+                    anomalies = analyze_results(rows)
+                    if anomalies:
+                        result_entry["anomalies"] = anomalies
+                except Exception:
+                    pass
+        else:
+            error_msg = exec_result.get("error", "Unknown error")
+
+            # Retry: strip composite TREATAS (stale PBIP date filters)
+            if "cannot convert" in error_msg.lower() or "composite" in error_msg.lower():
+                try:
+                    from core.debug.filter_to_dax import FilterClassification
+                    all_filters = build_result.filter_context.all_filters()
+                    data_filters = [
+                        f for f in all_filters
+                        if getattr(f, "classification", FilterClassification.DATA)
+                        == FilterClassification.DATA
+                    ]
+                    # Remove multi-column TREATAS (composite keys that cause type errors)
+                    simple_filters = [
+                        f for f in data_filters
+                        if f.dax and "composite" not in (f.condition_type or "").lower()
+                        and f.dax.count("[") <= 2  # single-column TREATAS only
+                    ]
+                    if simple_filters:
+                        measures_list = build_result.visual_info.measures or [build_result.measure_name]
+                        measures_list = [m if m.startswith("[") else f"[{m}]" for m in measures_list]
+                        columns = build_result.visual_info.columns or []
+                        retry_query = builder._build_visual_dax_query(
+                            measures_list, columns, simple_filters,
+                            format_string_measures=getattr(build_result, "format_string_measures", []),
+                        )
+                        retry_result = qe.validate_and_execute_dax(retry_query, top_n=max_rows)
+                        if retry_result.get("success"):
+                            rows = retry_result.get("rows", [])
+                            result_entry["status"] = "ok_retry"
+                            result_entry["row_count"] = len(rows)
+                            result_entry["ms"] = retry_result.get("execution_time_ms")
+                            result_entry["data"] = rows
+                            result_entry["retry_note"] = "Retried without composite TREATAS filters"
+                            result_entry["query"] = retry_query
+
+                            if not rows:
+                                result_entry["status"] = "empty_retry"
+                                result_entry["flag"] = "No rows after retry"
+                            return result_entry
+                except Exception as retry_err:
+                    logger.debug(f"Audit retry failed: {retry_err}")
+
+            result_entry["status"] = "error"
+            result_entry["error"] = error_msg[:500]
+
+    except Exception as e:
+        result_entry["status"] = "error"
+        result_entry["error"] = str(e)[:500]
+
+    return result_entry
+
+
+def _audit_check_math(page_results: List[Dict]) -> List[Dict]:
+    """Run cross-visual math checks on a page's results."""
+    checks = []
+
+    for vr in page_results:
+        if vr.get("status") not in ("ok", "ok_retry"):
+            continue
+        rows = vr.get("data", [])
+        if not rows:
+            continue
+
+        # Check %Share columns sum to ~1.0
+        for col_name in rows[0].keys():
+            if "%share" in col_name.lower() or "share" in col_name.lower():
+                try:
+                    values = [float(r.get(col_name, 0) or 0) for r in rows
+                              if r.get(col_name) is not None
+                              and str(r.get("IsGrandTotalRowTotal", "")).lower() != "true"]
+                    if values:
+                        total = sum(values)
+                        if abs(total - 1.0) > 0.01 and abs(total) > 0.01:
+                            checks.append({
+                                "check": "share_sum",
+                                "visual": vr.get("visual_name"),
+                                "column": col_name,
+                                "sum": round(total, 4),
+                                "expected": 1.0,
+                                "flag": f"Sum of {col_name} = {round(total, 4)}, expected ~1.0",
+                            })
+                except (ValueError, TypeError):
+                    pass
+
+        # Check for negative values in NAV-like columns
+        for col_name in rows[0].keys():
+            col_lower = col_name.lower()
+            if "nav" in col_lower or "net_asset" in col_lower:
+                try:
+                    grand_total_rows = [r for r in rows
+                                        if str(r.get("IsGrandTotalRowTotal", "")).lower() == "true"]
+                    if grand_total_rows:
+                        val = float(grand_total_rows[0].get(col_name, 0) or 0)
+                        if val < 0:
+                            checks.append({
+                                "check": "negative_nav",
+                                "visual": vr.get("visual_name"),
+                                "column": col_name,
+                                "value": val,
+                                "flag": f"Grand total NAV is negative: {val}",
+                            })
+                except (ValueError, TypeError):
+                    pass
+
+    return checks
+
+
+def _audit_single_page(builder, qe, page_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Audit a single page: discover visuals, execute queries, check results.
+    Returns full inline results for that page (no file save, no stripping).
+    """
+    max_rows = args.get("max_rows", MAX_AUDIT_ROWS)
+    include_data = args.get("include_data", False)
+    skip_types = set(args.get("skip_types", []))
+    skip_types.update(_AUDIT_SKIP_TYPES)
+
+    start_time = time.time()
+    logger.info(f"Auditing page: {page_name}")
+
+    # List visuals on this page
+    try:
+        visuals = builder.list_visuals(page_name)
+    except Exception as e:
+        return {
+            "success": False,
+            "page": page_name,
+            "status": "error",
+            "error": str(e)[:200],
+        }
+
+    # Filter to data visuals
+    data_visuals = [
+        _compact_visual_list([v], compact=True)[0]
+        for v in visuals
+        if _is_data_visual(_compact_visual_list([v], compact=True)[0])
+    ]
+
+    if not data_visuals:
+        return {
+            "success": True,
+            "page": page_name,
+            "status": "no_data_visuals",
+            "total_visuals": len(visuals),
+            "data_visuals": 0,
+        }
+
+    # Audit each visual
+    tallies = {"ok": 0, "error": 0, "empty": 0, "skipped": 0}
+    flags = []
+    visual_results = []
+
+    for visual in data_visuals:
+        vr = _audit_build_and_execute(builder, qe, page_name, visual, max_rows)
+
+        if not include_data and "data" in vr:
+            del vr["data"]
+
+        visual_results.append(vr)
+
+        status = vr.get("status", "error")
+        if status in ("ok", "ok_retry"):
+            tallies["ok"] += 1
+        elif status in ("empty", "empty_retry", "all_null"):
+            tallies["empty"] += 1
+        elif status == "skipped":
+            tallies["skipped"] += 1
+        else:
+            tallies["error"] += 1
+            flags.append({
+                "visual": vr.get("visual_name"),
+                "type": "query_error",
+                "detail": vr.get("error", "")[:200],
+            })
+
+        if vr.get("anomalies"):
+            flags.append({
+                "visual": vr.get("visual_name"),
+                "type": "anomaly",
+                "detail": vr["anomalies"],
+            })
+
+        if vr.get("flag"):
+            flags.append({
+                "visual": vr.get("visual_name"),
+                "type": vr.get("status"),
+                "detail": vr["flag"],
+            })
+
+    # Cross-visual math checks
+    math_checks = _audit_check_math(visual_results)
+    if math_checks:
+        flags.extend(math_checks)
+
+    elapsed = round(time.time() - start_time, 1)
+
+    return {
+        "success": True,
+        "page": page_name,
+        "status": "audited",
+        "visuals_total": len(data_visuals),
+        "visuals_ok": tallies["ok"],
+        "visuals_error": tallies["error"],
+        "visuals_empty": tallies["empty"],
+        "visuals_skipped": tallies["skipped"],
+        "flags": flags,
+        "visuals": visual_results,
+        "elapsed_seconds": elapsed,
+    }
+
+
+def handle_audit(args: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Audit operation: automated visual audit.
+
+    Three modes:
+    1. **page_name** (single string): Audit ONE page, return full visual details
+       inline. Designed for page-by-page iteration to avoid context overload.
+    2. **pages** (array): Audit multiple pages, save full report to file,
+       return compact summary inline.
+    3. **Neither**: Discovery mode — return list of all pages with visual counts
+       so the caller can iterate with page_name.
+
+    Parameters:
+        page_name: single page to audit (returns full inline results)
+        pages: list of page names to audit (batch mode, saves to file)
+        max_rows: max rows per visual query (default: 20)
+        skip_types: visual types to skip (extends defaults)
+        include_data: include raw row data in output (default: false, saves tokens)
+    """
+    try:
+        builder, error = _get_visual_query_builder()
+        if error:
+            return {"success": False, "error": error}
+
+        if not connection_state.is_connected():
+            return {"success": False, "error": "Not connected to Power BI Desktop"}
+
+        qe = connection_state.query_executor
+        if not qe:
+            return {"success": False, "error": "Query executor not available"}
+
+        # --- Mode 1: Single page audit (page_name) ---
+        single_page = args.get("page_name")
+        if single_page:
+            # Validate page exists
+            all_pages = builder.list_pages()
+            page_match = [p for p in all_pages if p["name"].lower() == single_page.lower()]
+            if not page_match:
+                return {
+                    "success": False,
+                    "error": f"Page '{single_page}' not found",
+                    "available_pages": [p["name"] for p in all_pages],
+                }
+            return _audit_single_page(builder, qe, page_match[0]["name"], args)
+
+        # --- Mode 3: Discovery mode (no page_name, no pages) ---
+        target_pages = args.get("pages", [])
+        all_pages = builder.list_pages()
+
+        if not target_pages:
+            # Return page inventory with visual counts for caller to iterate
+            skip_types = set(args.get("skip_types", []))
+            skip_types.update(_AUDIT_SKIP_TYPES)
+            page_inventory = []
+            for page_info in all_pages:
+                pname = page_info["name"]
+                try:
+                    visuals = builder.list_visuals(pname)
+                    data_visuals = [
+                        v for v in visuals
+                        if _is_data_visual(_compact_visual_list([v], compact=True)[0])
+                    ]
+                    page_inventory.append({
+                        "page": pname,
+                        "total_visuals": len(visuals),
+                        "data_visuals": len(data_visuals),
+                    })
+                except Exception as e:
+                    page_inventory.append({
+                        "page": pname,
+                        "error": str(e)[:200],
+                    })
+            return {
+                "success": True,
+                "mode": "discovery",
+                "total_pages": len(all_pages),
+                "pages": page_inventory,
+                "hint": "Use page_name='<name>' to audit one page at a time with full inline results.",
+            }
+
+        # --- Mode 2: Batch audit (pages array) ---
+        target_lower = {p.lower() for p in target_pages}
+        pages_to_audit = [p for p in all_pages if p["name"].lower() in target_lower]
+
+        if not pages_to_audit:
+            return {"success": False, "error": "No pages found to audit", "available_pages": [p["name"] for p in all_pages]}
+
+        # Run audit
+        audit_report = {
+            "success": True,
+            "pages_audited": 0,
+            "visuals_audited": 0,
+            "visuals_ok": 0,
+            "visuals_error": 0,
+            "visuals_empty": 0,
+            "visuals_skipped": 0,
+            "flags": [],
+            "page_results": {},
+        }
+
+        start_time = time.time()
+
+        for page_info in pages_to_audit:
+            page_name = page_info["name"]
+            page_result = _audit_single_page(builder, qe, page_name, args)
+
+            if page_result.get("status") == "audited":
+                audit_report["visuals_audited"] += page_result.get("visuals_total", 0)
+                audit_report["visuals_ok"] += page_result.get("visuals_ok", 0)
+                audit_report["visuals_error"] += page_result.get("visuals_error", 0)
+                audit_report["visuals_empty"] += page_result.get("visuals_empty", 0)
+                audit_report["visuals_skipped"] += page_result.get("visuals_skipped", 0)
+                for flag in page_result.get("flags", []):
+                    flag["page"] = page_name
+                    audit_report["flags"].append(flag)
+
+            audit_report["page_results"][page_name] = page_result
+            audit_report["pages_audited"] += 1
+
+        elapsed = round(time.time() - start_time, 1)
+        audit_report["elapsed_seconds"] = elapsed
+        audit_report["summary"] = (
+            f"Audited {audit_report['pages_audited']} pages, "
+            f"{audit_report['visuals_audited']} visuals in {elapsed}s. "
+            f"OK: {audit_report['visuals_ok']}, "
+            f"Empty: {audit_report['visuals_empty']}, "
+            f"Errors: {audit_report['visuals_error']}, "
+            f"Skipped: {audit_report['visuals_skipped']}, "
+            f"Flags: {len(audit_report['flags'])}"
+        )
+
+        # Save full report to file (likely too large for inline response)
+        try:
+            import json
+            output_dir = Path(__file__).parent.parent.parent / "output"
+            output_dir.mkdir(exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_file = output_dir / f"audit_report_{timestamp}.json"
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(audit_report, f, indent=2, default=str)
+            audit_report["output_file"] = str(output_file)
+        except Exception as fe:
+            logger.warning(f"Could not save audit report to file: {fe}")
+
+        # Return compact summary inline — strip page_results for token savings
+        inline_response = {k: v for k, v in audit_report.items() if k != "page_results"}
+        inline_response["page_summary"] = {
+            page: {
+                "status": pr.get("status"),
+                "visuals_total": pr.get("visuals_total", 0),
+                "ok": pr.get("visuals_ok", 0),
+                "errors": pr.get("visuals_error", 0),
+                "empty": pr.get("visuals_empty", 0),
+            }
+            for page, pr in audit_report.get("page_results", {}).items()
+        }
+
+        return inline_response
+
+    except Exception as e:
+        logger.error(f"Error in handle_audit: {e}", exc_info=True)
+        return ErrorHandler.handle_unexpected_error("audit", e)
+
+
 def handle_debug_operations(args: Dict[str, Any]) -> Dict[str, Any]:
     """Dispatch debug operations."""
     operation = args.get("operation", "visual")
@@ -3145,6 +3661,9 @@ def handle_debug_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         "step_variables": _handle_step_variables,
         "run_dax": _handle_run_dax,
         "optimize": handle_optimize_measure,
+        "audit": handle_audit,
+        "set_path": handle_set_pbip_path,
+        "status": handle_get_debug_status,
     }
 
     handler = dispatch.get(operation)
@@ -3177,7 +3696,7 @@ def register_debug_handlers(registry):
     tools = [
         ToolDefinition(
             name="09_Debug_Operations",
-            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze DAX (analyze), debug_variable, step_variables, run_dax, optimize. visual: use trace=true for SE/FE timing, measures[] to override. optimize: requires timing from prior trace (fe_pct, se_queries, total_ms, fe_ms, se_ms; optional: se_events).",
+            description="Visual debugger (visual), compare measures (compare), drill to detail (drill), analyze DAX (analyze), debug_variable, step_variables, run_dax, optimize, audit. visual: use trace=true for SE/FE timing, measures[] to override. optimize: requires timing from prior trace (fe_pct, se_queries, total_ms, fe_ms, se_ms; optional: se_events). audit: three modes — (1) no args: discovery, returns page list with visual counts; (2) page_name='X': audit ONE page, full inline results; (3) pages=['X','Y']: batch audit, compact summary + file. Use mode 2 to iterate page-by-page.",
             handler=handle_debug_operations,
             input_schema={
                 "type": "object",
@@ -3193,6 +3712,9 @@ def register_debug_handlers(registry):
                             "step_variables",
                             "run_dax",
                             "optimize",
+                            "audit",
+                            "set_path",
+                            "status",
                         ],
                         "default": "visual",
                     },
@@ -3200,6 +3722,7 @@ def register_debug_handlers(registry):
                         "type": "string",
                         "description": "Raw DAX query (DEFINE…EVALUATE) to execute (run_dax)",
                     },
+                    "pbip_path": {"type": "string", "description": "PBIP folder path (set_path)"},
                     "page_name": {"type": "string"},
                     "visual_id": {"type": "string"},
                     "visual_name": {"type": "string"},
@@ -3297,31 +3820,32 @@ def register_debug_handlers(registry):
                         "default": False,
                         "description": "Run individual traces per measure to isolate slow measures (optimize, opt-in, slow)",
                     },
+                    "pages": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Page names to audit (audit). Default: all pages.",
+                    },
+                    "include_data": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Include raw row data in audit output (audit). Default: false to save tokens.",
+                    },
+                    "skip_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Additional visual types to skip (audit). Extends built-in skip list.",
+                    },
                 },
-                "required": [],
+                "required": ["operation"],
             },
             category="debug",
             sort_order=90,
-        ),
-        ToolDefinition(
-            name="09_Debug_Config",
-            description="Config: set_path (set PBIP path), status (debug capabilities).",
-            handler=handle_debug_config,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["set_path", "status"],
-                        "default": "status",
-                    },
-                    "pbip_path": {"type": "string", "description": "PBIP folder path"},
-                    "compact": {"type": "boolean"},
-                },
-                "required": [],
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
             },
-            category="debug",
-            sort_order=91,
         ),
         ToolDefinition(
             name="09_Validate",
@@ -3348,15 +3872,32 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=92,
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
         ),
         ToolDefinition(
             name="09_Profile",
-            description="Profiling: page (rank visuals by time), filter_matrix (test filter combos).",
+            description="Performance profiling and analytical decomposition: page profiling, filter matrix, measure decomposition, contribution analysis, trends, root cause.",
             handler=handle_profile,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["page", "filter_matrix"]},
+                    "operation": {
+                        "type": "string",
+                        "enum": [
+                            "page",
+                            "filter_matrix",
+                            "decompose",
+                            "contribution",
+                            "trend",
+                            "root_cause",
+                            "export",
+                        ],
+                    },
                     "page_name": {"type": "string"},
                     "visual_id": {"type": "string"},
                     "visual_name": {"type": "string"},
@@ -3364,11 +3905,28 @@ def register_debug_handlers(registry):
                     "include_slicers": {"type": "boolean"},
                     "filter_columns": {"type": "array", "items": {"type": "string"}},
                     "max_combinations": {"type": "integer"},
+                    "dimension": {"type": "string"},
+                    "dimensions": {"type": "array", "items": {"type": "string"}},
+                    "date_column": {"type": "string"},
+                    "granularity": {
+                        "type": "string",
+                        "enum": ["day", "week", "month", "quarter", "year"],
+                    },
+                    "baseline_filters": {"type": "array", "items": {"type": "string"}},
+                    "comparison_filters": {"type": "array", "items": {"type": "string"}},
+                    "top_n": {"type": "integer"},
+                    "format": {"type": "string", "enum": ["markdown", "json"]},
                 },
-                "required": ["page_name"],
+                "required": ["operation"],
             },
             category="debug",
             sort_order=93,
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
         ),
         ToolDefinition(
             name="09_Document",
@@ -3390,37 +3948,12 @@ def register_debug_handlers(registry):
             },
             category="debug",
             sort_order=94,
-        ),
-        ToolDefinition(
-            name="09_Advanced_Analysis",
-            description="Advanced: decompose, contribution, trend, root_cause, export.",
-            handler=handle_advanced_analysis,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "operation": {
-                        "type": "string",
-                        "enum": ["decompose", "contribution", "trend", "root_cause", "export"],
-                    },
-                    "page_name": {"type": "string"},
-                    "visual_id": {"type": "string"},
-                    "visual_name": {"type": "string"},
-                    "dimension": {"type": "string"},
-                    "date_column": {"type": "string"},
-                    "granularity": {
-                        "type": "string",
-                        "enum": ["day", "week", "month", "quarter", "year"],
-                    },
-                    "baseline_filters": {"type": "array", "items": {"type": "string"}},
-                    "comparison_filters": {"type": "array", "items": {"type": "string"}},
-                    "dimensions": {"type": "array", "items": {"type": "string"}},
-                    "top_n": {"type": "integer"},
-                    "format": {"type": "string", "enum": ["markdown", "json"]},
-                },
-                "required": ["operation"],
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
             },
-            category="debug",
-            sort_order=95,
         ),
     ]
 

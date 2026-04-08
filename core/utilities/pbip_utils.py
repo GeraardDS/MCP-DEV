@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from core.utilities.json_utils import load_json
 
@@ -209,6 +209,22 @@ def save_json_file(file_path: Path, data: Dict) -> bool:
     except TypeError as e:
         logger.error(f"Non-serializable data when saving {file_path}: {e}")
         return False
+
+
+def resolve_definition_path(pbip_path: str) -> Dict[str, Any]:
+    """Resolve and validate the definition path from a PBIP path.
+
+    Returns a dict with 'path' on success or 'error' on failure.
+    """
+    definition_path = find_definition_folder(pbip_path)
+    if not definition_path:
+        return {
+            "error": (
+                f"Could not find definition folder in: {pbip_path}."
+                " Ensure path points to a valid PBIP project."
+            )
+        }
+    return {"path": definition_path}
 
 
 def get_page_display_name(page_folder: Path) -> str:

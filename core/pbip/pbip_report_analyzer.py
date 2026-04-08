@@ -356,7 +356,7 @@ class PbirReportAnalyzer:
         "shape", "basicShape", "image", "textbox",
         "button", "actionButton",
         "bookmarkNavigator", "pageNavigator", "navigatorButton",
-        "visualGroup", "group",
+        "visualGroup", "group", "SummarizeVisualContainer",
         "slicer", "advancedSlicerVisual",
         "multiRowCard",  # Multi-row cards are typically label/context displays
     }
@@ -391,6 +391,9 @@ class PbirReportAnalyzer:
                 is_visual_group = True
             else:
                 visual_type = data.get("visual", {}).get("visualType", "")
+                # SummarizeVisualContainer is a container type like visualGroup
+                if visual_type == "SummarizeVisualContainer":
+                    is_visual_group = True
 
             # Determine if this is a data-bearing visual
             is_data_visual = self._is_data_visual(visual_type, data)
@@ -450,8 +453,10 @@ class PbirReportAnalyzer:
         Returns:
             True if this is a data-bearing visual
         """
-        # Visual groups are never data visuals
+        # Visual groups and summary containers are never data visuals
         if "visualGroup" in data:
+            return False
+        if visual_type == "SummarizeVisualContainer":
             return False
 
         # Empty type with no visual property is a group/container
@@ -514,9 +519,10 @@ class PbirReportAnalyzer:
 
             # Common projection types
             projection_types = [
-                "Category", "Y", "Values", "Rows", "Columns",
+                "Category", "Y", "Y2", "Values", "Rows", "Columns",
                 "Legend", "Tooltips", "Details", "X", "Size",
-                "Gradient", "Play", "SecondaryValues"
+                "Gradient", "Play", "SecondaryValues", "Data",
+                "Series", "Breakdown", "Analyze", "ExplainBy"
             ]
 
             for proj_type in projection_types:
@@ -654,6 +660,18 @@ class PbirReportAnalyzer:
                             measures.add((entity, prop))
                         else:
                             columns.add((entity, prop))
+
+            # Check selector.metadata strings (e.g. "m Measure.00_CurrencyFlow % of FX")
+            # These reference measures/columns used for conditional formatting targets
+            selector = obj.get("selector")
+            if isinstance(selector, dict):
+                metadata = selector.get("metadata", "")
+                if isinstance(metadata, str) and "." in metadata:
+                    dot_idx = metadata.index(".")
+                    table = metadata[:dot_idx].strip()
+                    prop = metadata[dot_idx + 1:].strip()
+                    if table and prop:
+                        measures.add((table, prop))
 
             # Recurse into all dict values
             for value in obj.values():

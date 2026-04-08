@@ -88,14 +88,10 @@ class DaxValidator:
 
     @staticmethod
     def validate_identifier(identifier: str) -> bool:
-        """
-        Validate DAX identifier is safe.
+        """Validate identifier for safety (length/null checks only).
 
-        Args:
-            identifier: Identifier to validate
-
-        Returns:
-            True if valid and safe
+        NOTE: For strict DAX identifier pattern validation (alphanumeric + underscore),
+        use dax_utilities.validate_dax_identifier() instead.
         """
         return (
             bool(identifier) and

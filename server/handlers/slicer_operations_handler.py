@@ -1,18 +1,12 @@
 """
-Slicer Operations Handler
-Tool 13: Configure Power BI slicer/visual settings in PBIP files
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
 
-Operations:
-- list: Find and list slicers matching criteria with their current configuration
-- configure_single_select: Change slicer to single-select with "All" selected
-- list_interactions: List visual interactions (cross-filtering settings) from page.json
-- set_interaction: Set interaction type between two visuals on a page
-- bulk_set_interactions: Set multiple interactions at once
+Slicer/visual interaction operations consumed by visual_operations_handler.py.
 """
 from typing import Dict, Any, List, Optional
 import logging
 from pathlib import Path
-from server.registry import ToolDefinition
 from core.utilities.pbip_utils import (
     normalize_path as _normalize_path,
     find_definition_folder as _find_definition_folder,
@@ -991,18 +985,3 @@ def handle_slicer_operations(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def register_slicer_operations_handler(registry):
-    """Register slicer operations handler"""
-    from server.tool_schemas import TOOL_SCHEMAS
-
-    tool = ToolDefinition(
-        name="07_Slicer_Operations",
-        description="Configure slicer settings and visual interactions - list, single-select, cross-filtering.",
-        handler=handle_slicer_operations,
-        input_schema=TOOL_SCHEMAS.get('slicer_operations', {}),
-        category="pbip",
-        sort_order=73  # 07 = PBIP Analysis
-    )
-    registry.register(tool)
-
-    logger.info("Registered slicer_operations handler")

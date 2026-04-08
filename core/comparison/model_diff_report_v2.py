@@ -65,6 +65,7 @@ class ModelDiffReportV2:
         """Build complete HTML document with lazy-loaded TMDL."""
         # Prepare TMDL data for client-side rendering
         tmdl_data_json = self._prepare_tmdl_data()
+        tmdl_data_json = tmdl_data_json.replace('</', '<\\/')
 
         return f"""<!DOCTYPE html>
 <html lang="en">

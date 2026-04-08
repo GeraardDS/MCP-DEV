@@ -62,17 +62,33 @@ def handle_run_dax_trace(args: Dict[str, Any]) -> Dict[str, Any]:
             f"SE cache: {perf['se_cache_hits']}"
         )
 
+        # Deduplicate xmSQL query text in SE events
+        raw_se_events = result.get('se_events', [])
+        query_lookup = []
+        query_to_idx = {}
+        compact_se = []
+        for evt in raw_se_events:
+            qt = evt.get("query", "")
+            if qt not in query_to_idx:
+                query_to_idx[qt] = len(query_lookup)
+                query_lookup.append(qt)
+            ce = {k: v for k, v in evt.items() if k != "query"}
+            ce["query_idx"] = query_to_idx[qt]
+            compact_se.append(ce)
+
         trace_data = {
             'runner': 'native',
             'performance': perf,
-            'se_events': result.get('se_events', []),
+            'se_queries_lookup': query_lookup,
+            'se_events': compact_se,
+            '_se_events_raw': raw_se_events,
             'cache_cleared': result.get('cache_cleared', False),
             'summary': summary,
         }
         # Cache for auto-retrieval by optimize
         connection_state.store_trace_result(trace_data)
 
-        return {'success': True, **trace_data}
+        return {'success': True, **{k: v for k, v in trace_data.items() if not k.startswith('_')}}
 
     except ImportError:
         return {'success': False, 'error': 'NativeTraceRunner not available. Ensure core/infrastructure/query_trace.py exists.'}
@@ -144,15 +160,19 @@ def handle_get_m_expressions(args: Dict[str, Any]) -> Dict[str, Any]:
 
     return result
 
+_role_handler_singleton = None
+
 def handle_get_roles(args: Dict[str, Any]) -> Dict[str, Any]:
     """List RLS/OLS security roles with permissions"""
-    from core.operations.role_operations import RoleOperationsHandler
-    handler = RoleOperationsHandler()
-    return handler.execute({'operation': 'list'})
+    global _role_handler_singleton
+    if _role_handler_singleton is None:
+        from core.operations.role_operations import RoleOperationsHandler
+        _role_handler_singleton = RoleOperationsHandler()
+    return _role_handler_singleton.execute({'operation': 'list'})
 
 
 def handle_query_operations(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Dispatch query operations: data_sources, m_expressions, search_objects, roles"""
+    """Dispatch query operations: data_sources, m_expressions, search_objects, roles, test_rls, search_string"""
     operation = args.get('operation', 'data_sources')
 
     if operation == 'data_sources':
@@ -164,17 +184,41 @@ def handle_query_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         return handle_search_objects(args)
     elif operation == 'roles':
         return handle_get_roles(args)
+    elif operation == 'test_rls':
+        return _handle_test_rls(args)
+    elif operation == 'search_string':
+        from server.handlers.metadata_handler import handle_search_string
+        return handle_search_string(args)
     else:
         return {
             'success': False,
-            'error': f'Unknown operation: {operation}. Valid: data_sources, m_expressions, search_objects, roles'
+            'error': f'Unknown operation: {operation}. Valid: data_sources, m_expressions, search_objects, roles, test_rls, search_string'
         }
+
+
+def _handle_test_rls(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Test RLS role filter by comparing filtered vs unfiltered results."""
+    from core.infrastructure.connection_state import connection_state
+
+    if not connection_state.is_connected():
+        return {'success': False, 'error': 'Not connected to Power BI Desktop'}
+
+    rls_mgr = connection_state.rls_manager
+    if not rls_mgr:
+        return {'success': False, 'error': 'RLS manager not available'}
+
+    role_name = args.get('role_name')
+    if not role_name:
+        return {'success': False, 'error': 'role_name parameter required'}
+
+    test_query = args.get('test_query', '')
+    test_table = args.get('test_table', '')
+
+    return rls_mgr.test_role_filter(role_name, test_query, test_table)
 
 
 def register_query_handlers(registry):
     """Register query handlers"""
-    from server.handlers.metadata_handler import handle_search_string
-
     tools = [
         ToolDefinition(
             name="04_Run_DAX",
@@ -193,44 +237,44 @@ def register_query_handlers(registry):
                 "required": ["query"]
             },
             category="query",
-            sort_order=40
+            sort_order=40,
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
         ),
         ToolDefinition(
             name="04_Query_Operations",
-            description="Query model metadata: data_sources, m_expressions, search_objects, roles",
+            description="Query model metadata: data_sources, m_expressions, search_objects, roles, test_rls, search_string",
             handler=handle_query_operations,
             input_schema={
                 "type": "object",
                 "properties": {
-                    "operation": {"type": "string", "enum": ["data_sources", "m_expressions", "search_objects", "roles"]},
+                    "operation": {"type": "string", "enum": ["data_sources", "m_expressions", "search_objects", "roles", "test_rls", "search_string"]},
                     "pattern": {"type": "string", "description": "Search pattern (search_objects)"},
                     "types": {"type": "array", "items": {"type": "string", "enum": ["tables", "columns", "measures"]}, "description": "Object types (search_objects)"},
+                    "role_name": {"type": "string", "description": "RLS role to test (test_rls)"},
+                    "test_query": {"type": "string", "description": "DAX query to run with/without RLS filter (test_rls)"},
+                    "test_table": {"type": "string", "description": "Table to auto-generate count query for (test_rls)"},
                     "limit": {"type": "integer", "description": "Max results (m_expressions)"},
+                    "search_text": {"type": "string", "description": "Text to search for (search_string)"},
+                    "search_in_expression": {"type": "boolean", "description": "Search in DAX expressions (search_string)", "default": True},
+                    "search_in_name": {"type": "boolean", "description": "Search in object names (search_string)", "default": True},
                     "page_size": {"type": "integer"},
                     "next_token": {"type": "string"}
                 },
                 "required": ["operation"]
             },
             category="query",
-            sort_order=41
-        ),
-        ToolDefinition(
-            name="04_Search_String",
-            description="Search inside DAX expressions and measure names",
-            handler=handle_search_string,
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "search_text": {"type": "string"},
-                    "search_in_expression": {"type": "boolean"},
-                    "search_in_name": {"type": "boolean"},
-                    "page_size": {"type": "integer"},
-                    "next_token": {"type": "string"}
-                },
-                "required": ["search_text"]
+            sort_order=41,
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": False,
+                "openWorldHint": True,
             },
-            category="query",
-            sort_order=42
         ),
     ]
 

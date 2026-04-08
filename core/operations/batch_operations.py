@@ -49,7 +49,36 @@ class BatchOperationsHandler(BaseOperationsHandler):
         dry_run = options.get('dry_run', False)
 
         if dry_run:
-            # Validate definitions without executing
+            # Validate definitions before executing
+            validation_errors = []
+            for idx, item in enumerate(items):
+                item_errors = []
+                if operation in ['create', 'update']:
+                    if not item.get('name'):
+                        item_errors.append('missing required field: name')
+                    if not item.get('expression'):
+                        item_errors.append('missing required field: expression')
+                    if not item.get('table') and not item.get('table_name'):
+                        item_errors.append('missing required field: table or table_name')
+                elif operation == 'delete':
+                    if not item.get('name'):
+                        item_errors.append('missing required field: name')
+                if item_errors:
+                    validation_errors.append({
+                        'index': idx,
+                        'item': item.get('name', f'item[{idx}]'),
+                        'errors': item_errors
+                    })
+
+            if validation_errors:
+                return {
+                    'success': False,
+                    'dry_run': True,
+                    'message': f'Validation failed for {len(validation_errors)} of {len(items)} item(s)',
+                    'item_count': len(items),
+                    'validation_errors': validation_errors
+                }
+
             return {
                 'success': True,
                 'dry_run': True,

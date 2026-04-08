@@ -863,6 +863,18 @@ class DaxRulesEngine:
             Dict with health_score, issues, issue_count,
             and by_category breakdown
         """
+        # Try unified analyzer first (new engine)
+        try:
+            from core.dax.analyzer.unified_analyzer import DaxUnifiedAnalyzer
+
+            result = DaxUnifiedAnalyzer().analyze(dax_expression)
+            return result.to_rules_engine_format()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning("Unified analyzer fallback: %s", e)
+
+        # Original implementation follows
         normalized = normalize_dax(dax_expression)
         issues: List[DaxIssue] = []
 

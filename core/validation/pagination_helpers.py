@@ -4,7 +4,138 @@ Pagination helpers for consistent pagination handling across operations.
 These helpers consolidate duplicate pagination logic patterns.
 Reduces ~80 lines of duplicated code.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+# Pagination limits (canonical source — server/middleware.py re-exports these)
+MAX_PAGE_SIZE = 10000
+MAX_PAGINATION_OFFSET = 1000000
+
+
+def paginate(result: Any, page_size: Optional[int], next_token: Optional[str], list_keys: List[str]) -> Any:
+    """
+    Paginate result arrays with continuation tokens.
+
+    Args:
+        result: Result dict containing arrays to paginate
+        page_size: Items per page (must be between 1 and MAX_PAGE_SIZE)
+        next_token: Continuation token
+        list_keys: Keys in result dict that contain lists to paginate
+
+    Returns:
+        Result with paginated data and next_token if more data available
+    """
+    if not isinstance(result, dict) or not result.get('success'):
+        return result
+
+    if page_size is None or page_size <= 0:
+        return result
+
+    # Validate page_size bounds
+    if page_size > MAX_PAGE_SIZE:
+        return {
+            'success': False,
+            'error': f'page_size exceeds maximum allowed value of {MAX_PAGE_SIZE}',
+            'error_type': 'ValidationError'
+        }
+
+    # Parse token (format: "key:offset")
+    start_offset = 0
+    target_key = None
+    if next_token:
+        try:
+            parts = next_token.split(':', 1)
+            if len(parts) == 2:
+                target_key, offset_str = parts
+                start_offset = int(offset_str)
+                # Validate offset is non-negative and reasonable
+                if start_offset < 0 or start_offset > MAX_PAGINATION_OFFSET:
+                    return {
+                        'success': False,
+                        'error': 'Invalid next_token: offset out of valid range',
+                        'error_type': 'ValidationError'
+                    }
+        except (ValueError, AttributeError) as e:
+            return {
+                'success': False,
+                'error': f'Invalid next_token format: {str(e)}',
+                'error_type': 'ValidationError'
+            }
+
+    # Apply pagination to each list key
+    new_token = None
+    for key in list_keys:
+        if key not in result:
+            continue
+
+        arr = result.get(key, [])
+        if not isinstance(arr, list):
+            continue
+
+        # Skip if this isn't the target key (when continuing pagination)
+        if target_key and key != target_key:
+            continue
+
+        # Paginate
+        paginated, token = paginate_section(arr, page_size, start_offset)
+        result[key] = paginated
+
+        if token is not None:
+            new_token = f"{key}:{token}"
+            break
+
+    # Add pagination metadata
+    if new_token:
+        result['next_token'] = new_token
+        result['has_more'] = True
+    else:
+        result.pop('next_token', None)
+        result['has_more'] = False
+
+    return result
+
+
+def paginate_section(arr: Any, size: Optional[Any], offset: int = 0) -> Tuple[list, Optional[str]]:
+    """
+    Paginate a single array section.
+
+    Returns:
+        (paginated_array, next_offset_or_none)
+    """
+    if not isinstance(arr, list):
+        return arr, None
+
+    if size is None or size <= 0:
+        return arr, None
+
+    try:
+        size = int(size)
+        offset = int(offset)
+    except (ValueError, TypeError):
+        return arr, None
+
+    end = offset + size
+    paginated = arr[offset:end]
+
+    next_token = str(end) if end < len(arr) else None
+    return paginated, next_token
+
+
+def apply_default_limits(arguments: dict, defaults: dict) -> dict:
+    """
+    Apply default values to missing arguments.
+
+    Args:
+        arguments: Tool arguments
+        defaults: Default values dict
+
+    Returns:
+        Arguments with defaults applied
+    """
+    args = dict(arguments)
+    for key, default_value in defaults.items():
+        if key not in args or args[key] is None:
+            args[key] = default_value
+    return args
 
 
 def apply_default_page_size(args: Dict[str, Any], default_size: Optional[int] = None) -> Dict[str, Any]:
@@ -53,7 +184,6 @@ def apply_pagination(result: Dict[str, Any], args: Dict[str, Any], rows_key: str
     next_token = args.get('next_token')
 
     if page_size or next_token:
-        from server.middleware import paginate
         result = paginate(result, page_size, next_token, [rows_key])
 
     return result
@@ -107,7 +237,6 @@ def apply_describe_table_defaults(args: Dict[str, Any]) -> Dict[str, Any]:
         result = qe.describe_table(table_name, args)
     """
     from core.infrastructure.limits_manager import get_limits
-    from server.middleware import apply_default_limits
 
     limits = get_limits()
     defaults = {

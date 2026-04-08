@@ -1,7 +1,8 @@
 """
-Aggregation Analysis Handler
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
 
-MCP tool handler for aggregation analysis of Power BI PBIP models.
+Aggregation analysis for Power BI PBIP models; consumed by pbip_operations_handler.py.
 """
 
 import logging
@@ -70,13 +71,15 @@ def handle_aggregation_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
             ]
             result.report_summary.pages = filtered_pages
 
-        # Always generate HTML report
-        export_dir = Path(pbip_path).parent / "exports" / "aggregation_analysis"
-        export_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        model_name = result.model_name.replace(" ", "_")
-        html_output_path = output_path if output_path and output_format == "html" else str(export_dir / f"{model_name}_Aggregation_{timestamp}.html")
-        saved_path = report_builder.save_html_report(html_output_path)
+        # Generate HTML report only when requested or alongside json format
+        saved_path = None
+        if output_format in ("html", "json"):
+            export_dir = Path(pbip_path).parent / "exports" / "aggregation_analysis"
+            export_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            model_name = result.model_name.replace(" ", "_")
+            html_output_path = output_path if output_path and output_format == "html" else str(export_dir / f"{model_name}_Aggregation_{timestamp}.html")
+            saved_path = report_builder.save_html_report(html_output_path)
 
         # Generate output based on format
         if output_format == "html":
@@ -116,8 +119,6 @@ def handle_aggregation_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
             return {
                 "success": True,
                 "format": "detailed",
-                "html_report_path": saved_path,
-                "message": f"HTML report saved to {saved_path}",
                 "report": detailed_text,
             }
 
@@ -126,8 +127,6 @@ def handle_aggregation_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
             return {
                 "success": True,
                 "format": "summary",
-                "html_report_path": saved_path,
-                "message": f"HTML report saved to {saved_path}",
                 "report": summary_text,
             }
 
@@ -174,21 +173,6 @@ def _strip_visual_details(json_data: Dict) -> Dict:
                 for v in page.get("visuals", [])
             ]
     return json_data
-
-
-def register_aggregation_handler(registry) -> None:
-    """Register aggregation analysis handler with the tool registry."""
-    from server.registry import ToolDefinition
-
-    tool = ToolDefinition(
-        name="07_Analyze_Aggregation",
-        description="Analyze aggregation table usage, optimization opportunities, and row savings.",
-        handler=handle_aggregation_analysis,
-        input_schema=get_aggregation_schema(),
-        category="pbip",
-        sort_order=74,  # 07 = PBIP Analysis
-    )
-    registry.register(tool)
 
 
 def get_aggregation_schema() -> Dict[str, Any]:

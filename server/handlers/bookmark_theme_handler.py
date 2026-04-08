@@ -1,19 +1,27 @@
 """
-Bookmark & Theme Compliance Handler
-Handles PBIP bookmark analysis and theme compliance tools
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
+
+Provides handle_analyze_bookmarks for bookmark_operations_handler.py (.analyze op),
+handle_theme_compliance for theme_operations_handler.py (.analyze_compliance op),
+and _find_report_folder used by report_operations_handler.py (.backup and .restore ops).
 """
 from typing import Dict, Any
 import logging
 import os
 from pathlib import Path
-from server.registry import ToolDefinition
 from core.utilities.pbip_utils import normalize_path as _normalize_path
 
 logger = logging.getLogger(__name__)
 
 
 def _find_report_folder(pbip_path: str) -> str:
-    """Find the .Report folder from a PBIP path."""
+    """Find the .Report folder from a PBIP path.
+
+    Note: This returns the .Report folder itself, not the definition/ subfolder.
+    Differs from pbip_utils.find_definition_folder which returns .Report/definition/.
+    Bookmark and theme analyzers need the .Report root, not the definition subfolder.
+    """
     path_obj = Path(pbip_path)
 
     # Check if path is already a .Report folder
@@ -191,30 +199,3 @@ def handle_theme_compliance(args: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
-def register_bookmark_theme_handlers(registry):
-    """Register bookmark and theme compliance handlers"""
-    from server.tool_schemas import TOOL_SCHEMAS
-
-    tools = [
-        ToolDefinition(
-            name="07_Analyze_Bookmarks",
-            description="Analyze bookmarks in a PBIP report with HTML output",
-            handler=handle_analyze_bookmarks,
-            input_schema=TOOL_SCHEMAS.get('analyze_bookmarks', {}),
-            category="pbip",
-            sort_order=75  # 07 = PBIP Analysis
-        ),
-        ToolDefinition(
-            name="07_Analyze_Theme_Compliance",
-            description="Analyze theme compliance in a PBIP report with HTML output",
-            handler=handle_theme_compliance,
-            input_schema=TOOL_SCHEMAS.get('analyze_theme_compliance', {}),
-            category="pbip",
-            sort_order=76  # 07 = PBIP Analysis
-        ),
-    ]
-
-    for tool in tools:
-        registry.register(tool)
-
-    logger.info(f"Registered {len(tools)} bookmark/theme handlers")

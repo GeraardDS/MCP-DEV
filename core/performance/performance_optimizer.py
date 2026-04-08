@@ -26,7 +26,7 @@ class PerformanceOptimizer:
                 tables_map = {}
                 cols_map = {}
                 # Tables
-                t_res = self.executor.execute_info_query("TABLES", top_n=100)
+                t_res = self.executor.execute_info_query("TABLES", top_n=5000)
                 if t_res.get('success'):
                     for tr in t_res.get('rows', []):
                         tid = get_field_value(tr, ['ID', 'TableID'])
@@ -37,7 +37,7 @@ class PerformanceOptimizer:
                         except Exception:
                             pass
                 # Columns
-                c_res = self.executor.execute_info_query("COLUMNS", top_n=100)
+                c_res = self.executor.execute_info_query("COLUMNS", top_n=5000)
                 if c_res.get('success'):
                     for cr in c_res.get('rows', []):
                         cid = get_field_value(cr, ['ID', 'ColumnID'])
@@ -52,7 +52,7 @@ class PerformanceOptimizer:
             tables_by_id, columns_by_id = _build_maps()
 
             # Get all relationships
-            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=100)
+            rels_result = self.executor.execute_info_query("RELATIONSHIPS", top_n=5000)
             if not rels_result.get('success'):
                 return {'success': False, 'error': 'Failed to get relationships'}
 
@@ -156,7 +156,7 @@ class PerformanceOptimizer:
         try:
             # Build table and column ID maps
             tables_by_id = {}
-            t_res = self.executor.execute_info_query("TABLES", top_n=100)
+            t_res = self.executor.execute_info_query("TABLES", top_n=5000)
             if t_res.get('success'):
                 for tr in t_res.get('rows', []):
                     tid = get_field_value(tr, ['ID', 'TableID'])
@@ -171,7 +171,7 @@ class PerformanceOptimizer:
             cols_result = self.executor.execute_info_query("COLUMNS", table_name=table)
             # Desktop variants occasionally fail on table-scoped DMV; fallback to all-cols and filter
             if not cols_result.get('success'):
-                all_cols = self.executor.execute_info_query("COLUMNS", top_n=100)
+                all_cols = self.executor.execute_info_query("COLUMNS", top_n=5000)
                 if all_cols.get('success'):
                     def _norm(s: Optional[str]) -> str:
                         if not s:
@@ -328,7 +328,7 @@ class PerformanceOptimizer:
                 cols_result = self.executor.execute_info_query("COLUMNS", table_name=table)
                 if not cols_result.get('success'):
                     # last-chance: all columns then filter by table name
-                    all_cols = self.executor.execute_info_query("COLUMNS", top_n=100)
+                    all_cols = self.executor.execute_info_query("COLUMNS", top_n=5000)
                     if all_cols.get('success'):
                         trows = [r for r in all_cols.get('rows', []) if str(r.get('Table') or r.get('TableName')) == str(table)]
                         cols_result = {'success': True, 'rows': trows}

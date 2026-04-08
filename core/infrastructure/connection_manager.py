@@ -427,9 +427,14 @@ class ConnectionManager:
                 cmd = self.active_connection.CreateCommand()
                 cmd.CommandText = "SELECT [CATALOG_NAME] FROM $SYSTEM.DBSCHEMA_CATALOGS"
                 reader = cmd.ExecuteReader()
-                if reader.Read():
-                    db_name = str(reader.GetValue(0))
-                reader.Close()
+                try:
+                    if reader.Read():
+                        db_name = str(reader.GetValue(0))
+                finally:
+                    try:
+                        reader.Close()
+                    except Exception:
+                        pass
 
             # Store instance info
             self.active_instance = {
@@ -487,11 +492,15 @@ class ConnectionManager:
                 cmd = test_conn.CreateCommand()
                 cmd.CommandText = "SELECT [CATALOG_NAME] FROM $SYSTEM.DBSCHEMA_CATALOGS"
                 reader = cmd.ExecuteReader()
-
-                db_name = None
-                if reader.Read():
-                    db_name = str(reader.GetValue(0))
-                reader.Close()
+                try:
+                    db_name = None
+                    if reader.Read():
+                        db_name = str(reader.GetValue(0))
+                finally:
+                    try:
+                        reader.Close()
+                    except Exception:
+                        pass
                 test_conn.Close()
 
                 return {
@@ -515,9 +524,13 @@ class ConnectionManager:
                 cmd = self.active_connection.CreateCommand()
                 cmd.CommandText = "EVALUATE { 1 }"
                 reader = cmd.ExecuteReader()
-
-                has_data = reader.Read()
-                reader.Close()
+                try:
+                    has_data = reader.Read()
+                finally:
+                    try:
+                        reader.Close()
+                    except Exception:
+                        pass
 
                 return {
                     'success': True,

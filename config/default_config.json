@@ -143,7 +143,9 @@
     "enable_input_validation": true,
     "strict_m_validation": false,
     "max_export_path_length": 260,
-    "allowed_export_extensions": [".json", ".csv", ".txt", ".xlsx", ".xml", ".graphml", ".yaml", ".yml"]
+    "allowed_export_extensions": [".json", ".csv", ".txt", ".xlsx", ".xml", ".graphml", ".yaml", ".yml"],
+    "read_only_mode": false,
+    "confirm_destructive": false
   },
   "validation": {
     "max_relationships_check": null,
@@ -172,5 +174,5 @@
     "proximity_distance_chars": 50,
     "max_measures_shown": 3,
     "max_query_result_rows": 100
-  },
+  }
 }

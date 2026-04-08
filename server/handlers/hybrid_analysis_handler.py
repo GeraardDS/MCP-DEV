@@ -1,7 +1,8 @@
 """
-Hybrid Analysis MCP Tool Handlers
+INTERNAL HELPER — Not a registered MCP tool.
+Provides helper functions consumed by active handlers.
 
-Provides MCP tool handlers for PBIP dependency analysis.
+Provides PBIP dependency analysis; consumed by pbip_operations_handler.py.
 """
 
 import logging
@@ -10,7 +11,6 @@ from pathlib import Path
 from typing import Dict, Any
 
 from core.utilities.pbip_dependency_html_generator import generate_pbip_dependency_html
-from server.registry import ToolDefinition
 from server.tool_schemas import TOOL_SCHEMAS
 from server.pbip_cache import pbip_cache, normalize_pbip_path
 
@@ -101,16 +101,3 @@ def handle_generate_pbip_dependency_diagram(args: Dict[str, Any]) -> Dict[str, A
         }
 
 
-def register_hybrid_analysis_handlers(registry):
-    """Register hybrid analysis tool handlers"""
-
-    registry.register(ToolDefinition(
-        name='07_PBIP_Dependency_Analysis',
-        description='Interactive HTML dependency analysis for PBIP project. Sidebar with measures/columns/field parameters, upstream/downstream tables. Auto-opens in browser.',
-        handler=handle_generate_pbip_dependency_diagram,
-        input_schema=TOOL_SCHEMAS.get('pbip_dependency_analysis', {}),
-        category='pbip',
-        sort_order=72  # 07 = PBIP Analysis
-    ))
-
-    logger.info("Registered 1 hybrid analysis handler")

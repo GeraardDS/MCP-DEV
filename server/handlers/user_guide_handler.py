@@ -23,478 +23,324 @@ def _get_user_guide() -> str:
 ## QUICK START
 
 1. Open Power BI Desktop with your model
-2. Use `01_Detect_PBI_Instances` to find running instances
-3. Use `01_Connect_To_Instance` (typically model_index=0)
-4. Explore with `06_Simple_Analysis` or `02_Table_Operations` (operation='list')
+2. Use `01_Connection` (operation='detect') to find running instances
+3. Use `01_Connection` (operation='connect', model_index=0) to connect
+4. Explore with `06_Analysis_Operations` (operation='simple') or `02_Model_Operations` (object_type='table', operation='list')
 
 ---
 
 ## CATEGORY 01: CONNECTION (2 tools)
 
-### 01_Detect_PBI_Instances
-Detect running Power BI Desktop instances.
-- **Parameters**: None
-- **Returns**: List of instances with ports and model names
+### 01_Connection
+Detect running Power BI Desktop instances and connect to one in a single tool.
+- **Operations**: `detect` | `connect`
+- **Key parameters**:
+  - `operation` (str, required): 'detect' or 'connect'
+  - `model_index` (int, default 0): Index of model to connect to (connect only)
+- **Example**: `{"operation": "connect", "model_index": 0}`
 
-### 01_Connect_To_Instance
-Connect to a Power BI Desktop instance (auto-detect or specify index).
-- **Parameters**:
-  - `model_index` (int, optional): Index of model to connect to (default: 0)
-- **Returns**: Connection status and model information
+### 10_Show_User_Guide
+Show this comprehensive user guide with all tools, operations, and workflows.
+- **Parameters**: None
+- **Example**: `{}`
 
 ---
 
-## CATEGORY 02: MODEL OPERATIONS (7 tools)
+## CATEGORY 02: MODEL OPERATIONS (2 tools)
 
-### 02_Table_Operations
-Unified table CRUD with 9 operations.
-- **operation** (required): `list` | `describe` | `preview` | `sample_data` | `create` | `update` | `delete` | `rename` | `refresh`
+### 02_Model_Operations
+Unified CRUD for all model objects: tables, columns, measures, relationships, calculation groups, and more.
+- **object_type** (required): `table` | `column` | `measure` | `relationship` | `calculation_group` | `partition` | `hierarchy` | `perspective` | `culture` | `named_expression` | `ols_rule`
+- **operation** (required): varies by object_type - typically `list` | `get` | `create` | `update` | `delete` | `rename` plus object-specific ops
 - **Key parameters**:
-  - `table_name` (str): Required for all except list
-  - `new_name` (str): For rename
-  - `description` (str): For create/update
-  - `expression` (str): DAX expression for calculated tables (create/update)
-  - `hidden` (bool): Hide from client tools (create/update)
-  - `max_rows` (int, default 10): For preview/sample_data
-  - `columns` (array): Column selection for sample_data
-  - `order_by` / `order_direction`: Sorting for sample_data
-  - `page_size` / `next_token`: Pagination for list
-
-### 02_Column_Operations
-Unified column CRUD with 8 operations.
-- **operation** (required): `list` | `get` | `statistics` | `distribution` | `create` | `update` | `delete` | `rename`
-- **Key parameters**:
-  - `table_name` (str): Required for most operations
-  - `column_name` (str): Required for get/statistics/distribution/update/delete/rename
-  - `column_type` (str): Filter by 'all'|'data'|'calculated' (list)
-  - `top_n` (int, default 10): For distribution
-  - `data_type` (str): String|Int64|Double|Decimal|Boolean|DateTime|Binary|Variant (create)
-  - `expression` (str): DAX for calculated columns (create/update)
-  - `format_string` (str): e.g. '#,0' (create/update)
-  - `new_name` (str): For rename
-
-### 02_Measure_Operations
-Unified measure CRUD with 7 operations.
-- **operation** (required): `list` | `get` | `create` | `update` | `delete` | `rename` | `move`
-- **Key parameters**:
-  - `table_name` (str): Required for most operations
-  - `measure_name` (str): Required for get/update/delete/rename/move
-  - `expression` (str): DAX formula (create/update)
-  - `format_string` (str): e.g. '#,0' or '0.0%' (create/update)
-  - `display_folder` (str): Folder path (create/update)
-  - `description` (str): Measure description (create/update)
-  - `new_name` (str): For rename
-  - `new_table` (str): Target table for move
-- **Note**: `list` returns names only. Use `get` to see DAX expressions.
-
-### 02_Relationship_Operations
-Unified relationship CRUD with 8 operations.
-- **operation** (required): `list` | `get` | `find` | `create` | `update` | `delete` | `activate` | `deactivate`
-- **Key parameters**:
-  - `relationship_name` (str): For get/update/delete/activate/deactivate
-  - `table_name` (str): For find (finds relationships for a table)
-  - `from_table`, `from_column`, `to_table`, `to_column` (str): For create
-  - `from_cardinality` (str): 'One'|'Many' (default: Many)
-  - `to_cardinality` (str): 'One'|'Many' (default: One)
-  - `cross_filtering_behavior` (str): 'OneDirection'|'BothDirections'|'Automatic' (create/update)
-  - `is_active` (bool): Active state (create/update)
-  - `active_only` (bool): Filter active only (list)
-
-### 02_Calculation_Group_Operations
-Unified calculation group CRUD with 4 operations.
-- **operation** (required): `list` | `list_items` | `create` | `delete`
-- **Key parameters**:
-  - `group_name` (str): Required for list_items/create/delete
-  - `items` (array): Array of {name, expression, ordinal} for create
-  - `description` (str): Optional for create
-  - `precedence` (int): Optional for create
-
-### 02_Role_Operations
-RLS/OLS security role operations.
-- **operation** (required): `list`
-- **Returns**: All security roles with table permissions and DAX filters
+  - `table_name` (str): Required for column/measure/partition/hierarchy operations
+  - `measure_name` / `column_name` / `relationship_name` (str): For targeted operations
+  - `expression` (str): DAX formula (measures/calculated columns/calculated tables)
+  - `format_string` (str): e.g. '#,0' or '0.0%'
+  - `display_folder` / `description` (str): Metadata
+  - `new_name` / `new_table` (str): For rename/move
+  - `from_table`, `from_column`, `to_table`, `to_column` (str): For relationship create
+  - `is_active` (bool): Relationship active state
+  - `items` (array): [{name, expression, ordinal}] for calculation_group create
+- **Note**: Use operation='list' first to discover objects; use operation='get' to retrieve DAX expressions.
+- **Example**: `{"object_type": "measure", "operation": "list", "table_name": "Sales"}`
 
 ### 02_TMDL_Operations
-TMDL automation with 5 operations.
+TMDL file automation: export, find/replace, bulk rename, script generation, and measure migration.
 - **operation** (required): `export` | `find_replace` | `bulk_rename` | `generate_script` | `migrate_measures`
-- **Operations**:
-  - **export**: Export full TMDL to file. Optional: `output_dir`
-  - **find_replace**: Find/replace in TMDL files. Requires: `tmdl_path`, `pattern`, `replacement`. Optional: `dry_run` (default true), `regex`, `case_sensitive`, `target`
-  - **bulk_rename**: Rename objects with reference updates. Requires: `tmdl_path`, `renames` [{old_name, new_name, object_type?, table_name?}]. Optional: `dry_run` (default true), `update_references` (default true)
-  - **generate_script**: Generate TMDL code. Requires: `definition`. Optional: `object_type` (table|measure|relationship|calc_group)
-  - **migrate_measures**: Copy measures between TMDL files. Requires: `source_path`, `target_path`. Optional: `display_folder_filter`, `replace_target`, `skip_duplicates`
+- **Key parameters**:
+  - `tmdl_path` (str): Path to TMDL folder (find_replace, bulk_rename)
+  - `pattern` / `replacement` (str): For find_replace
+  - `renames` (array): [{old_name, new_name, object_type?, table_name?}] for bulk_rename
+  - `source_path` / `target_path` (str): For migrate_measures
+  - `dry_run` (bool, default true): Preview changes without writing
+  - `regex` / `case_sensitive` (bool): find_replace options
 - **Safety**: Always run find_replace and bulk_rename with dry_run=true first!
+- **Example**: `{"operation": "export", "output_dir": "C:/backup/tmdl"}`
 
 ---
 
-## CATEGORY 03: BATCH & TRANSACTIONS (2 tools)
+## CATEGORY 03: BATCH OPERATIONS (1 tool)
 
 ### 03_Batch_Operations
-Execute batch operations on model objects (3-5x faster than individual operations).
+Execute bulk operations on model objects - 3-5x faster than individual calls.
 - **Parameters** (all required):
-  - `operation` (str): 'measures'|'tables'|'columns'|'relationships'
-  - `batch_operation` (str): 'create'|'update'|'delete'|'rename'|'move'|'activate'|'deactivate'|'refresh'
+  - `operation` (str): 'measures' | 'tables' | 'columns' | 'relationships'
+  - `batch_operation` (str): 'create' | 'update' | 'delete' | 'rename' | 'move' | 'activate' | 'deactivate' | 'refresh'
   - `items` (array): List of object definitions
 - **options** (optional):
   - `use_transaction` (bool, default true): Atomic all-or-nothing
-  - `continue_on_error` (bool, default false): Continue on error (only with use_transaction=false)
+  - `continue_on_error` (bool, default false): Continue past errors (requires use_transaction=false)
   - `dry_run` (bool, default false): Validate without executing
-
-### 03_Manage_Transactions
-ACID transactions for atomic model changes with rollback.
-- **operation** (required): `begin` | `commit` | `rollback` | `status` | `list_active`
-- **Parameters**:
-  - `transaction_id` (str): Required for commit/rollback/status
-  - `connection_name` (str): Optional for begin
+- **Example**: `{"operation": "measures", "batch_operation": "update", "items": [{"table_name": "Sales", "measure_name": "Revenue", "expression": "SUM(Sales[Amount])"}]}`
 
 ---
 
-## CATEGORY 04: QUERY & SEARCH (5 tools)
+## CATEGORY 04: QUERY & SEARCH (2 tools)
 
 ### 04_Run_DAX
-Execute DAX query with auto limits.
+Execute a DAX query against the connected model with optional trace analysis.
 - **Parameters**:
   - `query` (str, required): DAX EVALUATE statement
   - `top_n` (int, default 100): Row limit
-  - `mode` (str, default 'auto'): 'auto'|'analyze'|'simple'
+  - `mode` (str, default 'auto'): 'auto' | 'analyze' | 'simple' | 'trace'
     - auto: Smart mode selection
     - analyze: Include timing analysis
     - simple: Preview only
+    - trace: SE/FE timing analysis
+  - `clear_cache` (bool, default true): Clear VertiPaq cache (trace mode only)
+- **Example**: `{"query": "EVALUATE TOPN(10, Sales)", "mode": "simple"}`
 
-### 04_Get_Data_Sources
-List all data sources. No parameters. Returns connection strings, types, credentials info.
-
-### 04_Get_M_Expressions
-List M/Power Query expressions.
-- **Parameters**:
-  - `limit` (int, optional): Max expressions to return
-
-### 04_Search_Objects
-Search tables/columns/measures by name pattern (wildcard).
-- **Parameters**:
-  - `pattern` (str): Search pattern
-  - `types` (array): Filter by ['tables', 'columns', 'measures']
+### 04_Query_Operations
+Query model metadata: data sources, M expressions, object search, security roles, and string search.
+- **operation** (required): `data_sources` | `m_expressions` | `search_objects` | `roles` | `test_rls` | `search_string`
+- **Key parameters**:
+  - `pattern` (str): Search pattern (search_objects, search_string)
+  - `types` (array): Filter by ['tables', 'columns', 'measures'] (search_objects)
+  - `search_text` (str): Text to find in DAX or names (search_string)
+  - `search_in_expression` / `search_in_name` (bool, default true): search_string scope
+  - `role_name` (str): Role to test (test_rls)
+  - `limit` (int): Max results
   - `page_size` / `next_token`: Pagination
-
-### 04_Search_String
-Search inside DAX expressions and measure names.
-- **Parameters**:
-  - `search_text` (str, required): Text to search for
-  - `search_in_expression` (bool, default true): Search DAX code
-  - `search_in_name` (bool, default true): Search measure names
-  - `page_size` / `next_token`: Pagination
+- **Example**: `{"operation": "search_string", "search_text": "CALCULATE", "search_in_expression": true}`
 
 ---
 
-## CATEGORY 05: DAX INTELLIGENCE (5 tools)
+## CATEGORY 05: DAX INTELLIGENCE (2 tools)
 
 ### 05_DAX_Intelligence
-Comprehensive DAX analysis with optimization recommendations.
+Comprehensive DAX analysis with optimization recommendations, dependency graphs, and impact analysis.
 - **Parameters**:
-  - `expression` (str, required): DAX expression OR measure name (auto-detects and fetches)
-  - `analysis_mode` (str, default 'all'): 'all'|'analyze'|'debug'|'report'
-    - **all**: Complete analysis (context + anti-patterns + debug + report + best practices)
+  - `expression` (str, required): DAX expression OR measure name (auto-fetches from model)
+  - `analysis_mode` (str, default 'all'): 'all' | 'analyze' | 'debug' | 'report'
+    - **all**: Complete analysis (context + anti-patterns + debug + best practices + impact)
     - **analyze**: Context transition analysis with anti-patterns
     - **debug**: Step-by-step execution breakdown
     - **report**: Full analysis with optimization + profiling
-  - `skip_validation` (bool, default false): Skip syntax check
-  - `output_format` (str): 'friendly'|'steps' (debug mode)
-  - `include_optimization` (bool, default true): Include suggestions
-  - `include_profiling` (bool, default true): Include performance
-  - `breakpoints` (array[int]): Char positions for debugging
-- **Workflow**: Tool provides analysis recommendations -> AI writes optimized DAX
-
-### 05_Analyze_Dependencies
-Analyze measure dependencies with interactive diagram.
-- **Parameters**:
-  - `table` (str, required): Table name
-  - `measure` (str, required): Measure name
+  - `operation` (str): 'analyze_dependencies' | 'measure_impact' | 'export_dax' for graph/export ops
+  - `table` / `measure` (str): For analyze_dependencies and measure_impact
   - `include_diagram` (bool, default true): Include Mermaid diagram
-- **Returns**: Formatted dependency tree + interactive HTML diagram (auto-opens in browser)
-
-### 05_Get_Measure_Impact
-Get what depends on this measure (reverse dependencies).
-- **Parameters**:
-  - `table` (str, required): Table name
-  - `measure` (str, required): Measure name
-- **Returns**: List of measures that reference this measure
-
-### 05_Export_DAX_Measures
-Export all DAX measures to CSV.
-- **Parameters**:
-  - `output_path` (str, optional): Directory path (default: exports/)
-- **Returns**: CSV with Table, Measure_Name, Display_Folder, DAX_Expression
+  - `output_path` (str): Directory path for export_dax
+  - `skip_validation` (bool, default false): Skip syntax check
+  - `include_optimization` / `include_profiling` (bool, default true)
+  - `breakpoints` (array[int]): Char positions for debug mode
+- **Workflow**: Tool provides analysis recommendations - AI writes optimized DAX based on output.
+- **Example**: `{"expression": "Total Revenue", "analysis_mode": "all"}`
 
 ### 05_Column_Usage_Mapping
-Analyze column usage - find unused columns, check measure dependencies.
+Analyze column and measure usage across the model - find unused columns and trace dependencies.
 - **operation** (required): `get_unused_columns` | `get_measures_for_tables` | `get_columns_for_measure` | `get_measures_for_column` | `get_full_mapping` | `export_to_csv`
 - **Key parameters**:
   - `tables` (array): Filter by table names
   - `table` / `measure` / `column` (str): For specific lookups
-  - `group_by` (str): 'table'|'column'|'measure'|'flat' (for get_measures_for_tables)
-  - `include_dax` (bool, default false): Include DAX expressions
-  - `force_refresh` (bool, default false): Force cache refresh
-- **Primary use**: `get_unused_columns` finds columns not used by measures OR relationships
+  - `group_by` (str): 'table' | 'column' | 'measure' | 'flat' (get_measures_for_tables)
+  - `include_dax` (bool, default false): Include DAX expressions in output
+  - `force_refresh` (bool, default false): Bypass cache
+- **Primary use**: `get_unused_columns` finds columns not referenced by measures OR relationships.
+- **Example**: `{"operation": "get_unused_columns", "tables": ["Sales", "Products"]}`
 
 ---
 
-## CATEGORY 06: ANALYSIS & COMPARISON (3 tools)
+## CATEGORY 06: ANALYSIS & COMPARISON (1 tool)
 
-### 06_Simple_Analysis
-Quick model analysis with expert insights (2-5 seconds).
-- **Parameters**:
-  - `mode` (str, default 'all'): 'all'|'tables'|'stats'|'measures'|'measure'|'columns'|'relationships'|'roles'|'database'|'calculation_groups'
-  - `table` (str): Table filter (for measures/columns/measure modes)
+### 06_Analysis_Operations
+Model analysis from quick overview to comprehensive BPA, plus model comparison.
+- **operation** (required): `simple` | `full` | `compare`
+- **simple** - Quick model analysis with expert insights (2-5 seconds):
+  - `mode` (str, default 'all'): 'all' | 'tables' | 'stats' | 'measures' | 'measure' | 'columns' | 'relationships' | 'roles' | 'database' | 'calculation_groups'
+  - `table` (str): Table filter (measures/columns/measure modes)
   - `measure_name` (str): Required for mode=measure
   - `max_results` (int): Limit results
-  - `active_only` (bool, default false): Active relationships only
-
-### 06_Full_Analysis
-Comprehensive analysis: Best practices (BPA 120+ rules), performance, integrity (10-180s).
-- **Parameters**:
-  - `scope` (str, default 'all'): 'all'|'best_practices'|'performance'|'integrity'
-  - `depth` (str, default 'balanced'): 'fast'|'balanced'|'deep'
-  - `include_bpa` (bool, default true): Include BPA rules
-  - `include_performance` (bool, default true): Include performance analysis
-  - `include_integrity` (bool, default true): Include integrity validation
+- **full** - BPA (120+ rules), performance, and integrity analysis (10-180s):
+  - `scope` (str, default 'all'): 'all' | 'best_practices' | 'performance' | 'integrity'
+  - `depth` (str, default 'balanced'): 'fast' | 'balanced' | 'deep'
+  - `include_bpa` / `include_performance` / `include_integrity` (bool, default true)
   - `max_seconds` (int, 5-300): Max execution time
-
-### 06_Compare_PBI_Models
-Compare two live/open Power BI models.
-- **Workflow**: Call without parameters first to detect instances, then call with ports.
-- **Parameters**:
-  - `old_port` (int): Port of OLD model
-  - `new_port` (int): Port of NEW model
-- **Returns**: Detailed diff of tables, measures, columns, relationships, DAX formulas
+- **compare** - Diff two open Power BI Desktop models:
+  - `old_port` / `new_port` (int): Ports of OLD and NEW models (call without ports first to detect)
+- **Example**: `{"operation": "simple", "mode": "all"}`
 
 ---
 
-## CATEGORY 07: PBIP ANALYSIS (7 tools) - No live connection required
+## CATEGORY 07: PBIP ANALYSIS (6 tools) - No live connection required
 
-### 07_PBIP_Model_Analysis
-Offline PBIP analysis and validation.
-- **operation** (required): `analyze` | `validate_model` | `compare_models` | `generate_documentation`
+### 07_PBIP_Operations
+Offline PBIP model analysis, validation, comparison, documentation, git diff, dependency HTML, and aggregation analysis.
+- **operation** (required): `analyze` | `validate_model` | `compare_models` | `generate_documentation` | `query_dependencies` | `query_measures` | `query_relationships` | `query_unused` | `git_diff` | `dependency_html` | `analyze_aggregation`
 - **Key parameters**:
   - `pbip_path` (str): Path to .pbip file or .SemanticModel folder
   - `source_path` / `target_path` (str): For compare_models
-  - `output_path` (str): For analyze or generate_documentation
-- **Operations**:
-  - **analyze**: Full HTML report with model analysis
-  - **validate_model**: TMDL validation and linting
-  - **compare_models**: Compare two PBIP projects
-  - **generate_documentation**: Markdown docs from TMDL metadata
-
-### 07_PBIP_Query
-Offline PBIP queries and git diff.
-- **operation** (required): `query_dependencies` | `query_measures` | `query_relationships` | `query_unused` | `git_diff`
-- **Key parameters**:
-  - `pbip_path` (str): Path to .pbip file or .SemanticModel folder
+  - `output_path` (str): Output path for reports/docs
   - `object_name` (str): For query_dependencies (e.g., '[Total Sales]')
-  - `direction` (str): 'forward'|'reverse'|'both' (query_dependencies)
+  - `direction` (str): 'forward' | 'reverse' | 'both' (query_dependencies)
   - `table` / `display_folder` / `pattern` / `expression_search` (str): Filters for query_measures
-- **Operations**:
-  - **query_dependencies**: Dependency graph for an object
-  - **query_measures**: Search/list measures by name, folder, or DAX expression
-  - **query_relationships**: Relationships with quality analysis
-  - **query_unused**: Find unused measures/columns
-  - **git_diff**: Semantic analysis of git changes in TMDL files
+  - `auto_open` (bool, default true): Open HTML in browser (dependency_html)
+- **Example**: `{"operation": "query_unused", "pbip_path": "C:/project/model.SemanticModel"}`
 
-### 07_Report_Info
-Get report structure - pages, filters, visuals. measure_usage lists all measures per page.
-- **Parameters**:
-  - `operation` (str): 'info' (default) or 'measure_usage'
+### 07_Report_Operations
+Get report structure, measure usage, schema, and manage extension measures. Supports rename and backup/restore.
+- **operation** (str, default 'info'): `info` | `measure_usage` | `rename` | `rebind` | `backup` | `restore` | `schema` | `extension_measures`
+- **Key parameters**:
   - `pbip_path` (str, required): Path to PBIP/Report folder
-  - `include_visuals` (bool, default true): [info] Include visual info
-  - `include_filters` (bool, default true): [info] Include filter info
-  - `page_name` (str): Filter by page name (substring match)
+  - `include_visuals` / `include_filters` (bool, default true): [info] Detail level
+  - `page_name` (str): Filter by page (substring match)
   - `summary_only` (bool, default true): [info] Compact output
-  - `max_visuals_per_page` (int, default 50): [info] Limit visuals per page
   - `measure_filter` (str): [measure_usage] Filter by measure name
   - `output_format` (str): [measure_usage] 'text' (default) or 'json'
-  - `export_path` (str): [measure_usage] Export to CSV at this directory path
+  - `export_path` (str): [measure_usage] Export to CSV
+- **Example**: `{"operation": "info", "pbip_path": "C:/project/report.Report", "summary_only": true}`
 
-### 07_PBIP_Dependency_Analysis
-Generate interactive HTML dependency browser.
-- **Parameters**:
-  - `pbip_folder_path` (str, required): Path to .SemanticModel or PBIP folder
-  - `auto_open` (bool, default true): Open HTML in browser
-  - `output_path` (str): Custom HTML output path
-  - `main_item` (str): Initial item to select (e.g., 'Table[Measure]')
-- **Features**: Sidebar with ALL measures/columns, click to view upstream/downstream deps
-
-### 07_Slicer_Operations
-Configure Power BI slicers and visual interactions.
-- **operation** (default 'list'): `list` | `configure_single_select` | `list_interactions` | `set_interaction` | `bulk_set_interactions`
+### 07_Page_Operations
+CRUD for report pages, plus page-level filter management and interactions.
+- **operation** (required): `list` | `get` | `create` | `delete` | `duplicate` | `reorder` | `list_filters` | `add_filter` | `remove_filter` | `list_interactions` | `set_interaction` | `bulk_set_interactions`
 - **Key parameters**:
   - `pbip_path` (str, required): Path to PBIP/Report folder
-  - `display_name` / `entity` / `property` (str): Slicer filters
-  - `page_name` (str): Filter by page
+  - `page_name` (str): Target page
+  - `display_name` (str): Page display name (create/duplicate)
+  - `position` (int): Page order (reorder)
+  - `filter` (object): DAX filter definition (add_filter)
   - `source_visual` / `target_visual` (str): For interaction operations
-  - `interaction_type` (str): 'NoFilter'|'Filter'|'Highlight'
-  - `interactions` (array): [{source, target, type}] for bulk operations
+  - `interaction_type` (str): 'NoFilter' | 'Filter' | 'Highlight'
   - `dry_run` (bool, default false): Preview changes
-  - `summary_only` (bool, default true): Compact output
+- **Example**: `{"operation": "list", "pbip_path": "C:/project/report.Report"}`
 
-### 07_Analyze_Aggregation
-Analyze aggregation table usage and optimization opportunities.
-- **Parameters**:
-  - `pbip_path` (str, required): Path to PBIP project
-  - `output_format` (str, default 'summary'): 'summary'|'detailed'|'html'|'json'
-  - `output_path` (str): Output path for reports
-  - `page_filter` (str): Filter by page name
-  - `include_visual_details` (bool, default true): Per-visual analysis
-
-### 07_Analyze_Bookmarks
-Analyze bookmarks in a PBIP report with HTML output.
-- **Parameters**:
-  - `pbip_path` (str, required): Path to PBIP/Report folder
-  - `auto_open` (bool, default true): Open HTML in browser
-  - `output_path` (str): Custom HTML output path
-
-### 07_Analyze_Theme_Compliance
-Analyze theme compliance in a PBIP report with HTML output.
-- **Parameters**:
-  - `pbip_path` (str, required): Path to PBIP/Report folder
-  - `theme_path` (str): Custom theme JSON path
-  - `auto_open` (bool, default true): Open HTML in browser
-  - `output_path` (str): Custom HTML output path
-
----
-
-## CATEGORY 08: VISUALS & DOCS (2 tools)
-
-### 08_Visual_Operations
-Edit Power BI visual properties in PBIP files.
-- **operation** (default 'list'): `list` | `update_position` | `replace_measure` | `sync_visual` | `sync_column_widths` | `update_visual_config`
+### 07_Visual_Operations
+CRUD for visuals, formatting, data binding, sync, and interactions within PBIP report pages.
+- **operation** (required): `list` | `get` | `create` | `delete` | `update_position` | `replace_measure` | `sync_visual` | `sync_column_widths` | `update_visual_config` | `list_interactions` | `set_interaction` | `apply_template`
 - **Key parameters**:
   - `pbip_path` (str, required): Path to PBIP/Report folder
-  - `page_name` / `visual_name` / `visual_type` / `display_title` (str): Filters
-  - `x`, `y`, `width`, `height` (number): For update_position
-  - `z` (int): Z-order for update_position
+  - `page_name` / `visual_name` / `visual_type` / `display_title` (str): Filters/targets
+  - `x`, `y`, `width`, `height` (number): Position for update_position
+  - `z` (int): Z-order
   - `source_entity`, `source_property`, `target_entity`, `target_property` (str): For replace_measure
   - `source_visual_name`, `source_page`, `target_pages` (str/array): For sync_visual
-  - `sync_position` / `sync_children` (bool): Sync options
   - `config_type` / `property_name` / `property_value` (str): For update_visual_config
   - `config_updates` (array): Batch config changes
   - `dry_run` (bool, default false): Preview changes
-  - `summary_only` (bool, default true): Compact output
+- **Example**: `{"operation": "list", "pbip_path": "C:/project/report.Report", "page_name": "Overview"}`
+
+### 07_Bookmark_Operations
+CRUD for report bookmarks plus interactive HTML bookmark analysis.
+- **operation** (required): `list` | `get` | `create` | `update` | `delete` | `analyze_html`
+- **Key parameters**:
+  - `pbip_path` (str, required): Path to PBIP/Report folder
+  - `bookmark_name` (str): Target bookmark
+  - `display_name` (str): Bookmark label (create/update)
+  - `page_name` (str): Associated page
+  - `auto_open` (bool, default true): Open HTML in browser (analyze_html)
+  - `output_path` (str): Custom HTML output path
+- **Example**: `{"operation": "list", "pbip_path": "C:/project/report.Report"}`
+
+### 07_Theme_Operations
+Analyze and update report theme: colors, fonts, text classes, formatting, and conditional formatting rules.
+- **operation** (required): `get_colors` | `set_colors` | `get_fonts` | `set_fonts` | `get_text_classes` | `update_text_class` | `get_cf_rules` | `analyze_compliance`
+- **Key parameters**:
+  - `pbip_path` (str, required): Path to PBIP/Report folder
+  - `theme_path` (str): Custom theme JSON path
+  - `colors` (object): Color palette updates
+  - `font_family` (str): Font name
+  - `text_class` (str): Text class to update (title, label, callout, etc.)
+  - `auto_open` (bool, default true): Open compliance HTML in browser
+- **Example**: `{"operation": "get_colors", "pbip_path": "C:/project/report.Report"}`
+
+---
+
+## CATEGORY 08: DOCUMENTATION (1 tool)
 
 ### 08_Documentation_Word
-Generate or update Word documentation report.
+Generate or update a Word (.docx) documentation report from the connected model.
 - **Parameters**:
   - `mode` (str, default 'generate'): 'generate' (new doc) | 'update' (detect changes)
   - `output_path` (str): Output Word file path
   - `input_path` (str): Existing doc path (required for mode='update')
+- **Example**: `{"mode": "generate", "output_path": "C:/docs/model_docs.docx"}`
 
 ---
 
-## CATEGORY 09: DEBUG (10 tools)
+## CATEGORY 09: DEBUG (4 tools)
 
-### 09_Debug_Visual
-Visual debugger - discover pages/visuals, show filter context, execute queries.
-- **Parameters**:
+### 09_Debug_Operations
+Visual debugger combining PBIP report layout with live model data. Discovers pages/visuals, captures full filter context (slicers, page filters, visual filters), executes queries, compares measures, drills to detail, and manages debug configuration.
+- **operation** (required): `visual` | `compare` | `drill` | `audit` | `run_dax` | `set_pbip_path` | `get_status` | `analyze_measure` | `config`
+- **Key parameters**:
   - `page_name` (str): Omit to list all pages
-  - `visual_id` / `visual_name` (str): Omit to list all visuals on page
+  - `visual_id` / `visual_name` (str): Target visual (omit to list all on page)
   - `measure_name` (str): Specific measure to query
-  - `include_slicers` (bool, default true): Include slicer selections
+  - `include_slicers` (bool, default true): Include slicer selections in filter context
   - `execute_query` (bool, default true): Execute query (false = filters only)
   - `filters` (array[str]): Manual DAX filter expressions
   - `skip_auto_filters` (bool, default false): Use only manual filters
+  - `original_measure` / `optimized_expression` (str): For compare operation
+  - `fact_table` (str): Fact table to drill into
+  - `pbip_path` (str): For set_pbip_path if auto-detection failed
   - `compact` (bool, default true): Compact output
-
-### 09_Compare_Measures
-Compare original vs optimized measure with the same filter context.
-- **Parameters**:
-  - `original_measure` (str, required): Original measure name (e.g., '[Total Sales]')
-  - `optimized_expression` (str, required): Optimized DAX expression
-  - `page_name` / `visual_id` / `visual_name` (str): Filter context source
-  - `filters` (array[str]): Manual DAX filters
-  - `include_slicers` (bool, default true)
-
-### 09_Drill_To_Detail
-Show underlying rows for an aggregated value using visual filter context.
-- **Parameters**:
-  - `page_name` / `visual_id` / `visual_name` (str): Filter context source
-  - `fact_table` (str): Fact table to query (if visual not specified)
-  - `limit` (int, default 100): Max rows
-  - `include_slicers` (bool, default true)
-
-### 09_Set_PBIP_Path
-Manually set PBIP folder path for visual debugging if auto-detection failed.
-- **Parameters**:
-  - `pbip_path` (str, required): Full path to PBIP project folder
-
-### 09_Get_Debug_Status
-Get current debug capabilities status (PBIP and model connection).
-- **Parameters**:
-  - `compact` (bool, default true): Compact output
-
-### 09_Analyze_Measure
-Analyze measure DAX for anti-patterns and get fix suggestions.
-- **Parameters**:
-  - `measure_name` (str, required): Measure name
-  - `table_name` (str): Table containing measure (optional, searches all)
-  - `page_name` / `visual_id` / `visual_name` (str): Filter context
-  - `include_slicers` (bool, default true)
-  - `execute_measure` (bool, default true): Execute to see current value
-  - `compact` (bool, default true)
+- **Example**: `{"operation": "visual", "page_name": "Overview", "visual_name": "Revenue Card"}`
 
 ### 09_Validate
-Validation tests: cross_visual, expected_value, filter_permutation.
+Run validation tests against the live model: cross-visual consistency, expected value checks, and filter permutation testing.
 - **operation** (required): `cross_visual` | `expected_value` | `filter_permutation`
-- **Parameters**:
-  - `measure_name` (str): For cross_visual
+- **Key parameters**:
+  - `measure_name` (str): Measure to validate
   - `page_name` / `page_names` (str/array): Page context
   - `visual_id` / `visual_name` (str): Visual context
   - `expected_value` (number|str): For expected_value test
   - `filters` (array[str]): Additional DAX filters
   - `tolerance` (number, default 0.001): Numeric comparison tolerance
   - `max_permutations` (int, default 20): Max combinations for filter_permutation
+- **Example**: `{"operation": "expected_value", "measure_name": "Total Revenue", "expected_value": 1000000}`
 
 ### 09_Profile
-Performance profiling.
-- **operation** (default 'page'): `page` | `filter_matrix`
-- **Parameters**:
+Performance profiling for report pages: per-visual timing and filter matrix analysis.
+- **operation** (str, default 'page'): `page` | `filter_matrix`
+- **Key parameters**:
   - `page_name` (str, required): Page to profile
-  - `visual_id` / `visual_name` (str): For filter_matrix
+  - `visual_id` / `visual_name` (str): Target for filter_matrix
   - `iterations` (int, default 3): Iterations per visual
   - `include_slicers` (bool, default true)
-  - `filter_columns` (array[str]): Columns to vary (auto-detect if not set)
+  - `filter_columns` (array[str]): Columns to vary (auto-detect if omitted)
   - `max_combinations` (int, default 15): Max filter combinations
+- **Example**: `{"operation": "page", "page_name": "Overview", "iterations": 3}`
 
 ### 09_Document
-Documentation generation from PBIP + live model.
+Generate documentation from PBIP + live model: page docs, report docs, measure lineage, and filter lineage.
 - **operation** (required): `page` | `report` | `measure_lineage` | `filter_lineage`
-- **Parameters**:
+- **Key parameters**:
   - `page_name` (str): Required for page operation
   - `measure_name` (str): For measure_lineage
   - `lightweight` (bool, default true): Fast mode (skips DMV queries)
   - `include_ui_elements` (bool, default false): Include shapes/buttons
-
-### 09_Advanced_Analysis
-Advanced analysis operations.
-- **operation** (required): `decompose` | `contribution` | `trend` | `root_cause` | `export`
-- **Parameters**:
-  - `page_name` (str): Required for decompose/contribution/trend/root_cause
-  - `visual_id` / `visual_name` (str): Visual target
-  - `dimension` (str): Dimension column for decompose/contribution
-  - `date_column` (str): For trend analysis
-  - `granularity` (str, default 'month'): day|week|month|quarter|year
-  - `baseline_filters` / `comparison_filters` (array[str]): For root_cause
-  - `dimensions` (array[str]): Dimensions for root_cause
-  - `top_n` (int): Top results
-  - `format` (str, default 'markdown'): For export
+- **Example**: `{"operation": "measure_lineage", "measure_name": "Total Revenue"}`
 
 ---
 
-## SVG VISUAL GENERATION
+## CATEGORY 10: SVG VISUALS
 
 ### SVG_Visual_Operations
-40+ DAX templates for KPIs, sparklines, gauges, data bars.
+40+ DAX measure templates for KPIs, sparklines, gauges, and data bars - injects directly into the model.
 - **operation** (required): `list_templates` | `get_template` | `preview_template` | `generate_measure` | `inject_measure` | `list_categories` | `search_templates` | `validate_svg` | `create_custom`
 - **Key parameters**:
-  - `category` (str): 'kpi'|'sparklines'|'gauges'|'databars'|'advanced'
-  - `complexity` (str): 'basic'|'intermediate'|'advanced'|'complex'
+  - `category` (str): 'kpi' | 'sparklines' | 'gauges' | 'databars' | 'advanced'
+  - `complexity` (str): 'basic' | 'intermediate' | 'advanced' | 'complex'
   - `template_id` (str): For get/preview/generate/inject
   - `parameters` (object): Template params (measure_name, value_measure, thresholds, colors)
   - `table_name` (str): Target table for inject_measure
@@ -502,64 +348,93 @@ Advanced analysis operations.
   - `svg_code` (str): For validate_svg/create_custom
   - `dynamic_vars` (object): Variable name -> DAX expression for create_custom
   - `context_aware` (bool, default true): Use connected model for suggestions
+- **Example**: `{"operation": "list_categories"}`
+
+---
+
+## CATEGORY 11: PBIP AUTHORING (2 tools)
+
+### 11_PBIP_Authoring
+Create, clone, and manage pages and visuals in PBIP report files.
+- **operation** (required): `clone_page` | `create_page` | `delete_page` | `clone_visual` | `create_visual` | `delete_visual` | `apply_template` | `list_templates` | `get_template`
+- **Key parameters**:
+  - `pbip_path` (str, required): Path to PBIP/Report folder
+  - `source_page` / `target_page` / `page_name` (str): Page targets
+  - `visual_id` / `visual_name` (str): Visual targets
+  - `display_name` (str): Name for created/cloned objects
+  - `visual_type` (str): Type for create_visual (e.g., 'card', 'barChart', 'lineChart')
+  - `template_id` (str): For apply_template/get_template
+  - `position` (object): {x, y, width, height} for visual placement
+  - `dry_run` (bool, default false): Preview changes without writing
+- **Example**: `{"operation": "clone_page", "pbip_path": "C:/project/report.Report", "source_page": "Overview", "display_name": "Overview Copy"}`
+
+### 11_PBIP_Prototype
+Generate an HTML report prototype with real data from the live model.
+- **operation** (required): `generate` | `preview` | `export`
+- **Key parameters**:
+  - `pbip_path` (str, required): Path to PBIP/Report folder
+  - `page_name` (str): Specific page to prototype (all pages if omitted)
+  - `output_path` (str): Output HTML file path
+  - `auto_open` (bool, default true): Open in browser after generation
+  - `include_filters` (bool, default true): Include filter context in data
+- **Example**: `{"operation": "generate", "pbip_path": "C:/project/report.Report", "page_name": "Overview"}`
 
 ---
 
 ## COMMON WORKFLOWS
 
 ### Model Health Check
-1. `01_Detect_PBI_Instances`
-2. `01_Connect_To_Instance`
-3. `06_Full_Analysis` (scope='all', depth='balanced')
-4. Review best practices violations
-5. Address critical/high priority issues
+1. `01_Connection` (operation='connect')
+2. `06_Analysis_Operations` (operation='full', scope='all', depth='balanced')
+3. Review best practices violations
+4. Address critical/high priority issues
 
 ### Measure Development
-1. `02_Measure_Operations` (operation='list') - study existing measures
-2. `05_DAX_Intelligence` (mode='all') - analyze DAX
-3. `02_Measure_Operations` (operation='create') - create new measure
+1. `02_Model_Operations` (object_type='measure', operation='list') - study existing measures
+2. `05_DAX_Intelligence` (analysis_mode='all') - analyze DAX
+3. `02_Model_Operations` (object_type='measure', operation='create') - create new measure
 4. `04_Run_DAX` - test with real data
-5. `05_Analyze_Dependencies` - verify dependencies
+5. `05_DAX_Intelligence` (operation='analyze_dependencies') - verify dependencies
 
 ### Model Documentation
-1. `06_Simple_Analysis` (mode='all') - get model overview
+1. `06_Analysis_Operations` (operation='simple', mode='all') - get model overview
 2. `08_Documentation_Word` - generate Word doc
-3. `07_PBIP_Model_Analysis` (operation='analyze') - HTML report
+3. `07_PBIP_Operations` (operation='analyze') - HTML report
 4. `02_TMDL_Operations` (operation='export') - TMDL backup
 
 ### DAX Debugging
-1. `09_Debug_Visual` - discover pages/visuals and filter context
-2. `09_Analyze_Measure` - analyze anti-patterns
-3. `05_DAX_Intelligence` (mode='all') - get optimization recommendations
+1. `09_Debug_Operations` (operation='visual') - discover pages/visuals and capture filter context
+2. `09_Debug_Operations` (operation='analyze_measure') - analyze anti-patterns
+3. `05_DAX_Intelligence` (analysis_mode='all') - get optimization recommendations
 4. AI writes optimized DAX based on recommendations
-5. `09_Compare_Measures` - validate original vs optimized
-6. `02_Measure_Operations` (operation='update') - save optimized version
+5. `09_Debug_Operations` (operation='compare') - validate original vs optimized
+6. `02_Model_Operations` (object_type='measure', operation='update') - save optimized version
 
 ### Model Comparison
 1. Open both Power BI files in separate Desktop instances
-2. `06_Compare_PBI_Models` (no parameters) - detect models
+2. `06_Analysis_Operations` (operation='compare') - detect models (no ports needed)
 3. Identify OLD vs NEW from returned list
-4. `06_Compare_PBI_Models` (old_port, new_port) - perform comparison
+4. `06_Analysis_Operations` (operation='compare', old_port=X, new_port=Y) - perform comparison
 
 ### Offline PBIP Analysis
-1. `07_PBIP_Model_Analysis` (operation='analyze') - full offline analysis
-2. `07_PBIP_Model_Analysis` (operation='validate_model') - TMDL linting
-3. `07_PBIP_Query` (operation='query_unused') - find dead code
-4. `07_PBIP_Dependency_Analysis` - interactive dependency browser
-5. `07_Analyze_Aggregation` - aggregation optimization
+1. `07_PBIP_Operations` (operation='analyze') - full offline analysis
+2. `07_PBIP_Operations` (operation='validate_model') - TMDL linting
+3. `07_PBIP_Operations` (operation='query_unused') - find dead code
+4. `07_PBIP_Operations` (operation='dependency_html') - interactive dependency browser
+5. `07_PBIP_Operations` (operation='analyze_aggregation') - aggregation optimization
 
 ---
 
 ## TIPS
 
-- Always start with `01_Detect_PBI_Instances` then `01_Connect_To_Instance`
-- Use `06_Simple_Analysis` for quick checks, `06_Full_Analysis` for thorough review
-- Run `05_DAX_Intelligence` with mode='all' for complete analysis recommendations
-- Always use dry_run=true first for find_replace and bulk_rename operations
-- Check `05_Analyze_Dependencies` and `05_Get_Measure_Impact` before modifying/deleting measures
-- PBIP tools (07_*) work offline without Power BI Desktop connection
-- Debug tools (09_*) combine PBIP report layout with live model data
-- Use `03_Batch_Operations` for bulk changes (3-5x faster than individual operations)
+- Always start with `01_Connection` (operation='connect') before using model or debug tools
+- Use `06_Analysis_Operations` (operation='simple') for quick checks, operation='full' for thorough review
+- Run `05_DAX_Intelligence` with analysis_mode='all' for complete analysis recommendations
+- Always use dry_run=true first for TMDL find_replace and bulk_rename operations
+- Check `05_DAX_Intelligence` (operation='analyze_dependencies' or 'measure_impact') before modifying/deleting measures
+- PBIP tools (07_*) work offline without a Power BI Desktop connection
+- Debug tools (09_*) combine PBIP report layout with live model data for accurate filter context
+- Use `03_Batch_Operations` for bulk changes - 3-5x faster than individual operations
 """
 
 
@@ -575,7 +450,13 @@ def register_user_guide_handlers(registry):
             "required": []
         },
         category="core",
-        sort_order=110
+        sort_order=110,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
     )
     registry.register(tool)
     logger.info("Registered user guide handler")
