@@ -11,6 +11,50 @@ logger = logging.getLogger(__name__)
 AMO_AVAILABLE = True  # Determined lazily per-connection
 
 
+def _read_calc_item_format_string(item):
+    """Read the format string expression across TOM versions."""
+    try:
+        fsd = getattr(item, "FormatStringDefinition", None)
+        if fsd is not None:
+            expr = getattr(fsd, "Expression", None)
+            if expr:
+                return str(expr)
+    except Exception:
+        pass
+    try:
+        if hasattr(item, "FormatStringExpression"):
+            v = item.FormatStringExpression
+            return str(v) if v else None
+    except Exception:
+        pass
+    return None
+
+
+def _set_calc_item_format_string(item, expression: str, Tabular) -> bool:
+    """Set the calculation item's format string expression across TOM versions.
+
+    Newer TOM exposes FormatStringDefinition (a complex object with .Expression);
+    older TOM exposes FormatStringExpression as a flat string. Try the modern
+    path first, then fall back. Returns True on success, False if neither works.
+    """
+    try:
+        FSDef = getattr(Tabular, "FormatStringDefinition", None)
+        if FSDef is not None:
+            fsd = FSDef()
+            fsd.Expression = expression
+            item.FormatStringDefinition = fsd
+            return True
+    except Exception:
+        pass
+    try:
+        if hasattr(item, "FormatStringExpression"):
+            item.FormatStringExpression = expression
+            return True
+    except Exception:
+        pass
+    return False
+
+
 class CalculationGroupManager:
     """Manage calculation groups and items."""
 
@@ -167,7 +211,7 @@ class CalculationGroupManager:
                             'name': item.Name,
                             'expression': item.Expression,
                             'ordinal': item.Ordinal if hasattr(item, 'Ordinal') else None,
-                            'format_string_expression': item.FormatStringExpression if hasattr(item, 'FormatStringExpression') else None
+                            'format_string_expression': _read_calc_item_format_string(item)
                         })
 
                     calc_groups.append({
@@ -286,8 +330,8 @@ class CalculationGroupManager:
                 elif hasattr(item, 'Ordinal'):
                     item.Ordinal = idx
 
-                if 'format_string_expression' in item_data and hasattr(item, 'FormatStringExpression'):
-                    item.FormatStringExpression = item_data['format_string_expression']
+                if 'format_string_expression' in item_data and item_data['format_string_expression']:
+                    _set_calc_item_format_string(item, item_data['format_string_expression'], Tabular)
 
                 calc_group.CalculationItems.Add(item)
 
@@ -457,8 +501,9 @@ class CalculationGroupManager:
             item.Expression = expression
             if ordinal is not None and hasattr(item, "Ordinal"):
                 item.Ordinal = ordinal
-            if format_string_expression is not None and hasattr(item, "FormatStringExpression"):
-                item.FormatStringExpression = format_string_expression
+            if format_string_expression is not None:
+                if not _set_calc_item_format_string(item, format_string_expression, Tabular):
+                    return {"success": False, "error": "TOM does not expose FormatStringExpression / FormatStringDefinition on this CalculationItem; cannot set format_string_expression"}
             if description:
                 item.Description = description
             cg.CalculationItems.Add(item)
@@ -512,9 +557,11 @@ class CalculationGroupManager:
             if ordinal is not None and hasattr(item, "Ordinal"):
                 item.Ordinal = ordinal
                 updates.append(f"ordinal={ordinal}")
-            if format_string_expression is not None and hasattr(item, "FormatStringExpression"):
-                item.FormatStringExpression = format_string_expression
-                updates.append("format_string_expression")
+            if format_string_expression is not None:
+                if _set_calc_item_format_string(item, format_string_expression, Tabular):
+                    updates.append("format_string_expression")
+                else:
+                    return {"success": False, "error": "TOM does not expose FormatStringExpression / FormatStringDefinition on this CalculationItem; cannot set format_string_expression"}
             if description is not None:
                 item.Description = description
                 updates.append("description")
