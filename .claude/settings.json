@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__powerbi-finvision__12_Autonomous_Workflow",
+      "Edit(~/.claude/skills/autonomous-dax-debug/**)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\bjorn.braet\\OneDrive - Finvision\\FINTICX - Documenten\\M01 - Wealth Reporting\\04-Analytics"
+    ]
+  }
+}

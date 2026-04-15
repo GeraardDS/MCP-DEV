@@ -417,3 +417,144 @@ class CalculationGroupManager:
                 server.Disconnect()
             except Exception:
                 pass
+
+    def _find_calc_group_table(self, model, group_name: str):
+        """Find a table hosting a calculation group by table name."""
+        for t in model.Tables:
+            try:
+                if t.Name == group_name and getattr(t, "CalculationGroup", None) is not None:
+                    return t
+            except Exception:
+                continue
+        return None
+
+    def add_calculation_item(
+        self,
+        group_name: str,
+        item_name: str,
+        expression: str,
+        ordinal: Optional[int] = None,
+        format_string_expression: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Add a new item to an existing calculation group."""
+        if not item_name or expression is None:
+            return {"success": False, "error": "item_name and expression are required"}
+        server, db, Tabular = self._connect_amo_server_db()
+        if not server or not db or not Tabular:
+            return {"success": False, "error": "AMO not available"}
+        try:
+            model = db.Model
+            table = self._find_calc_group_table(model, group_name)
+            if table is None:
+                return {"success": False, "error": f"Calculation group '{group_name}' not found"}
+            cg = table.CalculationGroup
+            existing = next((i for i in cg.CalculationItems if i.Name == item_name), None)
+            if existing is not None:
+                return {"success": False, "error": f"Item '{item_name}' already exists in '{group_name}'"}
+            item = Tabular.CalculationItem()
+            item.Name = item_name
+            item.Expression = expression
+            if ordinal is not None and hasattr(item, "Ordinal"):
+                item.Ordinal = ordinal
+            if format_string_expression is not None and hasattr(item, "FormatStringExpression"):
+                item.FormatStringExpression = format_string_expression
+            if description:
+                item.Description = description
+            cg.CalculationItems.Add(item)
+            model.SaveChanges()
+            return {
+                "success": True,
+                "message": f"Added item '{item_name}' to '{group_name}'",
+                "group": group_name,
+                "item": item_name,
+            }
+        except Exception as e:
+            logger.error(f"add_calculation_item failed: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            try: server.Disconnect()
+            except Exception: pass
+
+    def update_calculation_item(
+        self,
+        group_name: str,
+        item_name: str,
+        new_name: Optional[str] = None,
+        expression: Optional[str] = None,
+        ordinal: Optional[int] = None,
+        format_string_expression: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update an existing calculation item. Any field can be renamed or edited."""
+        server, db, Tabular = self._connect_amo_server_db()
+        if not server or not db or not Tabular:
+            return {"success": False, "error": "AMO not available"}
+        try:
+            model = db.Model
+            table = self._find_calc_group_table(model, group_name)
+            if table is None:
+                return {"success": False, "error": f"Calculation group '{group_name}' not found"}
+            cg = table.CalculationGroup
+            item = next((i for i in cg.CalculationItems if i.Name == item_name), None)
+            if item is None:
+                return {"success": False, "error": f"Item '{item_name}' not found in '{group_name}'"}
+            updates = []
+            if new_name and new_name != item_name:
+                try:
+                    item.RequestRename(new_name)
+                except Exception:
+                    item.Name = new_name
+                updates.append(f"renamed to '{new_name}'")
+            if expression is not None:
+                item.Expression = expression
+                updates.append("expression")
+            if ordinal is not None and hasattr(item, "Ordinal"):
+                item.Ordinal = ordinal
+                updates.append(f"ordinal={ordinal}")
+            if format_string_expression is not None and hasattr(item, "FormatStringExpression"):
+                item.FormatStringExpression = format_string_expression
+                updates.append("format_string_expression")
+            if description is not None:
+                item.Description = description
+                updates.append("description")
+            model.SaveChanges()
+            return {
+                "success": True,
+                "message": f"Updated item '{item_name}' in '{group_name}': {', '.join(updates) or 'no changes'}",
+                "group": group_name,
+                "item": new_name or item_name,
+            }
+        except Exception as e:
+            logger.error(f"update_calculation_item failed: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            try: server.Disconnect()
+            except Exception: pass
+
+    def delete_calculation_item(self, group_name: str, item_name: str) -> Dict[str, Any]:
+        """Delete a calculation item from a calculation group."""
+        server, db, Tabular = self._connect_amo_server_db()
+        if not server or not db or not Tabular:
+            return {"success": False, "error": "AMO not available"}
+        try:
+            model = db.Model
+            table = self._find_calc_group_table(model, group_name)
+            if table is None:
+                return {"success": False, "error": f"Calculation group '{group_name}' not found"}
+            cg = table.CalculationGroup
+            item = next((i for i in cg.CalculationItems if i.Name == item_name), None)
+            if item is None:
+                return {"success": False, "error": f"Item '{item_name}' not found in '{group_name}'"}
+            cg.CalculationItems.Remove(item)
+            model.SaveChanges()
+            return {
+                "success": True,
+                "message": f"Deleted item '{item_name}' from '{group_name}'",
+            }
+        except Exception as e:
+            logger.error(f"delete_calculation_item failed: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            try: server.Disconnect()
+            except Exception: pass

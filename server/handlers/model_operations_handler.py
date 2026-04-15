@@ -19,6 +19,8 @@ from core.operations.culture_crud_manager import CultureCrudManager
 from core.operations.named_expression_crud_manager import NamedExpressionCrudManager
 from core.operations.ols_crud_manager import OlsCrudManager
 from core.operations.model_refresh_manager import ModelRefreshManager
+from core.operations.rls_role_crud_manager import RlsRoleCrudManager
+from core.operations.annotation_manager import AnnotationManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ _handlers = {
     "named_expression": NamedExpressionCrudManager(),
     "ols_rule": OlsCrudManager(),
     "model": ModelRefreshManager(),
+    "role": RlsRoleCrudManager(),
+    "annotation": AnnotationManager(),
 }
 
 # Valid operations per object_type (for error messages)
@@ -44,15 +48,25 @@ _valid_operations = {
     "column": ["list", "get", "statistics", "distribution", "create", "update", "delete", "rename"],
     "measure": ["list", "get", "create", "update", "delete", "rename", "move"],
     "relationship": ["list", "get", "find", "create", "update", "delete", "activate", "deactivate"],
-    "calculation_group": ["list", "create", "delete", "list_items"],
-    "partition": ["list", "describe", "refresh"],
+    "calculation_group": ["list", "create", "delete", "list_items", "add_item", "update_item", "delete_item"],
+    "partition": ["list", "describe", "create", "update", "delete", "set_mode", "refresh"],
     "hierarchy": ["list", "describe", "create", "delete"],
     "perspective": ["list", "describe", "create", "delete"],
     "culture": ["list", "describe", "create", "delete", "set_translation"],
     "named_expression": ["list", "describe", "create", "update", "delete"],
     "ols_rule": ["list", "set", "remove"],
     "model": ["refresh"],
+    "role": ["list", "create", "update", "delete", "set_table_filter", "clear_table_filter", "add_member", "remove_member", "list_members"],
+    "annotation": ["list", "get", "set", "delete"],
 }
+
+
+def _list_roles() -> Dict[str, Any]:
+    """Delegate role list to the existing RLSManager singleton."""
+    from core.infrastructure.connection_state import connection_state
+    if connection_state.rls_manager is None:
+        return {"success": False, "error": "Not connected (rls_manager unavailable)"}
+    return connection_state.rls_manager.list_roles()
 
 
 def _dispatch_new_type(manager, object_type: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -62,6 +76,14 @@ def _dispatch_new_type(manager, object_type: str, args: Dict[str, Any]) -> Dict[
         "partition": {
             "list": lambda: manager.list_partitions(args.get("table_name")),
             "describe": lambda: manager.describe_partition(args.get("table_name"), args.get("partition_name")),
+            "update": lambda: manager.update_partition_expression(
+                args.get("table_name"), args.get("partition_name"), args.get("expression"),
+                refresh_after=bool(args.get("refresh_after", False))),
+            "create": lambda: manager.create_partition(
+                args.get("table_name"), args.get("partition_name"), args.get("expression"),
+                mode=args.get("mode", "Import")),
+            "delete": lambda: manager.delete_partition(args.get("table_name"), args.get("partition_name")),
+            "set_mode": lambda: manager.set_partition_mode(args.get("table_name"), args.get("partition_name"), args.get("mode")),
             "refresh": lambda: manager.refresh_partition(args.get("table_name"), args.get("partition_name")),
         },
         "hierarchy": {
@@ -111,6 +133,39 @@ def _dispatch_new_type(manager, object_type: str, args: Dict[str, Any]) -> Dict[
                 tables=args.get("tables"),
             ),
         },
+        "role": {
+            "list": lambda: _list_roles(),
+            "create": lambda: manager.create_role(
+                args.get("role_name"),
+                model_permission=args.get("permission", "Read"),
+                description=args.get("description"),
+            ),
+            "update": lambda: manager.update_role(
+                args.get("role_name"),
+                new_name=args.get("new_name"),
+                model_permission=args.get("permission"),
+                description=args.get("description"),
+            ),
+            "delete": lambda: manager.delete_role(args.get("role_name")),
+            "set_table_filter": lambda: manager.set_table_filter(
+                args.get("role_name"), args.get("table_name"), args.get("filter_expression")),
+            "clear_table_filter": lambda: manager.clear_table_filter(
+                args.get("role_name"), args.get("table_name")),
+            "add_member": lambda: manager.add_member(
+                args.get("role_name"), args.get("member_identifier"),
+                member_type=args.get("member_type", "external"),
+                tenant_id=args.get("tenant_id"),
+            ),
+            "remove_member": lambda: manager.remove_member(
+                args.get("role_name"), args.get("member_identifier")),
+            "list_members": lambda: manager.list_members(args.get("role_name")),
+        },
+        "annotation": {
+            "list": lambda: manager.list_annotations(args.get("target_type"), args),
+            "get": lambda: manager.get_annotation(args.get("target_type"), args.get("annotation_name"), args),
+            "set": lambda: manager.set_annotation(args.get("target_type"), args.get("annotation_name"), args.get("annotation_value"), args),
+            "delete": lambda: manager.delete_annotation(args.get("target_type"), args.get("annotation_name"), args),
+        },
     }
     ops = dispatch_map.get(object_type, {})
     handler_fn = ops.get(operation)
@@ -151,7 +206,7 @@ def handle_model_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     # New TOM types don't have execute() — dispatch directly
-    if object_type in ("partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule", "model"):
+    if object_type in ("partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule", "model", "role", "annotation"):
         return _dispatch_new_type(handler, object_type, args)
 
     # Existing types use the execute() pattern
@@ -162,7 +217,7 @@ def register_model_operations_handler(registry):
     """Register unified model operations handler"""
     tool = ToolDefinition(
         name="02_Model_Operations",
-        description="Unified CRUD for tables, columns, measures, relationships, calculation groups, partitions, hierarchies, perspectives, cultures, named expressions, and OLS rules. Specify object_type + operation.",
+        description="Unified CRUD for tables, columns, measures, relationships, calculation groups, partitions, hierarchies, perspectives, cultures, named expressions, OLS rules, and RLS roles (incl. table filters + members). Specify object_type + operation.",
         handler=handle_model_operations,
         input_schema={
             "type": "object",
@@ -170,7 +225,7 @@ def register_model_operations_handler(registry):
                 "object_type": {
                     "type": "string",
                     "enum": ["table", "column", "measure", "relationship", "calculation_group",
-                             "partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule", "model"],
+                             "partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule", "model", "role", "annotation"],
                     "description": "Type of model object to operate on"
                 },
                 "operation": {
@@ -183,6 +238,9 @@ def register_model_operations_handler(registry):
                 "measure_name": {"type": "string", "description": "Measure name"},
                 "relationship_name": {"type": "string", "description": "Relationship name"},
                 "group_name": {"type": "string", "description": "Calculation group name"},
+                "item_name": {"type": "string", "description": "Calculation item name (calc group add_item/update_item/delete_item)"},
+                "format_string_expression": {"type": "string", "description": "DAX format string expression for a calculation item"},
+                "ordinal": {"type": "integer", "description": "Item ordinal (calc item add/update)"},
                 "name": {"type": "string", "description": "Object name (relationship create, auto-generated if omitted)"},
                 "new_name": {"type": "string", "description": "New name (rename/update)"},
                 # Shared properties
@@ -213,10 +271,16 @@ def register_model_operations_handler(registry):
                 "data_type": {
                     "type": "string",
                     "enum": ["String", "Int64", "Double", "Decimal", "Boolean", "DateTime", "Binary", "Variant"],
-                    "description": "Data type (column create)",
+                    "description": "Data type (column create/update)",
                     "default": "String"
                 },
                 "source_column": {"type": "string", "description": "Source column for data columns (column create)"},
+                "sort_by_column": {"type": "string", "description": "Column name to sort this column by (column update)"},
+                "clear_sort_by_column": {"type": "boolean", "description": "Remove any existing sort-by-column binding (column update)", "default": False},
+                "summarize_by": {"type": "string", "enum": ["default", "none", "sum", "min", "max", "count", "average", "distinctcount"], "description": "Default summarization (column update)"},
+                "data_category": {"type": "string", "description": "Data category, e.g. 'WebUrl', 'ImageUrl', 'Address' (column update)"},
+                "is_key": {"type": "boolean", "description": "Mark column as key (column update)"},
+                "is_nullable": {"type": "boolean", "description": "Whether column allows nulls (column update)"},
                 "top_n": {"type": "integer", "description": "Top N values (column statistics/distribution, default: 10)", "default": 10},
                 # Measure-specific
                 "new_table": {"type": "string", "description": "Target table (measure move)"},
@@ -261,6 +325,8 @@ def register_model_operations_handler(registry):
                 "next_token": {"type": "string", "description": "Pagination token"},
                 # Partition-specific
                 "partition_name": {"type": "string", "description": "Partition name"},
+                "refresh_after": {"type": "boolean", "description": "After partition update, refresh the partition so data reflects the new M code (default false — metadata-only save leaves data stale)", "default": False},
+                "mode": {"type": "string", "enum": ["Import", "DirectQuery", "Dual"], "description": "Partition storage mode (partition create/set_mode)", "default": "Import"},
                 # Hierarchy-specific
                 "hierarchy_name": {"type": "string", "description": "Hierarchy name"},
                 "levels": {
@@ -291,13 +357,20 @@ def register_model_operations_handler(registry):
                 "value": {"type": "string", "description": "Translation value"},
                 # Named expression-specific
                 "expression_name": {"type": "string", "description": "Named expression name"},
-                # OLS-specific
+                # OLS / Role-specific
                 "role_name": {"type": "string", "description": "Security role name"},
                 "permission": {
                     "type": "string",
-                    "enum": ["None", "Read", "Default"],
-                    "description": "OLS permission level"
+                    "description": "Permission level. OLS: None|Read|Default. Model role: None|Read|ReadRefresh|Refresh|Administrator."
                 },
+                "filter_expression": {"type": "string", "description": "DAX filter expression for RLS table permission (role set_table_filter)"},
+                "member_identifier": {"type": "string", "description": "Member UPN / AAD object ID / domain\\\\user (role add_member/remove_member)"},
+                "member_type": {"type": "string", "enum": ["external", "windows"], "default": "external", "description": "Member type for role add_member (external = AAD/UPN, windows = domain\\\\user)"},
+                "tenant_id": {"type": "string", "description": "AAD tenant ID for external members (role add_member, optional)"},
+                # Annotation-specific
+                "target_type": {"type": "string", "enum": ["model", "table", "column", "measure", "partition", "relationship", "role", "named_expression", "hierarchy"], "description": "Which TOM object type to annotate"},
+                "annotation_name": {"type": "string", "description": "Annotation key"},
+                "annotation_value": {"type": "string", "description": "Annotation value (set). Strings only; serialize JSON if structured."},
                 # Refresh-specific (object_type=model or table/partition refresh)
                 "refresh_type": {
                     "type": "string",

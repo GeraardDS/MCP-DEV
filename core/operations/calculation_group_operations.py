@@ -29,7 +29,9 @@ class CalculationGroupOperationsHandler(BaseOperationsHandler):
         self.register_operation('create', self._create_calculation_group)
         self.register_operation('delete', self._delete_calculation_group)
         self.register_operation('list_items', self._list_items)
-        # Future: update, rename, create_item, update_item, delete_item, reorder_items
+        self.register_operation('add_item', self._add_item)
+        self.register_operation('update_item', self._update_item)
+        self.register_operation('delete_item', self._delete_item)
 
     def _list_calculation_groups(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """List calculation groups"""
@@ -148,5 +150,59 @@ class CalculationGroupOperationsHandler(BaseOperationsHandler):
 
         return result
 
-    # Future methods: _update_calculation_group, _rename_calculation_group,
-    # _create_item, _update_item, _delete_item, _reorder_items
+    def _add_item(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Add a calculation item to an existing group."""
+        calc_group_mgr = get_manager_or_error('calc_group_manager')
+        if isinstance(calc_group_mgr, dict):
+            return calc_group_mgr
+        group_name = get_group_name(args)
+        if error := validate_required(group_name, 'group_name', 'add_item'):
+            return error
+        item_name = args.get('item_name')
+        expression = args.get('expression')
+        if error := validate_required(item_name, 'item_name', 'add_item'):
+            return error
+        if error := validate_required(expression, 'expression', 'add_item'):
+            return error
+        return calc_group_mgr.add_calculation_item(
+            group_name=group_name,
+            item_name=item_name,
+            expression=expression,
+            ordinal=args.get('ordinal'),
+            format_string_expression=args.get('format_string_expression'),
+            description=args.get('description'),
+        )
+
+    def _update_item(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a calculation item (rename, expression, ordinal, format_string_expression)."""
+        calc_group_mgr = get_manager_or_error('calc_group_manager')
+        if isinstance(calc_group_mgr, dict):
+            return calc_group_mgr
+        group_name = get_group_name(args)
+        if error := validate_required(group_name, 'group_name', 'update_item'):
+            return error
+        item_name = args.get('item_name')
+        if error := validate_required(item_name, 'item_name', 'update_item'):
+            return error
+        return calc_group_mgr.update_calculation_item(
+            group_name=group_name,
+            item_name=item_name,
+            new_name=args.get('new_name'),
+            expression=args.get('expression'),
+            ordinal=args.get('ordinal'),
+            format_string_expression=args.get('format_string_expression'),
+            description=args.get('description'),
+        )
+
+    def _delete_item(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Delete a calculation item from a group."""
+        calc_group_mgr = get_manager_or_error('calc_group_manager')
+        if isinstance(calc_group_mgr, dict):
+            return calc_group_mgr
+        group_name = get_group_name(args)
+        if error := validate_required(group_name, 'group_name', 'delete_item'):
+            return error
+        item_name = args.get('item_name')
+        if error := validate_required(item_name, 'item_name', 'delete_item'):
+            return error
+        return calc_group_mgr.delete_calculation_item(group_name, item_name)

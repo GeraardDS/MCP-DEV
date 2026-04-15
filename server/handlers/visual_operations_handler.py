@@ -2138,6 +2138,258 @@ def _op_manage_visual_calcs(args: Dict[str, Any], definition_path: Path) -> Dict
     return {'success': False, 'error': f'Unknown sub_operation: {sub_op}'}
 
 
+def _parse_json_path(path: str) -> List:
+    """Parse a dotted/indexed JSON path into a list of keys/ints.
+
+    Examples:
+      "visual.visualContainerObjects.title[0].properties.text"
+      -> ["visual", "visualContainerObjects", "title", 0, "properties", "text"]
+
+    Supports bracket notation for list indices. Does NOT support quoted keys
+    containing brackets or dots — keep annotation keys simple ASCII.
+    """
+    tokens: List = []
+    buf = ""
+    i = 0
+    n = len(path or "")
+    while i < n:
+        ch = path[i]
+        if ch == ".":
+            if buf:
+                tokens.append(buf)
+                buf = ""
+            i += 1
+            continue
+        if ch == "[":
+            if buf:
+                tokens.append(buf)
+                buf = ""
+            end = path.index("]", i)
+            idx_token = path[i + 1:end].strip()
+            try:
+                tokens.append(int(idx_token))
+            except ValueError:
+                tokens.append(idx_token.strip("'\""))
+            i = end + 1
+            if i < n and path[i] == ".":
+                i += 1
+            continue
+        buf += ch
+        i += 1
+    if buf:
+        tokens.append(buf)
+    return tokens
+
+
+def _traverse_json_path(root, tokens, create_missing: bool = False):
+    """Walk tokens into root. Returns (parent, last_key, exists, error)."""
+    if not tokens:
+        return None, None, False, "empty json_path"
+    cursor = root
+    for idx, tok in enumerate(tokens[:-1]):
+        if isinstance(tok, int):
+            if not isinstance(cursor, list):
+                return None, None, False, f"path[{idx}] expected list for index {tok}, got {type(cursor).__name__}"
+            while create_missing and tok >= len(cursor):
+                cursor.append({})
+            if tok >= len(cursor) or tok < 0:
+                return None, None, False, f"path[{idx}] index {tok} out of range"
+            cursor = cursor[tok]
+        else:
+            if not isinstance(cursor, dict):
+                return None, None, False, f"path[{idx}] expected dict for key '{tok}', got {type(cursor).__name__}"
+            if tok not in cursor:
+                if not create_missing:
+                    return cursor, tok, False, None
+                # Peek next token to decide container type
+                nxt = tokens[idx + 1] if idx + 1 < len(tokens) else None
+                cursor[tok] = [] if isinstance(nxt, int) else {}
+            cursor = cursor[tok]
+    last = tokens[-1]
+    if isinstance(last, int):
+        if not isinstance(cursor, list):
+            return None, None, False, f"final token expects list, got {type(cursor).__name__}"
+        exists = 0 <= last < len(cursor)
+    else:
+        if not isinstance(cursor, dict):
+            return None, None, False, f"final token expects dict, got {type(cursor).__name__}"
+        exists = last in cursor
+    return cursor, last, exists, None
+
+
+def _op_set_raw_property(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Write a raw JSON value at an arbitrary json_path inside a visual.json.
+
+    Escape hatch for any PBIR property not covered by typed ops. Caller is
+    responsible for wrapping values in PBIR Literal shape when needed
+    (set wrap_literal=true for simple string/bool/number auto-wrapping, or
+    provide a fully-formed {"expr": {...}} dict when unambiguous).
+    """
+    visual_name = args.get('visual_name')
+    page_name = args.get('page_name')
+    json_path = args.get('json_path')
+    value = args.get('value')
+    wrap_literal = bool(args.get('wrap_literal', False))
+    dry_run = bool(args.get('dry_run', False))
+    create_missing = bool(args.get('create_missing', True))
+
+    if not visual_name or not page_name:
+        return {'success': False, 'error': 'set_raw_property requires: visual_name, page_name'}
+    if not json_path:
+        return {'success': False, 'error': 'json_path is required, e.g. "visual.visualContainerObjects.title[0].properties.text"'}
+    if value is None and not args.get('allow_null', False):
+        return {'success': False, 'error': 'value is required (use allow_null=true to write null, or use delete_raw_property to remove)'}
+
+    tokens = _parse_json_path(json_path)
+    if not tokens:
+        return {'success': False, 'error': f'Could not parse json_path: {json_path}'}
+
+    visuals = _find_visuals(definition_path, visual_name=visual_name, page_name=page_name, include_hidden=True)
+    if not visuals:
+        return {'success': False, 'error': f'Visual not found: {visual_name} on {page_name}'}
+
+    final_value = value
+    if wrap_literal:
+        if isinstance(value, bool):
+            final_value = {"expr": {"Literal": {"Value": "true" if value else "false"}}}
+        elif isinstance(value, (int, float)):
+            final_value = {"expr": {"Literal": {"Value": f"{value}D"}}}
+        elif isinstance(value, str):
+            final_value = {"expr": {"Literal": {"Value": f"'{value}'"}}}
+
+    changed = []
+    errors = []
+    for v in visuals:
+        fp = Path(v['file_path'])
+        data = _load_json_file(fp)
+        if not data:
+            errors.append({'file_path': str(fp), 'error': 'load failed'})
+            continue
+        parent, last, exists, err = _traverse_json_path(data, tokens, create_missing=create_missing)
+        if err:
+            errors.append({'file_path': str(fp), 'error': err})
+            continue
+        prior = None
+        try:
+            if isinstance(last, int):
+                if exists:
+                    prior = parent[last]
+                    parent[last] = final_value
+                else:
+                    # Append if the index equals current length (extend by one)
+                    if last == len(parent):
+                        parent.append(final_value)
+                    else:
+                        errors.append({'file_path': str(fp), 'error': f'cannot create list index {last} (len={len(parent)})'})
+                        continue
+            else:
+                prior = parent.get(last) if exists else None
+                parent[last] = final_value
+        except Exception as e:
+            errors.append({'file_path': str(fp), 'error': f'set failed: {e}'})
+            continue
+
+        if not dry_run:
+            if not _save_json_file(fp, data):
+                errors.append({'file_path': str(fp), 'error': 'save failed'})
+                continue
+
+        changed.append({
+            'file_path': str(fp),
+            'json_path': json_path,
+            'prior_value': prior,
+            'new_value': final_value,
+            'status': 'would_change' if dry_run else 'changed',
+        })
+
+    return {
+        'success': not errors,
+        'operation': 'set_raw_property',
+        'dry_run': dry_run,
+        'wrap_literal': wrap_literal,
+        'changes': changed,
+        'changes_count': len(changed),
+        'errors': errors or None,
+    }
+
+
+def _op_get_raw_property(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Read the raw JSON value at a json_path inside a visual.json."""
+    visual_name = args.get('visual_name')
+    page_name = args.get('page_name')
+    json_path = args.get('json_path')
+    if not visual_name or not page_name:
+        return {'success': False, 'error': 'get_raw_property requires: visual_name, page_name'}
+    if not json_path:
+        return {'success': False, 'error': 'json_path is required'}
+    tokens = _parse_json_path(json_path)
+    visuals = _find_visuals(definition_path, visual_name=visual_name, page_name=page_name, include_hidden=True)
+    if not visuals:
+        return {'success': False, 'error': f'Visual not found: {visual_name} on {page_name}'}
+    v = visuals[0]
+    data = _load_json_file(Path(v['file_path']))
+    if not data:
+        return {'success': False, 'error': 'Failed to load visual.json'}
+    parent, last, exists, err = _traverse_json_path(data, tokens, create_missing=False)
+    if err:
+        return {'success': False, 'error': err}
+    if not exists:
+        return {'success': True, 'exists': False, 'json_path': json_path, 'value': None}
+    value = parent[last] if isinstance(last, int) else parent.get(last)
+    return {'success': True, 'exists': True, 'json_path': json_path, 'value': value}
+
+
+def _op_delete_raw_property(args: Dict[str, Any], definition_path: Path) -> Dict[str, Any]:
+    """Delete the key/index at a json_path inside a visual.json."""
+    visual_name = args.get('visual_name')
+    page_name = args.get('page_name')
+    json_path = args.get('json_path')
+    dry_run = bool(args.get('dry_run', False))
+    if not visual_name or not page_name:
+        return {'success': False, 'error': 'delete_raw_property requires: visual_name, page_name'}
+    if not json_path:
+        return {'success': False, 'error': 'json_path is required'}
+    tokens = _parse_json_path(json_path)
+    visuals = _find_visuals(definition_path, visual_name=visual_name, page_name=page_name, include_hidden=True)
+    if not visuals:
+        return {'success': False, 'error': f'Visual not found: {visual_name} on {page_name}'}
+    changed = []
+    errors = []
+    for v in visuals:
+        fp = Path(v['file_path'])
+        data = _load_json_file(fp)
+        if not data:
+            errors.append({'file_path': str(fp), 'error': 'load failed'})
+            continue
+        parent, last, exists, err = _traverse_json_path(data, tokens, create_missing=False)
+        if err:
+            errors.append({'file_path': str(fp), 'error': err})
+            continue
+        if not exists:
+            continue
+        try:
+            if isinstance(last, int):
+                prior = parent.pop(last)
+            else:
+                prior = parent.pop(last)
+        except Exception as e:
+            errors.append({'file_path': str(fp), 'error': f'delete failed: {e}'})
+            continue
+        if not dry_run and not _save_json_file(fp, data):
+            errors.append({'file_path': str(fp), 'error': 'save failed'})
+            continue
+        changed.append({'file_path': str(fp), 'json_path': json_path, 'prior_value': prior,
+                        'status': 'would_change' if dry_run else 'changed'})
+    return {
+        'success': not errors,
+        'operation': 'delete_raw_property',
+        'dry_run': dry_run,
+        'changes': changed,
+        'changes_count': len(changed),
+        'errors': errors or None,
+    }
+
+
 def _resolve_page_dir(definition_path: Path, page_id: str) -> Optional[Path]:
     """Resolve a page ID or display name to its directory."""
     pages_dir = definition_path / "pages"
@@ -2164,9 +2416,17 @@ def handle_visual_operations(args: Dict[str, Any]) -> Dict[str, Any]:
     pbip_path = args.get('pbip_path')
 
     if not pbip_path:
+        # Auto-fallback to the connected instance's PBIP folder (if available)
+        try:
+            from core.infrastructure.connection_state import connection_state
+            pbip_path = connection_state.get_pbip_folder_path()
+        except Exception:
+            pbip_path = None
+
+    if not pbip_path:
         return {
             'success': False,
-            'error': 'pbip_path parameter is required - path to PBIP project, .Report folder, or definition folder',
+            'error': 'pbip_path parameter is required (or connect via 01_Connection to auto-resolve from a PBIP session)',
         }
 
     resolved = resolve_definition_path(pbip_path)
@@ -2196,6 +2456,9 @@ def handle_visual_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         'sync_visual': _op_sync_visual,
         'sync_column_widths': _op_sync_column_widths,
         'sync_formatting': _op_sync_formatting,
+        'set_raw_property': _op_set_raw_property,
+        'get_raw_property': _op_get_raw_property,
+        'delete_raw_property': _op_delete_raw_property,
     }
     op_func = ops.get(operation)
     if not op_func:
