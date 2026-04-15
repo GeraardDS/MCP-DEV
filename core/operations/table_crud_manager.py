@@ -484,13 +484,16 @@ class TableCRUDManager:
             }
 
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error refreshing table: {error_msg}")
-            return {
-                "success": False,
-                "error": error_msg,
-                "error_type": "refresh_error"
-            }
+            from core.autonomous.clr_errors import format_refresh_error
+
+            detail = format_refresh_error(e, table=table_name)
+            logger.error(
+                "Error refreshing table '%s': %s (root: %s)",
+                table_name,
+                detail.get("error"),
+                detail.get("clr_root_cause"),
+            )
+            return detail
 
         finally:
             try:

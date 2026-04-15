@@ -161,9 +161,23 @@ class PartitionCrudManager:
                 from Microsoft.AnalysisServices.Tabular import RefreshType
                 partition.RequestRefresh(RefreshType.Automatic)
                 model.SaveChanges()
-                return {"success": True, "message": f"Refresh requested for partition '{partition_name}'"}
+                return {
+                    "success": True,
+                    "message": f"Refresh requested for partition '{partition_name}'",
+                    "table": table_name,
+                    "partition": partition_name,
+                }
             except Exception as e:
-                return {"success": False, "error": f"Refresh failed: {e}"}
+                from core.autonomous.clr_errors import format_refresh_error
+
+                last_query = getattr(partition, "Source", None)
+                q_expr = getattr(last_query, "Expression", None) if last_query else None
+                return format_refresh_error(
+                    e,
+                    table=table_name,
+                    partition=partition_name,
+                    last_query=q_expr if isinstance(q_expr, str) else None,
+                )
         finally:
             try: server.Disconnect()
             except Exception: pass

@@ -1,5 +1,5 @@
 """
-Server Handlers Package — 23 tools registered (v7.1)
+Server Handlers Package — 24 tools registered (v7.2)
 
 Tool inventory:
   01_Connection, 02_Model_Operations, 02_TMDL_Operations, 03_Batch_Operations,
@@ -8,7 +8,7 @@ Tool inventory:
   07_Page_Operations, 07_Visual_Operations, 07_Bookmark_Operations,
   07_Theme_Operations, 08_Documentation_Word, 09_Debug_Operations,
   09_Validate, 09_Profile, 09_Document, 10_Show_User_Guide,
-  11_PBIP_Authoring, SVG_Visual_Operations
+  11_PBIP_Authoring, 12_Autonomous_Workflow, SVG_Visual_Operations
 """
 from server.handlers.connection_handler import register_connection_handlers
 from server.handlers.model_operations_handler import register_model_operations_handler
@@ -28,11 +28,12 @@ from server.handlers.documentation_handler import register_documentation_handler
 from server.handlers.debug_handler import register_debug_handlers
 from server.handlers.user_guide_handler import register_user_guide_handlers
 from server.handlers.authoring_handler import register_authoring_handler
+from server.handlers.autonomous_handler import register_autonomous_handler
 from server.handlers.svg_handler import register_svg_operations_handler
 
 
 def register_all_handlers(registry):
-    """Register all handlers with the registry — 23 tools total"""
+    """Register all handlers with the registry — 24 tools total"""
     register_connection_handlers(registry)         # 01_Connection
     register_model_operations_handler(registry)    # 02_Model_Operations
     register_tmdl_operations_handler(registry)     # 02_TMDL_Operations
@@ -51,6 +52,7 @@ def register_all_handlers(registry):
     register_debug_handlers(registry)              # 09_Debug_Operations + 09_Validate + 09_Profile + 09_Document
     register_user_guide_handlers(registry)         # 10_Show_User_Guide
     register_authoring_handler(registry)           # 11_PBIP_Authoring
+    register_autonomous_handler(registry)          # 12_Autonomous_Workflow
     register_svg_operations_handler(registry)      # SVG_Visual_Operations
 
 
