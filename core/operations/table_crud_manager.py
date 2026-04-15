@@ -6,6 +6,8 @@ Provides comprehensive table management: create, update, delete, rename, refresh
 import logging
 from typing import Dict, Any, Optional
 
+from core.operations.rename_cascade import cascade_table_rename
+
 logger = logging.getLogger(__name__)
 
 AMO_AVAILABLE = False
@@ -270,8 +272,8 @@ class TableCRUDManager:
             if expression is not None:
                 if table.Partitions.Count > 0:
                     from Microsoft.AnalysisServices.Tabular import CalculatedPartitionSource
-                    partition = table.Partitions[0]
-                    if hasattr(partition.Source, 'Expression'):
+                    partition = next(iter(table.Partitions), None)
+                    if partition and hasattr(partition.Source, 'Expression'):
                         partition.Source.Expression = expression
                         updates.append("expression")
                     else:
@@ -281,7 +283,8 @@ class TableCRUDManager:
                             "error_type": "invalid_operation"
                         }
 
-            # Update name
+            # Update name (with DAX cascade — TOM does NOT auto-cascade DAX references)
+            cascaded = []
             if new_name and self._valid_identifier(new_name):
                 # Check if new name already exists
                 if any(t.Name == new_name for t in model.Tables if t != table):
@@ -290,14 +293,19 @@ class TableCRUDManager:
                         "error": f"Table '{new_name}' already exists",
                         "error_type": "name_conflict"
                     }
+                old_tbl_name = table.Name
                 table.Name = new_name
                 updates.append("name")
+
+                # Cascade DAX references: 'OldTable'[Col] -> 'NewTable'[Col]
+                # Note: relationships are object references in TOM and survive automatically.
+                cascaded = cascade_table_rename(model, old_tbl_name, new_name)
 
             model.SaveChanges()
 
             logger.info(f"Updated table '{table_name}': {', '.join(updates)}")
 
-            return {
+            result = {
                 "success": True,
                 "action": "updated",
                 "table": new_name if new_name else table_name,
@@ -305,6 +313,10 @@ class TableCRUDManager:
                 "updates": updates,
                 "message": f"Successfully updated table '{table_name}'"
             }
+            if cascaded:
+                result["cascaded_references"] = len(cascaded)
+                result["updated_expressions"] = cascaded
+            return result
 
         except Exception as e:
             error_msg = str(e)
@@ -409,12 +421,14 @@ class TableCRUDManager:
         """
         return self.update_table(table_name=table_name, new_name=new_name)
 
-    def refresh_table(self, table_name: str) -> Dict[str, Any]:
+    def refresh_table(self, table_name: str, refresh_type: str = "full") -> Dict[str, Any]:
         """
         Refresh a table's data.
 
         Args:
             table_name: Name of the table to refresh
+            refresh_type: full|automatic|dataOnly|calculate|clearValues|defragment.
+                Use 'calculate' for calculated/field-parameter tables.
 
         Returns:
             Result dictionary with success status
@@ -452,18 +466,21 @@ class TableCRUDManager:
                 }
 
             # Request refresh
-            from Microsoft.AnalysisServices.Tabular import RefreshType
-            table.RequestRefresh(RefreshType.Full)
+            from core.operations.model_refresh_manager import _resolve_refresh_type
+            rtype, err = _resolve_refresh_type(refresh_type)
+            if err:
+                return {"success": False, "error": err, "error_type": "invalid_parameters"}
+            table.RequestRefresh(rtype)
             model.SaveChanges()
 
-            logger.info(f"Requested refresh for table '{table_name}'")
+            logger.info(f"Requested {refresh_type} refresh for table '{table_name}'")
 
             return {
                 "success": True,
                 "action": "refresh_requested",
                 "table": table_name,
-                "message": f"Successfully requested refresh for table '{table_name}'",
-                "note": "Refresh is asynchronous - check table status for completion"
+                "refresh_type": refresh_type,
+                "message": f"Successfully requested {refresh_type} refresh for table '{table_name}'",
             }
 
         except Exception as e:

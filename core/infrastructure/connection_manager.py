@@ -75,25 +75,18 @@ class PowerBIDesktopDetector:
                         except (ValueError, IndexError):
                             continue
 
-            # Run tasklist to find msmdsrv.exe processes
-            tasklist_result = subprocess.run(
-                ['tasklist', '/FI', 'IMAGENAME eq msmdsrv.exe', '/FO', 'CSV', '/NH'],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-
+            # Find msmdsrv.exe processes via psutil (avoids tasklist hangs from
+            # mapped network drives, AV/EDR interception, or stuck WMI service).
             msmdsrv_pids = set()
-            if tasklist_result.returncode == 0:
-                for line in tasklist_result.stdout.splitlines():
-                    if 'msmdsrv.exe' in line:
-                        parts = line.split(',')
-                        if len(parts) >= 2:
-                            try:
-                                pid = int(parts[1].strip('"'))
-                                msmdsrv_pids.add(pid)
-                            except ValueError:
-                                pass
+            try:
+                import psutil
+                for proc in psutil.process_iter(['pid', 'name']):
+                    name = proc.info.get('name') or ''
+                    if name.lower() == 'msmdsrv.exe':
+                        msmdsrv_pids.add(proc.info['pid'])
+            except Exception as e:
+                logger.error(f"psutil enumeration failed: {e}")
+                return instances
 
             # Match ports to msmdsrv PIDs and get database names
             for port, pid in port_pid_map.items():

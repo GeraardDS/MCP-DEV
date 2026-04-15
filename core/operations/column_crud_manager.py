@@ -6,6 +6,8 @@ Provides comprehensive column management: get, create, update, delete, rename
 import logging
 from typing import Dict, Any, Optional
 
+from core.operations.rename_cascade import cascade_column_rename
+
 logger = logging.getLogger(__name__)
 
 AMO_AVAILABLE = False
@@ -438,7 +440,8 @@ class ColumnCRUDManager:
                 column.FormatString = format_string
                 updates.append("format_string")
 
-            # Update name
+            # Update name (with DAX cascade — TOM does NOT auto-cascade DAX references)
+            cascaded = []
             if new_name and self._valid_identifier(new_name):
                 # Check if new name already exists
                 if any(c.Name == new_name for c in table.Columns if c != column):
@@ -447,14 +450,20 @@ class ColumnCRUDManager:
                         "error": f"Column '{new_name}' already exists in table '{table_name}'",
                         "error_type": "name_conflict"
                     }
+                old_col_name = column.Name
                 column.Name = new_name
                 updates.append("name")
+
+                # Cascade DAX references: 'Table'[OldCol] -> 'Table'[NewCol]
+                # Note: relationships, sort-by-column, hierarchy levels, perspectives
+                # are object references in TOM and survive renames automatically.
+                cascaded = cascade_column_rename(model, table_name, old_col_name, new_name)
 
             model.SaveChanges()
 
             logger.info(f"Updated column '{column_name}' in table '{table_name}': {', '.join(updates)}")
 
-            return {
+            result = {
                 "success": True,
                 "action": "updated",
                 "table": table_name,
@@ -463,6 +472,10 @@ class ColumnCRUDManager:
                 "updates": updates,
                 "message": f"Successfully updated column '{column_name}'"
             }
+            if cascaded:
+                result["cascaded_references"] = len(cascaded)
+                result["updated_expressions"] = cascaded
+            return result
 
         except Exception as e:
             error_msg = str(e)

@@ -53,20 +53,48 @@ class BatchOperationsHandler(BaseOperationsHandler):
             validation_errors = []
             for idx, item in enumerate(items):
                 item_errors = []
-                if operation in ['create', 'update']:
-                    if not item.get('name'):
-                        item_errors.append('missing required field: name')
+                item_name = item.get('measure') or item.get('measure_name') or item.get('name') or f'item[{idx}]'
+                has_table = item.get('table') or item.get('table_name')
+                if operation == 'create':
+                    if not item_name or item_name == f'item[{idx}]':
+                        item_errors.append('missing required field: name/measure/measure_name')
                     if not item.get('expression'):
                         item_errors.append('missing required field: expression')
-                    if not item.get('table') and not item.get('table_name'):
+                    if not has_table:
+                        item_errors.append('missing required field: table or table_name')
+                elif operation == 'update':
+                    if not item_name or item_name == f'item[{idx}]':
+                        item_errors.append('missing required field: name/measure/measure_name')
+                    if not has_table:
                         item_errors.append('missing required field: table or table_name')
                 elif operation == 'delete':
-                    if not item.get('name'):
-                        item_errors.append('missing required field: name')
+                    if not item_name or item_name == f'item[{idx}]':
+                        item_errors.append('missing required field: name/measure/measure_name')
+                elif operation == 'rename':
+                    if not item_name or item_name == f'item[{idx}]':
+                        item_errors.append('missing required field: name/measure/measure_name')
+                    if not item.get('new_name'):
+                        item_errors.append('missing required field: new_name')
+                    if not has_table:
+                        item_errors.append('missing required field: table or table_name')
+                elif operation == 'move_display_folder':
+                    if not item_name or item_name == f'item[{idx}]':
+                        item_errors.append('missing required field: name/measure/measure_name')
+                    if not has_table:
+                        item_errors.append('missing required field: table or table_name')
+                    if 'display_folder' not in item:
+                        item_errors.append('missing required field: display_folder')
+                elif operation == 'move':
+                    if not item_name or item_name == f'item[{idx}]':
+                        item_errors.append('missing required field: name/measure/measure_name')
+                    if not has_table:
+                        item_errors.append('missing required field: table or table_name')
+                    if not item.get('new_table') and not item.get('target_table'):
+                        item_errors.append('missing required field: new_table or target_table')
                 if item_errors:
                     validation_errors.append({
                         'index': idx,
-                        'item': item.get('name', f'item[{idx}]'),
+                        'item': item_name,
                         'errors': item_errors
                     })
 
@@ -104,12 +132,68 @@ class BatchOperationsHandler(BaseOperationsHandler):
 
             return bulk_ops.bulk_delete_measures(items)
 
+        elif operation == 'rename':
+            measure_crud = connection_state.measure_crud_manager
+            if not measure_crud:
+                return ErrorHandler.handle_manager_unavailable('measure_crud_manager')
+
+            # Use batch method: single AMO connection, all cascades see each other's changes
+            return measure_crud.batch_rename_measures(items)
+
+        elif operation == 'move_display_folder':
+            bulk_ops = connection_state.bulk_operations
+            if not bulk_ops:
+                return ErrorHandler.handle_manager_unavailable('bulk_operations')
+
+            # Each item needs: table/table_name, measure/measure_name/name, display_folder
+            return self._batch_item_loop(items, lambda item: bulk_ops.dax_injector.upsert_measure(
+                table_name=item.get('table') or item.get('table_name'),
+                measure_name=item.get('measure') or item.get('measure_name') or item.get('name'),
+                dax_expression="",  # Empty = preserve existing
+                display_folder=item.get('display_folder', ''),
+            ), operation)
+
+        elif operation == 'move':
+            measure_crud = connection_state.measure_crud_manager
+            if not measure_crud:
+                return ErrorHandler.handle_manager_unavailable('measure_crud_manager')
+
+            return self._batch_item_loop(items, lambda item: measure_crud.move_measure(
+                source_table=item.get('table') or item.get('table_name'),
+                measure_name=item.get('measure') or item.get('measure_name') or item.get('name'),
+                target_table=item.get('new_table') or item.get('target_table'),
+            ), operation)
+
         else:
             return {
                 'success': False,
                 'error': f'Unknown batch operation: {operation}',
-                'supported_operations': ['create', 'update', 'delete']
+                'supported_operations': ['create', 'update', 'delete', 'rename', 'move', 'move_display_folder']
             }
+
+    def _batch_item_loop(self, items, fn, operation):
+        """Generic loop: call fn(item) for each item, collect results."""
+        results = []
+        errors = []
+        for item in items:
+            try:
+                result = fn(item)
+                results.append(result)
+                if not result.get('success'):
+                    errors.append(result)
+            except Exception as e:
+                error_result = {'success': False, 'error': str(e), 'item': item}
+                results.append(error_result)
+                errors.append(error_result)
+        return {
+            'success': len(errors) == 0,
+            'operation': operation,
+            'total': len(items),
+            'succeeded': len([r for r in results if r.get('success')]),
+            'failed': len(errors),
+            'results': results,
+            'errors': errors if errors else None,
+        }
 
     def _batch_tables(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Batch operations for tables"""
@@ -274,6 +358,12 @@ class BatchOperationsHandler(BaseOperationsHandler):
                         table_name=item.get('table_name'),
                         column_name=item.get('column_name') or item.get('name'),
                         new_name=item.get('new_name')
+                    )
+                elif operation == 'move_display_folder':
+                    result = column_crud.update_column(
+                        table_name=item.get('table_name'),
+                        column_name=item.get('column_name') or item.get('name'),
+                        display_folder=item.get('display_folder', ''),
                     )
                 else:
                     result = {

@@ -531,14 +531,16 @@ class DAXInjector:
                     "error_type": "name_conflict"
                 }
 
-            # Rename measure
+            # Rename measure and cascade DAX references
+            from core.operations.rename_cascade import cascade_measure_rename
             old_name = measure.Name
             measure.Name = new_name
+            cascaded = cascade_measure_rename(model, old_name, new_name, table_name=table_name)
             model.SaveChanges()
 
-            logger.info(f"Renamed measure '{old_name}' to '{new_name}' in table '{table_name}'")
+            logger.info(f"Renamed measure '{old_name}' to '{new_name}' in table '{table_name}', cascaded {len(cascaded)} references")
 
-            return {
+            result = {
                 "success": True,
                 "action": "renamed",
                 "table": table_name,
@@ -546,6 +548,10 @@ class DAXInjector:
                 "new_name": new_name,
                 "message": f"Successfully renamed measure from '{old_name}' to '{new_name}'"
             }
+            if cascaded:
+                result["cascaded_references"] = len(cascaded)
+                result["updated_expressions"] = cascaded
+            return result
 
         except Exception as e:
             logger.error(f"Error renaming measure: {e}")

@@ -510,11 +510,13 @@ class PbipDependencyEngine:
 
     def _find_unused_objects(self) -> Dict[str, List[str]]:
         """Find measures and columns not used anywhere."""
-        # Identify field parameter tables — these are always set up intentionally
-        # and should never be flagged as having unused columns.
-        # Detection: (1) NAMEOF in partition source, or (2) ParameterMetadata "kind": 2
-        # on any column (Power BI field parameter marker).
+        # Identify field parameter tables and their structural columns.
+        # Structural columns (ParameterMetadata kind=2, sort columns, display columns,
+        # and groupByColumn references) are marked as implicitly used.
+        # Non-structural columns (e.g. extra Value4 slicer keys) are analyzed normally.
         field_param_tables: Set[str] = set()
+        fp_structural_columns: Set[str] = set()  # normalized keys of structural FP columns
+
         for table in self.model.get("tables", []):
             table_name = table.get("name", "")
             is_fp = False
@@ -530,8 +532,6 @@ class PbipDependencyEngine:
             if not is_fp:
                 for column in table.get("columns", []):
                     props = column.get("properties", {})
-                    # The TMDL parser stores extendedProperty ParameterMetadata as
-                    # properties with quoted keys like '"kind"': 2
                     kind_val = props.get('"kind"') or props.get("kind")
                     if kind_val is not None:
                         try:
@@ -543,6 +543,12 @@ class PbipDependencyEngine:
 
             if is_fp:
                 field_param_tables.add(table_name.lower())
+                # Identify structural columns by reading the TMDL file directly,
+                # since the parser doesn't extract relatedColumnDetails or
+                # extendedProperty ParameterMetadata sub-blocks into column dicts.
+                fp_structural_columns.update(
+                    self._detect_fp_structural_columns(table_name, table)
+                )
 
         # Build set of used measures (normalized keys for comparison)
         used_measures_normalized = set()
@@ -558,11 +564,6 @@ class PbipDependencyEngine:
                 measure_key = f"{table_name}[{measure.get('name', '')}]"
                 normalized = self._normalize_key(measure_key)
                 all_measure_keys[normalized] = measure_key
-
-            # Skip field parameter tables — their columns are structural
-            # and should never appear in unused columns output
-            if table_name.lower() in field_param_tables:
-                continue
 
             for column in table.get("columns", []):
                 column_name = column.get("name", "")
@@ -633,12 +634,12 @@ class PbipDependencyEngine:
         # Build set of used columns (normalized)
         used_columns_normalized = set()
 
-        # Used in USED measures only (from DAX expressions - explicit column references).
-        # Columns referenced only by unused measures are themselves unused.
+        # Columns referenced in ANY measure's DAX expression are considered used,
+        # regardless of whether the measure itself appears in a visual.
+        # A column in a measure is part of the model's logic and should not be removed.
         for measure_key, col_deps in self.measure_to_column.items():
-            if self._normalize_key(measure_key) in used_measures_normalized:
-                for d in col_deps:
-                    used_columns_normalized.add(self._normalize_key(d))
+            for d in col_deps:
+                used_columns_normalized.add(self._normalize_key(d))
 
         # NOTE: Table-level DAX references (REMOVEFILTERS, ALL, ALLSELECTED, FILTER, etc.)
         # do NOT mark all columns of the referenced table as used.
@@ -712,7 +713,6 @@ class PbipDependencyEngine:
 
         # Check field parameter NAMEOF references — columns/measures referenced by
         # field parameters in other tables are considered used.
-        # (Field parameter tables themselves are already excluded from all_column_keys above)
         # Uses column_to_field_params built by _analyze_field_parameters (which reads
         # TMDL files for full NAMEOF expressions when partition source is truncated)
         for column_key in self.column_to_field_params:
@@ -721,6 +721,12 @@ class PbipDependencyEngine:
             measure_norm = self._normalize_key(column_key)
             if measure_norm in all_measure_keys:
                 add_dependencies_recursively(measure_norm)
+
+        # Mark structural field parameter columns as used (ParameterMetadata kind=2,
+        # sort columns, display columns, groupByColumn targets). These are integral
+        # to the field parameter mechanism and should never be flagged unused.
+        for fp_col_norm in fp_structural_columns:
+            used_columns_normalized.add(fp_col_norm)
 
         # Check SortByColumn pairs — if column A is sorted by column B,
         # both A and B are implicitly in use (A is the display column, B is its sort key)
@@ -798,6 +804,92 @@ class PbipDependencyEngine:
             "measures": unused_measures,
             "columns": unused_columns
         }
+
+    def _detect_fp_structural_columns(
+        self, table_name: str, table: Dict[str, Any]
+    ) -> Set[str]:
+        """Detect structural columns in a field parameter table.
+
+        Reads the TMDL file to find columns with extendedProperty ParameterMetadata
+        or relatedColumnDetails blocks, since the parser doesn't extract these.
+        Also marks sort-by column pairs as structural.
+
+        Returns set of normalized column keys that are structural.
+        """
+        import os
+
+        structural: Set[str] = set()
+        model_folder = self.model.get("model_folder", "")
+
+        # Read TMDL file to detect ParameterMetadata and relatedColumnDetails
+        tmdl_content = ""
+        if model_folder:
+            for tables_dir in [
+                os.path.join(model_folder, "definition", "tables"),
+                os.path.join(model_folder, "tables"),
+            ]:
+                tmdl_path = os.path.join(tables_dir, f"{table_name}.tmdl")
+                if os.path.isfile(tmdl_path):
+                    try:
+                        with open(tmdl_path, "r", encoding="utf-8") as f:
+                            tmdl_content = f.read()
+                    except Exception:
+                        pass
+                    break
+
+        if tmdl_content:
+            # Parse column blocks and detect structural markers
+            current_column = None
+            is_structural_col = False
+
+            for line in tmdl_content.splitlines():
+                stripped = line.strip()
+
+                # Detect column start
+                col_match = re.match(r"^column\s+'([^']+)'", stripped)
+                if col_match:
+                    # Save previous column if structural
+                    if current_column and is_structural_col:
+                        structural.add(
+                            self._normalize_key(f"{table_name}[{current_column}]")
+                        )
+                    current_column = col_match.group(1)
+                    is_structural_col = False
+                    continue
+
+                if current_column:
+                    # ParameterMetadata kind=2 marks the field selector column
+                    if "ParameterMetadata" in stripped:
+                        is_structural_col = True
+                    # relatedColumnDetails marks the display column
+                    if "relatedColumnDetails" in stripped:
+                        is_structural_col = True
+                    # groupByColumn reference — the target is also structural
+                    grp_match = re.match(
+                        r"groupByColumn:\s+'([^']+)'", stripped
+                    )
+                    if grp_match:
+                        structural.add(
+                            self._normalize_key(
+                                f"{table_name}[{grp_match.group(1)}]"
+                            )
+                        )
+
+            # Save last column
+            if current_column and is_structural_col:
+                structural.add(
+                    self._normalize_key(f"{table_name}[{current_column}]")
+                )
+
+        # Also mark sort-by column pairs as structural
+        for column in table.get("columns", []):
+            col_name = column.get("name", "")
+            sort_by = column.get("sort_by_column")
+            if sort_by:
+                structural.add(self._normalize_key(f"{table_name}[{col_name}]"))
+                structural.add(self._normalize_key(f"{table_name}[{sort_by}]"))
+
+        return structural
 
     def _count_measures(self) -> int:
         """Count total measures in model."""

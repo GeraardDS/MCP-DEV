@@ -239,7 +239,8 @@ class TableOperationsHandler(BaseOperationsHandler):
         if error := validate_required(table_name, 'table_name', 'refresh'):
             return error
 
-        return table_crud.refresh_table(table_name)
+        refresh_type = args.get('refresh_type', 'full')
+        return table_crud.refresh_table(table_name, refresh_type=refresh_type)
 
     @staticmethod
     def _generate_calendar_dax(

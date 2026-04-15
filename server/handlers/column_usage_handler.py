@@ -425,7 +425,7 @@ def handle_column_usage_mapping(args: Dict[str, Any]) -> Dict[str, Any]:
     - get_measures_for_column: Get all measures that use a specific column
     - get_full_mapping: Get complete bidirectional mapping
     - get_unused_columns: Get columns not referenced by any measure
-    - get_unused_columns_pbip: Find unused columns/measures from PBIP folder (multi-report)
+    - get_unused_columns_pbip: Find unused columns/measures from PBIP folder (scoped to explicit report_paths; use when you need to analyze a subset of reports e.g. only R01xx)
     """
     operation = args.get('operation', 'get_measures_for_tables')
 
@@ -641,7 +641,13 @@ def _analyze_pbip_multi_report(
 
 
 def _handle_get_unused_columns_pbip(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Find unused columns/measures from PBIP folder across multiple reports."""
+    """Find unused columns/measures from PBIP folder, scoped to explicit report_paths.
+
+    Unlike 07_PBIP_Operations query_unused (which uses the cache and always
+    analyzes ALL reports), this operation accepts an explicit report_paths list
+    so you can scope the analysis to a subset (e.g. only R01xx reports).
+    No caching — fresh parse every call.
+    """
     pbip_path = args.get('pbip_path')
     if not pbip_path:
         return {
@@ -885,7 +891,7 @@ def register_column_usage_handler(registry):
 
     tool = ToolDefinition(
         name="05_Column_Usage_Mapping",
-        description="Column usage: unused columns (live/offline), measure-column mapping, CSV export.",
+        description="Column usage mapping & targeted unused analysis. Live: measure-column mapping, CSV export. Offline: get_unused_columns_pbip scoped to specific report_paths (use for targeted R01/R02 analysis).",
         handler=handle_column_usage_mapping,
         input_schema=input_schema,
         category="dax",

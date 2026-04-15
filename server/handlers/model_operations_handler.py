@@ -18,6 +18,7 @@ from core.operations.perspective_crud_manager import PerspectiveCrudManager
 from core.operations.culture_crud_manager import CultureCrudManager
 from core.operations.named_expression_crud_manager import NamedExpressionCrudManager
 from core.operations.ols_crud_manager import OlsCrudManager
+from core.operations.model_refresh_manager import ModelRefreshManager
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,13 @@ _handlers = {
     "culture": CultureCrudManager(),
     "named_expression": NamedExpressionCrudManager(),
     "ols_rule": OlsCrudManager(),
+    "model": ModelRefreshManager(),
 }
 
 # Valid operations per object_type (for error messages)
 _valid_operations = {
-    "table": ["list", "describe", "sample_data", "create", "update", "delete", "refresh", "generate_calendar"],
-    "column": ["list", "get", "statistics", "distribution", "create", "update", "delete"],
+    "table": ["list", "describe", "sample_data", "create", "update", "delete", "rename", "refresh", "generate_calendar"],
+    "column": ["list", "get", "statistics", "distribution", "create", "update", "delete", "rename"],
     "measure": ["list", "get", "create", "update", "delete", "rename", "move"],
     "relationship": ["list", "get", "find", "create", "update", "delete", "activate", "deactivate"],
     "calculation_group": ["list", "create", "delete", "list_items"],
@@ -49,6 +51,7 @@ _valid_operations = {
     "culture": ["list", "describe", "create", "delete", "set_translation"],
     "named_expression": ["list", "describe", "create", "update", "delete"],
     "ols_rule": ["list", "set", "remove"],
+    "model": ["refresh"],
 }
 
 
@@ -102,6 +105,12 @@ def _dispatch_new_type(manager, object_type: str, args: Dict[str, Any]) -> Dict[
             "remove": lambda: manager.remove_ols_rule(
                 args.get("role_name"), args.get("table_name"), args.get("column_name")),
         },
+        "model": {
+            "refresh": lambda: manager.refresh(
+                refresh_type=args.get("refresh_type", "automatic"),
+                tables=args.get("tables"),
+            ),
+        },
     }
     ops = dispatch_map.get(object_type, {})
     handler_fn = ops.get(operation)
@@ -142,7 +151,7 @@ def handle_model_operations(args: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     # New TOM types don't have execute() — dispatch directly
-    if object_type in ("partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule"):
+    if object_type in ("partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule", "model"):
         return _dispatch_new_type(handler, object_type, args)
 
     # Existing types use the execute() pattern
@@ -161,7 +170,7 @@ def register_model_operations_handler(registry):
                 "object_type": {
                     "type": "string",
                     "enum": ["table", "column", "measure", "relationship", "calculation_group",
-                             "partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule"],
+                             "partition", "hierarchy", "perspective", "culture", "named_expression", "ols_rule", "model"],
                     "description": "Type of model object to operate on"
                 },
                 "operation": {
@@ -288,6 +297,18 @@ def register_model_operations_handler(registry):
                     "type": "string",
                     "enum": ["None", "Read", "Default"],
                     "description": "OLS permission level"
+                },
+                # Refresh-specific (object_type=model or table/partition refresh)
+                "refresh_type": {
+                    "type": "string",
+                    "enum": ["full", "automatic", "dataOnly", "calculate", "clearValues", "defragment"],
+                    "description": "Refresh type (model/table refresh). 'automatic' picks the minimal required refresh; 'calculate' recomputes calculated tables/columns (use for field parameters); 'full' reprocesses everything.",
+                    "default": "automatic"
+                },
+                "tables": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Table names to refresh (object_type=model, operation=refresh). Omit to refresh entire model."
                 },
             },
             "required": ["object_type"]
