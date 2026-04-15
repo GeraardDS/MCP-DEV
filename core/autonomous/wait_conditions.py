@@ -92,6 +92,7 @@ class WaitConditions:
         file_full_path: str,
         target_level: ReadinessLevel = ReadinessLevel.IDENTITY,
         timeout_seconds: float = DEFAULT_TIMEOUT,
+        preferred_pid: Optional[int] = None,
     ) -> WaitResult:
         """
         Poll until `target_level` is reached or timeout elapses.
@@ -113,7 +114,7 @@ class WaitConditions:
 
         while time.time() < deadline:
             attempts += 1
-            last_result = self._probe(file_full_path, target_level)
+            last_result = self._probe(file_full_path, target_level, preferred_pid)
             if last_result["reached_level"] >= int(target_level):
                 return WaitResult(
                     success=True,
@@ -155,11 +156,12 @@ class WaitConditions:
         self,
         file_full_path: str,
         target_level: ReadinessLevel,
+        preferred_pid: Optional[int] = None,
     ) -> Dict[str, Any]:
         out: Dict[str, Any] = {"reached_level": 0}
 
         # Level 1: PROCESS
-        process = self._find_process(file_full_path)
+        process = self._find_process(file_full_path, preferred_pid=preferred_pid)
         if not process:
             return {
                 **out,
@@ -228,10 +230,12 @@ class WaitConditions:
     # ------------------------------------------------------------------
     # Level helpers
     # ------------------------------------------------------------------
-    def _find_process(self, file_full_path: str):
+    def _find_process(self, file_full_path: str, preferred_pid: Optional[int] = None):
         from core.autonomous.process_manager import PbiDesktopProcessManager
 
-        return PbiDesktopProcessManager().find_for_file(file_full_path)
+        return PbiDesktopProcessManager().find_for_file(
+            file_full_path, prefer_pid=preferred_pid,
+        )
 
     def _detect_instances(self) -> List[Dict[str, Any]]:
         try:
@@ -261,8 +265,7 @@ class WaitConditions:
             cand = (inst.get("file_full_path") or "").lower()
             if base and base in cand:
                 return inst
-        # Last resort: return first instance so the caller can still probe
-        return instances[0]
+        return None
 
     def _adomd_probe(self, connection_string: str) -> bool:
         """Open+close an ADOMD connection. Returns True on success."""

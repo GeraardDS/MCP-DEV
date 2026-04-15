@@ -48,18 +48,63 @@ class PbiDesktopProcessManager:
     # ------------------------------------------------------------------
     # Discovery
     # ------------------------------------------------------------------
-    def find_for_file(self, file_full_path: str) -> Optional[PbiDesktopProcess]:
+    def find_for_file(
+        self,
+        file_full_path: str,
+        prefer_pid: Optional[int] = None,
+    ) -> Optional[PbiDesktopProcess]:
         """
-        Return the PBIDesktop.exe whose command-line references the given file,
-        or None if not found.
+        Return the PBIDesktop.exe whose command-line references the given file.
+
+        When multiple processes match (e.g. a PBIDesktop launcher plus a
+        user-facing instance, or stale instances from a prior run), prefer:
+          1. The exact `prefer_pid` if given and still alive with a match.
+          2. The process that has a live msmdsrv child (indicates the real AS
+             instance — launcher processes do not spawn msmdsrv).
+          3. Otherwise the most recently started matching process.
         """
         if not file_full_path:
             return None
         norm = self._normalize(file_full_path)
-        for proc in self.find_all():
-            if proc.file_path and self._normalize(proc.file_path) == norm:
-                return proc
-        return None
+        matches = [
+            p for p in self.find_all()
+            if p.file_path and self._normalize(p.file_path) == norm
+        ]
+        if not matches:
+            return None
+
+        if prefer_pid is not None:
+            for p in matches:
+                if p.pid == prefer_pid:
+                    return p
+
+        # Prefer processes with a live msmdsrv child (the real AS host).
+        with_msmdsrv = [p for p in matches if self._has_msmdsrv_child(p.pid)]
+        if with_msmdsrv:
+            with_msmdsrv.sort(key=lambda p: p.started_at, reverse=True)
+            return with_msmdsrv[0]
+
+        # Fallback: newest matching process.
+        matches.sort(key=lambda p: p.started_at, reverse=True)
+        return matches[0]
+
+    @staticmethod
+    def _has_msmdsrv_child(pid: int) -> bool:
+        """Return True if the given PBIDesktop PID has a running msmdsrv child."""
+        try:
+            import psutil  # type: ignore
+
+            parent = psutil.Process(pid)
+            for child in parent.children(recursive=False):
+                try:
+                    name = (child.name() or "").lower()
+                    if "msmdsrv" in name:
+                        return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception:  # noqa: BLE001
+            return False
+        return False
 
     def find_all(self) -> List[PbiDesktopProcess]:
         """List all running PBIDesktop.exe processes with their file paths."""

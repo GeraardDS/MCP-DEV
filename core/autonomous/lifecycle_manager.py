@@ -274,6 +274,7 @@ class LifecycleManager:
             target,
             target_level=wait_level,
             timeout_seconds=wait_timeout_seconds,
+            preferred_pid=launch.get("pid"),
         ).to_dict()
 
         reconnect_result: Optional[Dict[str, Any]] = None
