@@ -289,7 +289,7 @@ if not exist "!clonePath!" (
     )
 )
 
-set "repoPath=!clonePath!\Z02-MCP-PowerBI"
+set "repoPath=!clonePath!\MCP-DEV"
 
 :: Check if repo already exists
 if exist "!repoPath!" (
@@ -308,7 +308,7 @@ if exist "!repoPath!" (
 
 echo.
 echo Cloning repository...
-echo   URL: https://dev.azure.com/finticx/Finticx_SAASPlatform/_git/Z02-MCP-PowerBI
+echo   URL: https://github.com/bibiibjorn/MCP-DEV.git
 echo   To:  !repoPath!
 echo.
 
@@ -320,7 +320,7 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 
-git clone --branch main https://dev.azure.com/finticx/Finticx_SAASPlatform/_git/Z02-MCP-PowerBI
+git clone --branch main https://github.com/bibiibjorn/MCP-DEV.git
 if !errorlevel! neq 0 (
     echo.
     echo ERROR: Failed to clone repository!
