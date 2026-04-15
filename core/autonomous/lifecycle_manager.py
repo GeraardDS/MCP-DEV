@@ -96,7 +96,7 @@ class LifecycleManager:
     # ------------------------------------------------------------------
     # save
     # ------------------------------------------------------------------
-    def save(self, timeout_seconds: float = 60.0) -> Dict[str, Any]:
+    def save(self, timeout_seconds: float = 60.0, force: bool = False) -> Dict[str, Any]:
         blocked = self._guard("save")
         if blocked:
             return blocked
@@ -110,9 +110,10 @@ class LifecycleManager:
             "file_full_path": file_path,
             "file_type": file_type,
             "pending_category": pending.category,
+            "force": force,
         }
 
-        if pending.category == "no_changes":
+        if pending.category == "no_changes" and not force:
             result = {
                 "success": True,
                 "action": "noop",
@@ -122,8 +123,9 @@ class LifecycleManager:
             self._record("save", {}, result, started, before=before)
             return result
 
-        # PBIP live-changes: try TOM SaveChanges first (fast path, no UI).
-        if file_type == "pbip" and pending.has_live_tom_changes:
+        # PBIP + TOM path: attempt SaveChanges when we have live changes OR
+        # when the caller forced a save (defensive flush before close).
+        if file_type == "pbip" and (pending.has_live_tom_changes or force):
             tom_result = self._tom_save_changes()
             if tom_result.get("success"):
                 self._pending.mark_seen()
@@ -188,8 +190,11 @@ class LifecycleManager:
             "pending_category": pending.category,
         }
 
-        if save_first and pending.category == "live_tom_changes":
-            save_result = self.save()
+        if save_first:
+            # Force a save even when the detector reports "no_changes" — TOM
+            # HasLocalChanges + file mtime are best-effort and can miss things
+            # (e.g. recent report-layer edits Power BI hasn't flushed yet).
+            save_result = self.save(force=True)
             if not save_result.get("success"):
                 out = {
                     "success": False,
@@ -385,7 +390,7 @@ class LifecycleManager:
         file_path = self._current_file_path()
 
         if save_first:
-            steps["save"] = self.save()
+            steps["save"] = self.save(force=True)
             if not steps["save"].get("success"):
                 out = {
                     "success": False,

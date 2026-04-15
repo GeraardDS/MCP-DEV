@@ -75,6 +75,7 @@ def handle_autonomous_workflow(args: Dict[str, Any]) -> Dict[str, Any]:
         if op == "save":
             return lcm.save(
                 timeout_seconds=float(args.get("timeout_seconds", 60.0)),
+                force=bool(args.get("force", False)),
             )
         if op == "close":
             return lcm.close(
@@ -247,6 +248,7 @@ AUTONOMOUS_SCHEMA: Dict[str, Any] = {
         # save / close / reopen / wait_ready
         "timeout_seconds": {"type": "number", "minimum": 1},
         "save_first": {"type": "boolean"},
+        "force": {"type": "boolean", "description": "save: write even if no pending changes detected"},
         "grace_seconds": {"type": "number", "minimum": 1},
         "file_full_path": {"type": "string"},
         "wait_level": {
