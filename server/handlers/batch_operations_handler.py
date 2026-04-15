@@ -39,7 +39,8 @@ def register_batch_operations_handler(registry):
                 "items": {
                     "type": "array",
                     "description": "List of object definitions for the operation",
-                    "minItems": 1
+                    "minItems": 1,
+                    "items": {"type": "object"}
                 },
                 "options": {
                     "type": "object",
