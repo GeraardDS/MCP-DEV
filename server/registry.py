@@ -25,6 +25,7 @@ class ToolCategory(Enum):
     DOCS = "docs"              # Documentation generation
     DEBUG = "debug"            # Debug tools
     AUTHORING = "authoring"    # PBIP report authoring & prototyping
+    AUTONOMOUS = "autonomous"  # Autonomous workflow: save/close/reopen/reload + gating
 
 
 # Define which tools belong to each category (for deferred loading)
@@ -72,6 +73,9 @@ CATEGORY_TOOLS = {
     ToolCategory.AUTHORING: [
         "11_PBIP_Authoring",
     ],
+    ToolCategory.AUTONOMOUS: [
+        "12_Autonomous_Workflow",
+    ],
 }
 
 
@@ -95,6 +99,7 @@ CATEGORY_INFO = {
     ToolCategory.DOCS: {"name": "Documentation", "description": "Generate/update Word docs"},
     ToolCategory.DEBUG: {"name": "Debug", "description": "Visual debugging, profiling, validation"},
     ToolCategory.AUTHORING: {"name": "Report Authoring", "description": "Create, clone PBIP report pages and visuals"},
+    ToolCategory.AUTONOMOUS: {"name": "Autonomous Workflow", "description": "Session-gated save/close/reopen/reload + DAX validation assertions"},
 }
 
 

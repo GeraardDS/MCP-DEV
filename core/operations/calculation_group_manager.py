@@ -11,6 +11,50 @@ logger = logging.getLogger(__name__)
 AMO_AVAILABLE = True  # Determined lazily per-connection
 
 
+def _read_calc_item_format_string(item):
+    """Read the format string expression across TOM versions."""
+    try:
+        fsd = getattr(item, "FormatStringDefinition", None)
+        if fsd is not None:
+            expr = getattr(fsd, "Expression", None)
+            if expr:
+                return str(expr)
+    except Exception:
+        pass
+    try:
+        if hasattr(item, "FormatStringExpression"):
+            v = item.FormatStringExpression
+            return str(v) if v else None
+    except Exception:
+        pass
+    return None
+
+
+def _set_calc_item_format_string(item, expression: str, Tabular) -> bool:
+    """Set the calculation item's format string expression across TOM versions.
+
+    Newer TOM exposes FormatStringDefinition (a complex object with .Expression);
+    older TOM exposes FormatStringExpression as a flat string. Try the modern
+    path first, then fall back. Returns True on success, False if neither works.
+    """
+    try:
+        FSDef = getattr(Tabular, "FormatStringDefinition", None)
+        if FSDef is not None:
+            fsd = FSDef()
+            fsd.Expression = expression
+            item.FormatStringDefinition = fsd
+            return True
+    except Exception:
+        pass
+    try:
+        if hasattr(item, "FormatStringExpression"):
+            item.FormatStringExpression = expression
+            return True
+    except Exception:
+        pass
+    return False
+
+
 class CalculationGroupManager:
     """Manage calculation groups and items."""
 
@@ -167,7 +211,7 @@ class CalculationGroupManager:
                             'name': item.Name,
                             'expression': item.Expression,
                             'ordinal': item.Ordinal if hasattr(item, 'Ordinal') else None,
-                            'format_string_expression': item.FormatStringExpression if hasattr(item, 'FormatStringExpression') else None
+                            'format_string_expression': _read_calc_item_format_string(item)
                         })
 
                     calc_groups.append({
@@ -286,8 +330,8 @@ class CalculationGroupManager:
                 elif hasattr(item, 'Ordinal'):
                     item.Ordinal = idx
 
-                if 'format_string_expression' in item_data and hasattr(item, 'FormatStringExpression'):
-                    item.FormatStringExpression = item_data['format_string_expression']
+                if 'format_string_expression' in item_data and item_data['format_string_expression']:
+                    _set_calc_item_format_string(item, item_data['format_string_expression'], Tabular)
 
                 calc_group.CalculationItems.Add(item)
 
@@ -417,3 +461,147 @@ class CalculationGroupManager:
                 server.Disconnect()
             except Exception:
                 pass
+
+    def _find_calc_group_table(self, model, group_name: str):
+        """Find a table hosting a calculation group by table name."""
+        for t in model.Tables:
+            try:
+                if t.Name == group_name and getattr(t, "CalculationGroup", None) is not None:
+                    return t
+            except Exception:
+                continue
+        return None
+
+    def add_calculation_item(
+        self,
+        group_name: str,
+        item_name: str,
+        expression: str,
+        ordinal: Optional[int] = None,
+        format_string_expression: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Add a new item to an existing calculation group."""
+        if not item_name or expression is None:
+            return {"success": False, "error": "item_name and expression are required"}
+        server, db, Tabular = self._connect_amo_server_db()
+        if not server or not db or not Tabular:
+            return {"success": False, "error": "AMO not available"}
+        try:
+            model = db.Model
+            table = self._find_calc_group_table(model, group_name)
+            if table is None:
+                return {"success": False, "error": f"Calculation group '{group_name}' not found"}
+            cg = table.CalculationGroup
+            existing = next((i for i in cg.CalculationItems if i.Name == item_name), None)
+            if existing is not None:
+                return {"success": False, "error": f"Item '{item_name}' already exists in '{group_name}'"}
+            item = Tabular.CalculationItem()
+            item.Name = item_name
+            item.Expression = expression
+            if ordinal is not None and hasattr(item, "Ordinal"):
+                item.Ordinal = ordinal
+            if format_string_expression is not None:
+                if not _set_calc_item_format_string(item, format_string_expression, Tabular):
+                    return {"success": False, "error": "TOM does not expose FormatStringExpression / FormatStringDefinition on this CalculationItem; cannot set format_string_expression"}
+            if description:
+                item.Description = description
+            cg.CalculationItems.Add(item)
+            model.SaveChanges()
+            return {
+                "success": True,
+                "message": f"Added item '{item_name}' to '{group_name}'",
+                "group": group_name,
+                "item": item_name,
+            }
+        except Exception as e:
+            logger.error(f"add_calculation_item failed: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            try: server.Disconnect()
+            except Exception: pass
+
+    def update_calculation_item(
+        self,
+        group_name: str,
+        item_name: str,
+        new_name: Optional[str] = None,
+        expression: Optional[str] = None,
+        ordinal: Optional[int] = None,
+        format_string_expression: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update an existing calculation item. Any field can be renamed or edited."""
+        server, db, Tabular = self._connect_amo_server_db()
+        if not server or not db or not Tabular:
+            return {"success": False, "error": "AMO not available"}
+        try:
+            model = db.Model
+            table = self._find_calc_group_table(model, group_name)
+            if table is None:
+                return {"success": False, "error": f"Calculation group '{group_name}' not found"}
+            cg = table.CalculationGroup
+            item = next((i for i in cg.CalculationItems if i.Name == item_name), None)
+            if item is None:
+                return {"success": False, "error": f"Item '{item_name}' not found in '{group_name}'"}
+            updates = []
+            if new_name and new_name != item_name:
+                try:
+                    item.RequestRename(new_name)
+                except Exception:
+                    item.Name = new_name
+                updates.append(f"renamed to '{new_name}'")
+            if expression is not None:
+                item.Expression = expression
+                updates.append("expression")
+            if ordinal is not None and hasattr(item, "Ordinal"):
+                item.Ordinal = ordinal
+                updates.append(f"ordinal={ordinal}")
+            if format_string_expression is not None:
+                if _set_calc_item_format_string(item, format_string_expression, Tabular):
+                    updates.append("format_string_expression")
+                else:
+                    return {"success": False, "error": "TOM does not expose FormatStringExpression / FormatStringDefinition on this CalculationItem; cannot set format_string_expression"}
+            if description is not None:
+                item.Description = description
+                updates.append("description")
+            model.SaveChanges()
+            return {
+                "success": True,
+                "message": f"Updated item '{item_name}' in '{group_name}': {', '.join(updates) or 'no changes'}",
+                "group": group_name,
+                "item": new_name or item_name,
+            }
+        except Exception as e:
+            logger.error(f"update_calculation_item failed: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            try: server.Disconnect()
+            except Exception: pass
+
+    def delete_calculation_item(self, group_name: str, item_name: str) -> Dict[str, Any]:
+        """Delete a calculation item from a calculation group."""
+        server, db, Tabular = self._connect_amo_server_db()
+        if not server or not db or not Tabular:
+            return {"success": False, "error": "AMO not available"}
+        try:
+            model = db.Model
+            table = self._find_calc_group_table(model, group_name)
+            if table is None:
+                return {"success": False, "error": f"Calculation group '{group_name}' not found"}
+            cg = table.CalculationGroup
+            item = next((i for i in cg.CalculationItems if i.Name == item_name), None)
+            if item is None:
+                return {"success": False, "error": f"Item '{item_name}' not found in '{group_name}'"}
+            cg.CalculationItems.Remove(item)
+            model.SaveChanges()
+            return {
+                "success": True,
+                "message": f"Deleted item '{item_name}' from '{group_name}'",
+            }
+        except Exception as e:
+            logger.error(f"delete_calculation_item failed: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            try: server.Disconnect()
+            except Exception: pass

@@ -33,8 +33,8 @@ def register_batch_operations_handler(registry):
                 },
                 "batch_operation": {
                     "type": "string",
-                    "enum": ["create", "update", "delete", "rename", "move", "activate", "deactivate", "refresh"],
-                    "description": "Batch operation to perform (available operations depend on object type)"
+                    "enum": ["create", "update", "delete", "rename", "move", "move_display_folder", "activate", "deactivate", "refresh"],
+                    "description": "Batch operation to perform. move_display_folder: change display folder without needing expression (measures/columns)"
                 },
                 "items": {
                     "type": "array",

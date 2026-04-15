@@ -115,8 +115,13 @@ TOOL_SCHEMAS = {
     'visual_operations': {
         "type": "object",
         "properties": {
-            "pbip_path": {"type": "string", "description": "Path to PBIP/Report folder"},
-            "operation": {"type": "string", "enum": ["list", "create", "create_group", "delete", "update_position", "update_visual_config", "update_formatting", "align", "add_field", "remove_field", "set_sort", "set_action", "inject_code", "manage_visual_calcs", "configure_slicer", "list_templates", "get_template", "replace_measure", "sync_visual", "sync_column_widths", "sync_formatting"], "default": "list"},
+            "pbip_path": {"type": "string", "description": "Path to PBIP/Report folder. Optional — auto-resolved from the connected instance if omitted."},
+            "operation": {"type": "string", "enum": ["list", "create", "create_group", "delete", "update_position", "update_visual_config", "update_formatting", "align", "add_field", "remove_field", "set_sort", "set_action", "inject_code", "manage_visual_calcs", "configure_slicer", "list_templates", "get_template", "replace_measure", "sync_visual", "sync_column_widths", "sync_formatting", "set_raw_property", "get_raw_property", "delete_raw_property"], "default": "list"},
+            "json_path": {"type": "string", "description": "Dotted/indexed JSON path into visual.json, e.g. \"visual.visualContainerObjects.title[0].properties.text\" (raw property ops)"},
+            "value": {"description": "Raw JSON value to write (set_raw_property). Pass wrap_literal=true to auto-wrap scalars as PBIR Literal. Anything you pass is written as-is otherwise."},
+            "wrap_literal": {"type": "boolean", "default": False, "description": "Auto-wrap scalar values as {expr:{Literal:{Value:...}}} (set_raw_property)"},
+            "create_missing": {"type": "boolean", "default": True, "description": "Create missing intermediate dicts/lists along the path (set_raw_property)"},
+            "allow_null": {"type": "boolean", "default": False, "description": "Allow writing null as the value (set_raw_property). Default rejects null to prevent accidental erasure."},
             "display_title": {"type": "string", "description": "Filter by title"},
             "visual_type": {"type": "string", "description": "Filter/set visual type"},
             "visual_name": {"type": "string", "description": "Filter by visual ID"},
@@ -183,7 +188,7 @@ TOOL_SCHEMAS = {
             "sync_children": {"type": "boolean", "default": True, "description": "Sync child visuals of groups (sync_visual)"},
             "formatting_types": {"type": "array", "items": {"type": "string"}, "description": "Formatting types to sync"}
         },
-        "required": ["pbip_path"]
+        "required": []
     },
 
     # Filter Operations (new)

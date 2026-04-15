@@ -185,7 +185,14 @@ class ColumnOperationsHandler(BaseOperationsHandler):
             hidden=args.get('hidden'),
             display_folder=args.get('display_folder'),
             format_string=args.get('format_string'),
-            new_name=args.get('new_name')
+            new_name=args.get('new_name'),
+            data_type=args.get('data_type'),
+            sort_by_column=args.get('sort_by_column'),
+            summarize_by=args.get('summarize_by'),
+            data_category=args.get('data_category'),
+            is_key=args.get('is_key'),
+            is_nullable=args.get('is_nullable'),
+            clear_sort_by_column=bool(args.get('clear_sort_by_column', False)),
         )
 
     def _delete_column(self, args: Dict[str, Any]) -> Dict[str, Any]:

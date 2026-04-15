@@ -256,7 +256,11 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
 
         # Special handling for get_recent_logs
         if name == "get_recent_logs" and isinstance(result, dict) and 'logs' in result:
-            return [TextContent(type="text", text=result['logs'])]
+            return [TextContent(
+                type="text",
+                text=result['logs'],
+                _meta={"anthropic/maxResultSizeChars": 500000},
+            )]
 
         # Handle responses with diagram content - generate professional HTML
         if isinstance(result, dict) and '_image_content' in result:
@@ -296,7 +300,11 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
                 except Exception as e:
                     logger.warning(f"Failed to generate HTML diagram: {e}")
 
-            return [TextContent(type="text", text=text_output)]
+            return [TextContent(
+                type="text",
+                text=text_output,
+                _meta={"anthropic/maxResultSizeChars": 500000},
+            )]
 
         # Detect error responses from handlers (success=False or ok=False)
         _is_error = False
@@ -311,10 +319,11 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
         # Final serialization
         final_text = json.dumps(result, separators=(',', ':'))
 
-        # Spill large outputs to file to avoid Claude Code's <persisted-output> behavior
-        # Claude Code persists tool results >50K chars to disk, forcing an extra Read round-trip.
-        # Instead, we proactively save full output to a file and return a compact summary inline.
-        SPILL_THRESHOLD = 40000  # chars — stay under Claude Code's ~50K persistence threshold
+        # Spill large outputs to file only when they exceed Claude Code's max inline cap.
+        # Since v2.1.91, Claude Code honors `_meta["anthropic/maxResultSizeChars"]` (up to 500K)
+        # on TextContent responses, so we can keep most outputs inline and avoid the
+        # extra Read round-trip. Only spill when output would genuinely exceed 500K.
+        SPILL_THRESHOLD = 450000  # chars — under the 500K _meta cap, leaves headroom for overhead
         if len(final_text) > SPILL_THRESHOLD:
             try:
                 from datetime import datetime
@@ -365,7 +374,14 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent | ImageConten
         if _is_error:
             raise _ToolError(final_text)
 
-        return [TextContent(type="text", text=final_text)]
+        # Annotate with _meta so Claude Code (v2.1.91+) persists up to 500K chars inline
+        # instead of truncating to its default ~50K. Avoids the Read round-trip for large
+        # INFO.* dumps, TMDL exports, schema/model documentation, and measure audits.
+        return [TextContent(
+            type="text",
+            text=final_text,
+            _meta={"anthropic/maxResultSizeChars": 500000},
+        )]
 
     except _ToolError:
         raise  # Let _ToolError propagate to the MCP framework for isError=True

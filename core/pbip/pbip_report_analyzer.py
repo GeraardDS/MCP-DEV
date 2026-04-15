@@ -527,10 +527,18 @@ class PbirReportAnalyzer:
 
             for proj_type in projection_types:
                 if proj_type in query_state:
-                    projections = query_state[proj_type].get("projections", [])
+                    proj_data = query_state[proj_type]
+                    projections = proj_data.get("projections", [])
                     for proj in projections:
                         field = proj.get("field", {})
                         self._extract_field_from_projection(field, field_sets)
+
+                    # Extract field parameter references (parameterExpr)
+                    field_params = proj_data.get("fieldParameters", [])
+                    for fp in field_params:
+                        param_expr = fp.get("parameterExpr", {})
+                        if param_expr:
+                            self._extract_field_from_projection(param_expr, field_sets)
 
             # Also check bindings (for certain visual types)
             bindings = query.get("Binding", {})

@@ -6,6 +6,8 @@ Provides comprehensive column management: get, create, update, delete, rename
 import logging
 from typing import Dict, Any, Optional
 
+from core.operations.rename_cascade import cascade_column_rename
+
 logger = logging.getLogger(__name__)
 
 AMO_AVAILABLE = False
@@ -345,7 +347,14 @@ class ColumnCRUDManager:
         hidden: Optional[bool] = None,
         display_folder: Optional[str] = None,
         format_string: Optional[str] = None,
-        new_name: Optional[str] = None
+        new_name: Optional[str] = None,
+        data_type: Optional[str] = None,
+        sort_by_column: Optional[str] = None,
+        summarize_by: Optional[str] = None,
+        data_category: Optional[str] = None,
+        is_key: Optional[bool] = None,
+        is_nullable: Optional[bool] = None,
+        clear_sort_by_column: bool = False,
     ) -> Dict[str, Any]:
         """
         Update an existing column.
@@ -438,7 +447,121 @@ class ColumnCRUDManager:
                 column.FormatString = format_string
                 updates.append("format_string")
 
-            # Update name
+            # Update data type
+            if data_type is not None:
+                try:
+                    column.DataType = self._parse_data_type(data_type)
+                    updates.append(f"data_type={data_type}")
+                except Exception as dt_err:
+                    return {
+                        "success": False,
+                        "error": f"Failed to set data_type '{data_type}': {dt_err}",
+                        "error_type": "invalid_data_type",
+                    }
+
+            # Update SummarizeBy (None|Sum|Min|Max|Count|Average|DistinctCount)
+            if summarize_by is not None:
+                try:
+                    from Microsoft.AnalysisServices.Tabular import AggregateFunction
+                    sb_map = {
+                        "default": AggregateFunction.Default,
+                        "none": AggregateFunction.None_ if hasattr(AggregateFunction, "None_") else getattr(AggregateFunction, "None"),
+                        "sum": AggregateFunction.Sum,
+                        "min": AggregateFunction.Min,
+                        "max": AggregateFunction.Max,
+                        "count": AggregateFunction.Count,
+                        "average": AggregateFunction.Average,
+                        "distinctcount": AggregateFunction.DistinctCount,
+                    }
+                    key = str(summarize_by).strip().lower()
+                    if key not in sb_map:
+                        return {
+                            "success": False,
+                            "error": f"Invalid summarize_by '{summarize_by}'. Valid: {', '.join(sb_map.keys())}",
+                            "error_type": "invalid_parameters",
+                        }
+                    column.SummarizeBy = sb_map[key]
+                    updates.append(f"summarize_by={summarize_by}")
+                except Exception as sb_err:
+                    return {
+                        "success": False,
+                        "error": f"Failed to set summarize_by: {sb_err}",
+                        "error_type": "update_error",
+                    }
+
+            # Update DataCategory (free-form string, e.g. 'WebUrl', 'ImageUrl', 'Address', ...)
+            if data_category is not None:
+                try:
+                    column.DataCategory = data_category
+                    updates.append(f"data_category={data_category}")
+                except Exception as dc_err:
+                    return {
+                        "success": False,
+                        "error": f"Failed to set data_category: {dc_err}",
+                        "error_type": "update_error",
+                    }
+
+            # Update IsKey
+            if is_key is not None:
+                try:
+                    column.IsKey = bool(is_key)
+                    updates.append(f"is_key={is_key}")
+                except Exception as ik_err:
+                    return {
+                        "success": False,
+                        "error": f"Failed to set is_key: {ik_err}",
+                        "error_type": "update_error",
+                    }
+
+            # Update IsNullable
+            if is_nullable is not None:
+                try:
+                    column.IsNullable = bool(is_nullable)
+                    updates.append(f"is_nullable={is_nullable}")
+                except Exception as in_err:
+                    return {
+                        "success": False,
+                        "error": f"Failed to set is_nullable: {in_err}",
+                        "error_type": "update_error",
+                    }
+
+            # Update SortByColumn
+            if clear_sort_by_column:
+                try:
+                    column.SortByColumn = None
+                    updates.append("sort_by_column=<cleared>")
+                except Exception as sc_err:
+                    return {
+                        "success": False,
+                        "error": f"Failed to clear sort_by_column: {sc_err}",
+                        "error_type": "update_error",
+                    }
+            elif sort_by_column is not None:
+                target = next((c for c in table.Columns if c.Name == sort_by_column), None)
+                if target is None:
+                    return {
+                        "success": False,
+                        "error": f"sort_by_column target '{sort_by_column}' not found in table '{table_name}'",
+                        "error_type": "column_not_found",
+                    }
+                if target.Name == column.Name:
+                    return {
+                        "success": False,
+                        "error": "sort_by_column cannot reference the column itself",
+                        "error_type": "invalid_parameters",
+                    }
+                try:
+                    column.SortByColumn = target
+                    updates.append(f"sort_by_column={sort_by_column}")
+                except Exception as sc_err:
+                    return {
+                        "success": False,
+                        "error": f"Failed to set sort_by_column: {sc_err}",
+                        "error_type": "update_error",
+                    }
+
+            # Update name (with DAX cascade — TOM does NOT auto-cascade DAX references)
+            cascaded = []
             if new_name and self._valid_identifier(new_name):
                 # Check if new name already exists
                 if any(c.Name == new_name for c in table.Columns if c != column):
@@ -447,14 +570,20 @@ class ColumnCRUDManager:
                         "error": f"Column '{new_name}' already exists in table '{table_name}'",
                         "error_type": "name_conflict"
                     }
+                old_col_name = column.Name
                 column.Name = new_name
                 updates.append("name")
+
+                # Cascade DAX references: 'Table'[OldCol] -> 'Table'[NewCol]
+                # Note: relationships, sort-by-column, hierarchy levels, perspectives
+                # are object references in TOM and survive renames automatically.
+                cascaded = cascade_column_rename(model, table_name, old_col_name, new_name)
 
             model.SaveChanges()
 
             logger.info(f"Updated column '{column_name}' in table '{table_name}': {', '.join(updates)}")
 
-            return {
+            result = {
                 "success": True,
                 "action": "updated",
                 "table": table_name,
@@ -463,6 +592,10 @@ class ColumnCRUDManager:
                 "updates": updates,
                 "message": f"Successfully updated column '{column_name}'"
             }
+            if cascaded:
+                result["cascaded_references"] = len(cascaded)
+                result["updated_expressions"] = cascaded
+            return result
 
         except Exception as e:
             error_msg = str(e)

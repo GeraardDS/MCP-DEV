@@ -327,7 +327,12 @@ def _handle_query_relationships(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _handle_query_unused(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Find unused measures and columns."""
+    """Find unused measures and columns (cached, across ALL reports in project).
+
+    Uses PbipModelCache for fast repeated lookups. Always analyzes all reports
+    found in the project. For scoped analysis (specific reports only), use
+    05_Column_Usage_Mapping with operation=get_unused_columns_pbip instead.
+    """
     pbip_path = args.get("pbip_path")
     if not pbip_path:
         return {"success": False, "error": "pbip_path is required"}
@@ -751,7 +756,8 @@ def register_pbip_operations_handler(registry):
             "Offline PBIP analysis and queries (no live connection needed):"
             " analyze, validate_model, compare_models, generate_documentation,"
             " query_dependencies, query_measures, query_relationships,"
-            " query_unused, scan_broken_refs, git_diff,"
+            " query_unused (cached, all reports in project),"
+            " scan_broken_refs, git_diff,"
             " dependency_html, aggregation_analysis."
         ),
         handler=handle_pbip_operations,
